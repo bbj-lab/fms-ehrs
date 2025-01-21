@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
 
+import gzip
 import os
 import pathlib
+import pickle
 import polars as pl
 import numpy as np
 
-"""
-Grab the data from `/gpfs/data/bbj-lab/users/burkh4rt/clif-development-sample`
-and change the `hm` path that follows as necessary:
-"""
 if os.uname().nodename.startswith("cri"):
     hm = pathlib.Path(
         "/gpfs/data/bbj-lab/users/burkh4rt/clif-development-sample"
     )
 else:
+    # change following line to develop locally
     hm = pathlib.Path("~/Documents/chicago/CLIF/clif-development-sample")
 
 
@@ -46,6 +45,22 @@ class Vocabulary:
     def get_aux(self, word: str):
         return self.aux[word]
 
+    def save(self, filepath: pathlib.PurePath | str):
+        with gzip.open(pathlib.Path(filepath).expanduser(), "wb") as f:
+            pickle.dump(
+                {
+                    "lookup": self.lookup,
+                    "reverse": self.reverse,
+                    "aux": {k: list(v) for k, v in self.aux.items()},
+                },
+                f,
+            )
+
+    def load(self, filepath: pathlib.PurePath | str):
+        with gzip.open(pathlib.Path(filepath).expanduser(), mode="rb") as f:
+            for k, v in pickle.load(f).items():
+                setattr(self, k, v)
+
 
 vocab = Vocabulary(tuple(map(lambda i: f"Q{i}", range(10))))
 
@@ -77,11 +92,13 @@ def process_cat_val_frame(df, label):
     )
 
 
+tbl = dict()
+
 """ Patients
 """
 
-df_patients = (
-    pl.scan_parquet(hm.joinpath("patients.parquet"))
+tbl["patient"] = (
+    pl.scan_parquet(hm.joinpath("patient.parquet"))
     .select(
         "patient_id", "race_category", "ethnicity_category", "sex_category"
     )
@@ -114,13 +131,13 @@ df_patients = (
 """ Hospitalization
 """
 
-df_hospitalization = (
+tbl["hospitalization"] = (
     pl.scan_parquet(hm.joinpath("hospitalization.parquet"))
     .group_by("hospitalization_id")
     .agg(
         pl.col("patient_id").first(),
-        pl.col("admission_dttm").first(),
-        pl.col("discharge_dttm").first(),
+        pl.col("admission_dttm").first().cast(pl.Datetime(time_unit="ms")),
+        pl.col("discharge_dttm").first().cast(pl.Datetime(time_unit="ms")),
         pl.col("age_at_admission").first(),
         pl.col("admission_type_name").first(),
         pl.col("discharge_category").first(),
@@ -153,13 +170,12 @@ df_hospitalization = (
 
 # tokenize age_at_admission here
 c = "age_at_admission"
-v = df_hospitalization.select("age_at_admission").to_numpy().ravel()
+v = tbl["hospitalization"].select("age_at_admission").to_numpy().ravel()
 if not vocab.is_aux(c):
     vocab.set_aux(c, np.nanquantile(v, np.arange(0.1, 1.0, 0.1)))
-df_hospitalization = (
-    df_hospitalization.with_columns(
-        age_at_admission=np.digitize(v, bins=vocab.get_aux(c))
-    )
+tbl["hospitalization"] = (
+    tbl["hospitalization"]
+    .with_columns(age_at_admission=np.digitize(v, bins=vocab.get_aux(c)))
     .with_columns(
         admission_tokens=pl.concat_list(
             "age_at_admission", "admission_type_name"
@@ -172,13 +188,19 @@ df_hospitalization = (
 """ Adt
 """
 
-df_adt = (
+tbl["adt"] = (
     pl.scan_parquet(hm.joinpath("adt.parquet"))
     .rename(
         {
             "in_dttm": "event_time",
             "out_dttm": "event_end",
             "location_category": "category",
+        }
+    )
+    .cast(
+        {
+            "event_time": pl.Datetime(time_unit="ms"),
+            "event_end": pl.Datetime(time_unit="ms"),
         }
     )
     .with_columns(
@@ -194,7 +216,7 @@ df_adt = (
         ),
     )
     .select("hospitalization_id", "event_time", "tokens", "times")
-    .cast({"times": pl.List(pl.Datetime(time_unit="ns"))})
+    .cast({"times": pl.List(pl.Datetime(time_unit="ms"))})
     .collect()
 )
 
@@ -202,7 +224,7 @@ df_adt = (
 """ Labs
 """
 
-df_labs = (
+tbl["labs"] = (
     pl.scan_parquet(
         hm.joinpath("labs.parquet"),
     )
@@ -214,17 +236,23 @@ df_labs = (
             "lab_value_numeric": "value",
         }
     )
+    .cast(
+        {
+            "event_start": pl.Datetime(time_unit="ms"),
+            "event_time": pl.Datetime(time_unit="ms"),
+        }
+    )
     .select(
         "hospitalization_id", "event_start", "event_time", "category", "value"
     )
     .collect()
 )
-df_labs_procd = process_cat_val_frame(df_labs, label="LAB")
+tbl["labs"] = process_cat_val_frame(tbl["labs"], label="LAB")
 
 """ Vitals
 """
 
-df_vitals = (
+tbl["vitals"] = (
     pl.scan_parquet(
         hm.joinpath("vitals.parquet"),
     )
@@ -235,15 +263,20 @@ df_vitals = (
             "vital_value": "value",
         }
     )
+    .cast(
+        {
+            "event_time": pl.Datetime(time_unit="ms"),
+        }
+    )
     .select("hospitalization_id", "event_time", "category", "value")
     .collect()
 )
-df_vitals_procd = process_cat_val_frame(df_vitals, label="VTL")
+tbl["vitals"] = process_cat_val_frame(tbl["vitals"], label="VTL")
 
 """ Medication Admin Continuous
 """
 
-df_medication = (
+tbl["medication"] = (
     pl.scan_parquet(hm.joinpath("medication_admin_continuous.parquet"))
     .rename(
         {
@@ -252,15 +285,20 @@ df_medication = (
             "med_dose": "value",
         }
     )
+    .cast(
+        {
+            "event_time": pl.Datetime(time_unit="ms"),
+        }
+    )
     .select("hospitalization_id", "event_time", "category", "value")
     .collect()
 )
-df_medication_procd = process_cat_val_frame(df_medication, label="MED")
+tbl["medication"] = process_cat_val_frame(tbl["medication"], label="MED")
 
 """ Patient Assessments
 """
 
-df_assessments = (
+tbl["assessments"] = (
     pl.scan_parquet(
         hm.joinpath("patient_assessments.parquet"),
     )
@@ -271,22 +309,32 @@ df_assessments = (
             "numerical_value": "value",
         }
     )
+    .cast(
+        {
+            "event_time": pl.Datetime(time_unit="ms"),
+        }
+    )
     .select("hospitalization_id", "event_time", "category", "value")
     .collect()
 )
-df_assessments_procd = process_cat_val_frame(df_assessments, label="ASM")
+tbl["assessments"] = process_cat_val_frame(tbl["assessments"], label="ASM")
 
 
 """ Respiratory Support
 """
 
-df_respiratory = (
+tbl["respiratory"] = (
     pl.scan_parquet(
         hm.joinpath("respiratory_support.parquet"),
     )
     .rename(
         {
             "recorded_dttm": "event_time",
+        }
+    )
+    .cast(
+        {
+            "event_time": pl.Datetime(time_unit="ms"),
         }
     )
     .with_columns(
@@ -308,14 +356,15 @@ df_respiratory = (
 """
 """
 
-df_patients.with_columns(
-    tokens=pl.concat_list(pl.exclude("patient_id"))
-).select("patient_id", "tokens")
-
-
 ## prepend patient-level tokens to each admission event
 admission_tokens = (
-    df_patients.join(df_hospitalization, on="patient_id", validate="1:m")
+    tbl["patient"]
+    .join(tbl["hospitalization"], on="patient_id", validate="1:m")
+    .cast(
+        {
+            "event_start": pl.Datetime(time_unit="ms"),
+        }
+    )
     .with_columns(
         adm_tokens=pl.concat_list(
             pl.col("tokens"), pl.col("admission_tokens")
@@ -332,7 +381,13 @@ admission_tokens = (
 
 # gather discharge tokens
 discharge_tokens = (
-    df_hospitalization.rename({"event_end": "event_time"})
+    tbl["hospitalization"]
+    .rename({"event_end": "event_time"})
+    .cast(
+        {
+            "event_time": pl.Datetime(time_unit="ms"),
+        }
+    )
     .with_columns(
         dis_tokens=pl.col("discharge_category").map_elements(
             lambda x: [vocab(x)],
@@ -349,18 +404,11 @@ discharge_tokens = (
 )
 
 events = pl.concat(
-    [
-        df_adt,
-        df_labs_procd,
-        df_vitals_procd,
-        df_medication_procd,
-        df_assessments_procd,
-        df_respiratory,
-    ]
+    tbl[k] for k in tbl.keys() if k not in ("patient", "hospitalization")
 )
 
 """
-for some reason, doing both aggregations at once doesn't seem to work
+doing both aggregations at once doesn't seem to work
 """
 
 tokens_agg = (
