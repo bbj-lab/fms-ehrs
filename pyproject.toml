@@ -1,0 +1,13 @@
+[tool.black]
+exclude = '''
+/(
+    \.git
+  | \.idea
+)/
+'''
+target-version = [
+  "py312"
+]
+
+[tool.isort]
+profile = "black"

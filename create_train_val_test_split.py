@@ -2,6 +2,7 @@
 
 import itertools
 import pathlib
+
 import polars as pl
 
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/")
@@ -88,9 +89,7 @@ for s in ("train", "val", "test"):
         if t.stem.split("_", 1)[1] not in ("hospitalization", "patient"):
             pl.scan_parquet(t).join(
                 h_ids[s].lazy(), on="hospitalization_id"
-            ).sink_parquet(
-                dirs[s].joinpath(t.stem.split("_", 1)[1] + ".parquet")
-            )
+            ).sink_parquet(dirs[s].joinpath(t.stem.split("_", 1)[1] + ".parquet"))
 
 print("-" * 42)
 for s in ("train", "val", "test"):
