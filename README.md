@@ -68,6 +68,7 @@ Grab development sample:
 ```sh
 export hm=/gpfs/data/bbj-lab/users/burkh4rt
 rsync -avht \
+    --delete \
     randi:${hm}/clif-development-sample \
     ~/Documents/chicago/CLIF/
 ```

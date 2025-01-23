@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 
+"""
+Extract development sample consisting of data associated to the first 10k
+patients with records
+"""
+
 import pathlib
 
 import polars as pl
 
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/")
-data_dir = hm.joinpath("CLIF-MIMIC", "rclif")
+data_dir = hm.joinpath("CLIF-MIMIC", "output", "rclif-2.1")
 dev_dir = hm.joinpath("clif-development-sample")
 
-""" Extract development sample
-"""
-
-development_patient_ids = (
+# grab patient ids
+dev_p_ids = (
     pl.scan_parquet(data_dir.joinpath("clif_hospitalization.parquet"))
     .group_by("patient_id")
     .agg(pl.col("admission_dttm").min().alias("first_admission"))
@@ -20,26 +23,29 @@ development_patient_ids = (
     .select("patient_id")
 )
 
-development_hospitalization_ids = (
+# look up hospitalization ids for selected patients
+dev_h_ids = (
     pl.scan_parquet(data_dir.joinpath("clif_hospitalization.parquet"))
-    .join(development_patient_ids, on="patient_id")
+    .join(dev_p_ids, on="patient_id")
     .select("hospitalization_id")
 )
 
-pl.read_parquet(data_dir.joinpath("clif_patient.parquet")).join(
-    development_patient_ids.collect(), on="patient_id"
-).write_parquet(dev_dir.joinpath("patient.parquet"))
+# generate sub-tables
+pl.scan_parquet(data_dir.joinpath("clif_patient.parquet")).join(
+    dev_p_ids, on="patient_id"
+).sink_parquet(dev_dir.joinpath("clif_patient.parquet"))
 
-pl.read_parquet(data_dir.joinpath("clif_hospitalization.parquet")).join(
-    development_hospitalization_ids.collect(), on="hospitalization_id"
-).write_parquet(dev_dir.joinpath("hospitalization.parquet"))
+pl.scan_parquet(data_dir.joinpath("clif_hospitalization.parquet")).join(
+    dev_h_ids, on="hospitalization_id"
+).sink_parquet(dev_dir.joinpath("clif_hospitalization.parquet"))
 
 for t in data_dir.glob("*.parquet"):
     if t.stem.split("_", 1)[1] not in ("hospitalization", "patient"):
-        pl.scan_parquet(t).join(
-            development_hospitalization_ids, on="hospitalization_id"
-        ).sink_parquet(dev_dir.joinpath(t.stem.split("_", 1)[1] + ".parquet"))
+        pl.scan_parquet(t).join(dev_h_ids, on="hospitalization_id").sink_parquet(
+            dev_dir.joinpath(t.name)
+        )
 
+# summarize results
 print("-" * 42)
 for t in dev_dir.glob("*.parquet"):
     print(t.stem)
