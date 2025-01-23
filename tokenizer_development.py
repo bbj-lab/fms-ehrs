@@ -10,11 +10,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import polars as pl
 
-if os.uname().nodename.startswith("cri"):
-    hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/clif-development-sample")
-else:
-    # change following line to develop locally
-    hm = pathlib.Path("~/Documents/chicago/CLIF/clif-development-sample")
+type Frame = pl.DataFrame | pl.LazyFrame
 
 
 class Vocabulary:
@@ -29,25 +25,32 @@ class Vocabulary:
         self.lookup = {v: i for i, v in enumerate(words)}
         self.reverse = dict(enumerate(words))
         self.aux = {}
+        self._is_training = True
 
-    def __call__(self, word: str) -> int:
+    def __call__(self, word: str) -> int | None:
         try:
             return self.lookup[word]
         except KeyError:
-            self.lookup[word], self.reverse[n] = (n := len(self.lookup)), word
-            return n
+            if self._is_training:
+                self.lookup[word], self.reverse[n] = (n := len(self.lookup)), word
+                return n
+            else:
+                return None
 
     def set_aux(self, word: str, aux_data):
         self.aux[word] = aux_data
 
-    def is_aux(self, word: str):
+    def has_aux(self, word: str):
         return word in self.aux
+
+    def in_lookup(self, word: str):
+        return word in self.lookup
 
     def get_aux(self, word: str):
         return self.aux[word]
 
     def save(self, filepath: pathlib.PurePath | str):
-        with gzip.open(pathlib.Path(filepath).expanduser(), "wb") as f:
+        with gzip.open(pathlib.Path(filepath).expanduser(), "w+") as f:
             pickle.dump(
                 {
                     "lookup": self.lookup,
@@ -58,11 +61,11 @@ class Vocabulary:
             )
 
     def load(self, filepath: pathlib.PurePath | str):
-        with gzip.open(pathlib.Path(filepath).expanduser(), mode="rb") as f:
+        with gzip.open(pathlib.Path(filepath).expanduser(), mode="r+") as f:
             for k, v in pickle.load(f).items():
                 setattr(self, k, v)
 
-    def get_frame(self) -> pl.DataFrame | pl.LazyFrame:
+    def get_frame(self) -> Frame:
         return pl.from_records(
             list(self.lookup.items()), schema=("word", "token"), orient="row"
         )
@@ -70,8 +73,16 @@ class Vocabulary:
     def __len__(self) -> int:
         return len(self.lookup)
 
+    @property
+    def is_training(self):
+        return self._is_training
 
-def process_single_category(x, label, vocab) -> pl.DataFrame | pl.LazyFrame:
+    @is_training.setter
+    def is_training(self, value: bool):
+        self._is_training = value
+
+
+def process_single_category(x: Frame, label: str, vocab: Vocabulary) -> Frame:
     """Quantize a sub-table consisting of a single category
 
     The way our quantization works, if a category takes on only a single
@@ -87,7 +98,7 @@ def process_single_category(x, label, vocab) -> pl.DataFrame | pl.LazyFrame:
     """
     v = x.select("value").to_numpy().ravel()
     c = x.select("category").row(0)[0]
-    if not vocab.is_aux(f"{label}_{c}"):
+    if not vocab.has_aux(f"{label}_{c}"):
         vocab.set_aux(f"{label}_{c}", np.nanquantile(v, np.arange(0.1, 1.0, 0.1)))
     return (
         x.with_columns(
@@ -98,37 +109,36 @@ def process_single_category(x, label, vocab) -> pl.DataFrame | pl.LazyFrame:
                 vocab("nan"),
             ),
         )
+        .drop_nulls("token")
         .with_columns(
             tokens=pl.concat_list("token", "token_quantile"),
             times=pl.concat_list("event_time", "event_time"),
         )
-        .select("hospitalization_id", "event_time", "tokens", "times")
     )
 
 
-def process_cat_val_frame(df, label, vocab) -> pl.DataFrame | pl.LazyFrame:
+def process_cat_val_frame(df: Frame, label: str, vocab: Vocabulary) -> Frame:
     """handle tables that can mostly be described in terms of categories and
     values"""
     return pl.concat(
-        process_single_category(x, label, vocab) for x in df.partition_by("category")
+        process_single_category(x, label, vocab)
+        for k, x in df.partition_by("category", as_dict=True).items()
     )
 
 
 def load_tables(
-    hm: pathlib.Path | str = hm,
-) -> dict[str, pl.DataFrame | pl.LazyFrame]:
+    hm: pathlib.Path,
+) -> dict[str, Frame]:
     """lazy-load all parquet tables from the directory `hm`"""
     return {
         (
-            p.stem.split("_")[0] if "assessments" not in p.stem else "assessments"
+            p.stem.split("_")[1] if "assessments" not in p.stem else "assessments"
         ): pl.scan_parquet(p)
         for p in hm.expanduser().glob("*.parquet")
     }
 
 
-def process_tables(
-    tbl: dict[str, pl.DataFrame | pl.LazyFrame], vocab: Vocabulary
-) -> dict[str, pl.DataFrame | pl.LazyFrame]:
+def process_tables(tbl: dict[str, Frame], vocab: Vocabulary) -> dict[str, Frame]:
 
     tbl["patient"] = (
         tbl["patient"]
@@ -199,7 +209,7 @@ def process_tables(
     # tokenize age_at_admission here
     c = "age_at_admission"
     v = tbl["hospitalization"].select("age_at_admission").to_numpy().ravel()
-    if not vocab.is_aux(c):
+    if not vocab.has_aux(c):
         vocab.set_aux(c, np.nanquantile(v, np.arange(0.1, 1.0, 0.1)))
     tbl["hospitalization"] = (
         tbl["hospitalization"]
@@ -273,6 +283,7 @@ def process_tables(
         )
         .collect()
     )
+    # TODO: ensure concurrent labs are presented in the same order each time
     tbl["labs"] = process_cat_val_frame(tbl["labs"], label="LAB", vocab=vocab)
 
     tbl["vitals"] = (
@@ -315,10 +326,10 @@ def process_tables(
         tbl["medication"], label="MED", vocab=vocab
     )
 
+    # seems like there's a column for assessment, and then either a
+    # numerical_value OR a categorical_value, depending on the assessment
     tbl["assessments"] = (
-        pl.scan_parquet(
-            hm.joinpath("patient_assessments.parquet"),
-        )
+        tbl["assessments"]
         .rename(
             {
                 "recorded_dttm": "event_time",
@@ -331,17 +342,38 @@ def process_tables(
                 "event_time": pl.Datetime(time_unit="ms"),
             }
         )
-        .select("hospitalization_id", "event_time", "category", "value")
         .collect()
     )
-    tbl["assessments"] = process_cat_val_frame(
-        tbl["assessments"], label="ASM", vocab=vocab
+
+    # handle categorical assessments separately from numerical assessments
+    asmt_num = tbl["assessments"].filter(~pl.col("value").is_null())
+    asmt_num = process_cat_val_frame(asmt_num, label="ASMT", vocab=vocab).select(
+        "hospitalization_id", "event_time", "tokens", "times"
     )
 
-    tbl["respiratory"] = (
-        pl.scan_parquet(
-            hm.joinpath("respiratory_support.parquet"),
+    asmt_cat = (
+        tbl["assessments"]
+        .filter(pl.col("value").is_null())
+        .filter(~pl.col("categorical_value").is_null())
+        .with_columns(
+            pl.col("category").map_elements(
+                vocab, return_dtype=pl.Int64, skip_nulls=False
+            ),
+            pl.col("categorical_value").map_elements(
+                vocab, return_dtype=pl.Int64, skip_nulls=False
+            ),
         )
+        .with_columns(
+            tokens=pl.concat_list("category", "categorical_value"),
+            times=pl.concat_list("event_time", "event_time"),
+        )
+        .select("hospitalization_id", "event_time", "tokens", "times")
+    )
+
+    tbl["assessments"] = pl.concat((asmt_num, asmt_cat))
+
+    tbl["respiratory"] = (
+        tbl["respiratory"]
         .rename(
             {
                 "recorded_dttm": "event_time",
@@ -368,12 +400,40 @@ def process_tables(
         .collect()
     )
 
+    # include a token for prone position; this is relatively rare
+    tbl["position"] = (
+        tbl["position"]
+        .collect()
+        .filter(pl.col("position_category") == "prone")
+        .rename(
+            {
+                "recorded_dttm": "event_time",
+            }
+        )
+        .cast(
+            {
+                "event_time": pl.Datetime(time_unit="ms"),
+            }
+        )
+        .with_columns(
+            tokens=pl.col("position_category").map_elements(
+                lambda x: [vocab(x)],
+                return_dtype=pl.List(pl.Int64),
+                skip_nulls=False,
+            ),
+            times=pl.col("event_time").map_elements(
+                lambda x: [x],
+                return_dtype=pl.List(pl.Datetime),
+                skip_nulls=False,
+            ),
+        )
+        .cast({"times": pl.List(pl.Datetime(time_unit="ms"))})
+    )
+
     return tbl
 
 
-def get_admission_frame(
-    tbl: dict[str, pl.DataFrame | pl.LazyFrame]
-) -> pl.DataFrame | pl.LazyFrame:
+def get_admission_frame(tbl: dict[str, Frame]) -> Frame:
 
     ## prepend patient-level tokens to each admission event
     admission_tokens = (
@@ -399,9 +459,7 @@ def get_admission_frame(
     return admission_tokens
 
 
-def get_discharge_frame(
-    tbl: dict[str, pl.DataFrame | pl.LazyFrame]
-) -> pl.DataFrame | pl.LazyFrame:
+def get_discharge_frame(tbl: dict[str, Frame]) -> Frame:
     # gather discharge tokens
     discharge_tokens = (
         tbl["hospitalization"]
@@ -429,11 +487,11 @@ def get_discharge_frame(
     return discharge_tokens
 
 
-def get_events_frame(
-    tbl: dict[str, pl.DataFrame | pl.LazyFrame]
-) -> pl.DataFrame | pl.LazyFrame:
+def get_events_frame(tbl: dict[str, Frame]) -> Frame:
     events = pl.concat(
-        tbl[k] for k in tbl.keys() if k not in ("patient", "hospitalization")
+        tbl[k].select("hospitalization_id", "event_time", "tokens", "times")
+        for k in tbl.keys()
+        if k not in ("patient", "hospitalization")
     )
 
     # doing both aggregations at once doesn't seem to work; so we do them
@@ -441,7 +499,9 @@ def get_events_frame(
 
     tokens_agg = (
         events.lazy()
-        .sort("event_time")
+        # order concurrent events by vocabulary, which itself was formed with
+        # contiguous categories
+        .sort("event_time", pl.col("tokens").list.first())
         .group_by("hospitalization_id", maintain_order=True)
         .agg([pl.col("tokens").explode()])
     )
@@ -459,8 +519,9 @@ def get_events_frame(
     return event_tokens
 
 
-def get_tokens_timelines(hm: pathlib.Path = hm, return_tbl: bool = False) -> tuple:
-    vocab = Vocabulary(tuple(map(lambda i: f"Q{i}", range(10))))
+def get_tokens_timelines(
+    hm: pathlib.Path, vocab: Vocabulary, return_tbl: bool = False
+) -> tuple[Frame, dict] | Frame:
     tbl = process_tables(load_tables(hm=hm), vocab)
     adm = get_admission_frame(tbl)
     evt = get_events_frame(tbl)
@@ -480,13 +541,27 @@ def get_tokens_timelines(hm: pathlib.Path = hm, return_tbl: bool = False) -> tup
     )
 
     if return_tbl:
-        return tokens_timelines, vocab, tbl
+        return tokens_timelines, tbl
     else:
-        return tokens_timelines, vocab
+        return tokens_timelines
 
 
 if __name__ == "__main__":
-    tokens_timelines, vocab, tbl = get_tokens_timelines(return_tbl=True)
+
+    if os.uname().nodename.startswith("cri"):
+        hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/clif-development-sample")
+    else:
+        # change following line to develop locally
+        hm = pathlib.Path("~/Documents/chicago/CLIF/clif-development-sample")
+
+    out_dir = hm.parent.joinpath(hm.stem + "-tokenized").expanduser()
+    out_dir.mkdir(exist_ok=True)
+
+    vocab = Vocabulary(tuple(map(lambda i: f"Q{i}", range(10))))
+    tokens_timelines, tbl = get_tokens_timelines(hm=hm, vocab=vocab, return_tbl=True)
+
+    vocab.save(out_dir.joinpath("vocab.gzip"))
+    tokens_timelines.write_parquet(out_dir.joinpath("tokens_timelines.parquet"))
 
     """create summary plots
     """
@@ -503,21 +578,6 @@ if __name__ == "__main__":
                 .agg(pl.col("tokens").count().alias(f"{k}"))
             )
             ct_by_tbl = ct_by_tbl.join(ct, on="hospitalization_id")
-
-    # uncomment for stacked:
-    # fig = px.histogram(
-    #     ct_by_tbl.unpivot(
-    #         pl.selectors.numeric(),
-    #         index="hospitalization_id",
-    #         variable_name="type",
-    #         value_name="count",
-    #     ),
-    #     x="count",
-    #     color="type",
-    # )
-    # fig.update_xaxes(range=(0, 1000))
-    # fig.update_yaxes(type="log")
-    # fig.show()
 
     fig = go.Figure()
     for c in ct_by_tbl.columns[1:]:
@@ -570,3 +630,5 @@ if __name__ == "__main__":
             .value_counts()
             .sort("count", descending=True)
         )
+
+    # tbl = load_tables(hm=hm)

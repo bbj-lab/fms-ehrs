@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 
+"""
+partition patients by appearance in the dataset into train-validation-test sets
+at a 70%-10%-20% split
+"""
+
 import itertools
 import pathlib
 
 import polars as pl
 
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/")
-data_dir = hm.joinpath("CLIF-MIMIC", "rclif")
+data_dir = hm.joinpath("CLIF-MIMIC", "output", "rclif-2.1")
+splits = ("train", "val", "test")
 
-""" 
-partition patients by appearance in the dataset into train-validation-test sets 
-at a 70%-10%-20% split
-"""
-
+# partition patient ids
 patient_ids = (
     pl.scan_parquet(data_dir.joinpath("clif_hospitalization.parquet"))
     .group_by("patient_id")
@@ -22,7 +24,7 @@ patient_ids = (
     .collect()
 )
 
-n_total = patient_ids.count().item()
+n_total = patient_ids.n_unique()
 n_train = int(0.7 * n_total)
 n_val = int(0.1 * n_total)
 n_test = n_total - (n_train + n_val)
@@ -32,14 +34,12 @@ p_ids["train"] = patient_ids.head(n_train)
 p_ids["val"] = patient_ids.slice(n_train, n_val)
 p_ids["test"] = patient_ids.tail(n_test)
 
-for s0, s1 in itertools.combinations(["train", "val", "test"], 2):
+for s0, s1 in itertools.combinations(splits, 2):
     assert p_ids[s0].join(p_ids[s1], on="patient_id").n_unique() == 0
 
 assert sum(list(map(lambda x: x.n_unique(), p_ids.values()))) == n_total
 
-""" 
-partition hospitalization ids according to the patient split
-"""
+# partition hospitalization ids according to the patient split
 hospitalization_ids = (
     pl.scan_parquet(data_dir.joinpath("clif_hospitalization.parquet"))
     .select("patient_id", "hospitalization_id")
@@ -53,7 +53,7 @@ for s in ("train", "val", "test"):
         "hospitalization_id"
     )
 
-for s0, s1 in itertools.combinations(["train", "val", "test"], 2):
+for s0, s1 in itertools.combinations(splits, 2):
     assert h_ids[s0].join(h_ids[s1], on="hospitalization_id").n_unique() == 0
 
 assert (
@@ -73,26 +73,24 @@ dirs["test"] = hm.joinpath("clif-test-set")
 for d in dirs.values():
     d.mkdir(mode=770, exist_ok=True)
 
-# partition patient and hospitalization tables
-for s in ("train", "val", "test"):
+# generate sub-tables for each split
+for s in splits:
     pl.scan_parquet(data_dir.joinpath("clif_patient.parquet")).join(
         p_ids[s].lazy(), on="patient_id"
-    ).sink_parquet(dirs[s].joinpath("patient.parquet"))
+    ).sink_parquet(dirs[s].joinpath("clif_patient.parquet"))
 
     pl.scan_parquet(data_dir.joinpath("clif_hospitalization.parquet")).join(
         h_ids[s].lazy(), on="hospitalization_id"
-    ).sink_parquet(dirs[s].joinpath("patient.parquet"))
+    ).sink_parquet(dirs[s].joinpath("clif_hospitalization.parquet"))
 
-# iterate over the remaining tables
-for s in ("train", "val", "test"):
     for t in data_dir.glob("*.parquet"):
         if t.stem.split("_", 1)[1] not in ("hospitalization", "patient"):
             pl.scan_parquet(t).join(
                 h_ids[s].lazy(), on="hospitalization_id"
-            ).sink_parquet(dirs[s].joinpath(t.stem.split("_", 1)[1] + ".parquet"))
+            ).sink_parquet(dirs[s].joinpath(t.name))
 
 print("-" * 42)
-for s in ("train", "val", "test"):
+for s in splits:
     print(s.upper().center(42, "="))
     for t in dirs[s].glob("*.parquet"):
         print(t.stem)
