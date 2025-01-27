@@ -6,7 +6,7 @@ exclude = '''
 )/
 '''
 target-version = [
-  "py312"
+  "py312", "py313"
 ]
 
 [tool.isort]
