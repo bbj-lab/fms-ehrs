@@ -24,6 +24,7 @@ class ClifTokenizer:
         *,
         data_dir: Pathlike = pathlib.Path("."),
         vocab_path: Pathlike = None,
+        max_seq_length: int = None,
     ):
         """
         if no vocabulary is provided, we are in training mode; otherwise, the
@@ -39,6 +40,7 @@ class ClifTokenizer:
             self.vocab_path = pathlib.Path(vocab_path).expanduser()
             self.vocab = Vocabulary().load(self.vocab_path)
             self.vocab.is_training = False
+        self.max_seq_length = max_seq_length
 
     def load_tables(self):
         """lazy-load all parquet tables from the directory `self.data_dir`"""
@@ -495,6 +497,84 @@ class ClifTokenizer:
             .collect()
         )
 
+    def pad_and_truncate(self, tokens_timelines: Frame) -> Frame:
+        if self.max_seq_length is not None:
+            tt = tokens_timelines.with_columns(
+                seq_len=pl.col("tokens").list.len()
+            ).lazy()
+            tt_under = tt.filter(pl.col("seq_len") <= self.max_seq_length).with_columns(
+                padded=pl.concat_list(
+                    "tokens",
+                    pl.lit(self.vocab("PAD")).repeat_by(
+                        self.max_seq_length - pl.col("seq_len")
+                    ),
+                )
+            )
+            tt_over = tt.filter(pl.col("seq_len") > self.max_seq_length).with_columns(
+                padded=pl.concat_list(
+                    pl.col("tokens").list.slice(
+                        offset=0, length=self.max_seq_length - 1
+                    ),
+                    pl.lit(self.vocab("TRUNC")),
+                )
+            )
+            return pl.concat([tt_under, tt_over]).collect()
+        else:
+            return tokens_timelines
+
+    def print_aux(self):
+        for k, v in self.vocab.aux.items():
+            print(f"{k}: {v.round(2)}")
+
+
+def summarize(tokenizer: ClifTokenizer, tokens_timelines: Frame):
+    """provide posthoc summary statistics"""
+
+    print("Timelines generated: {}".format(tokens_timelines.shape[0]))
+    print("Vocabulary size: {}".format(len(tokenizer.vocab)))
+
+    print(
+        "Summary stats of timeline lengths: \n {}".format(
+            tokens_timelines.select(pl.col("tokens").list.len()).describe()
+        )
+    )
+
+    for s in range(3):
+        print(
+            "Example timeline: \n {}".format(
+                [
+                    tokenizer.vocab.reverse[t]
+                    for t in tokens_timelines.sample(1, seed=s).select("tokens").item()
+                ]
+            )
+        )
+
+    print(
+        "Summary stats of timeline duration: \n {}".format(
+            tokens_timelines.select(
+                pl.col("times").list.min().alias("start_time"),
+                pl.col("times").list.max().alias("end_time"),
+            )
+            .select((pl.col("end_time") - pl.col("start_time")).alias("duration"))
+            .describe()
+        )
+    )
+
+    with pl.Config(tbl_rows=len(tokenizer.vocab)):
+        print(
+            "Top 20 tokens by usage: \n {}".format(
+                tokens_timelines.select("tokens")
+                .explode("tokens")
+                .rename({"tokens": "token"})
+                .join(tokenizer.vocab.get_frame(), on="token")
+                .select("word")
+                .to_series()
+                .value_counts()
+                .sort("count", descending=True)
+                .head(20)
+            )
+        )
+
 
 if __name__ == "__main__":
 
@@ -507,56 +587,17 @@ if __name__ == "__main__":
     out_dir = hm.parent.joinpath(hm.stem + "-tokenized").expanduser()
     out_dir.mkdir(exist_ok=True)
 
-    tkzr = ClifTokenizer(data_dir=hm)
+    tkzr = ClifTokenizer(data_dir=hm, max_seq_length=1024)
     tokens_timelines = tkzr.get_tokens_timelines()
+    tokens_timelines = tkzr.pad_and_truncate(tokens_timelines)
+
     tokens_timelines.write_parquet(out_dir.joinpath("tokens_timelines.parquet"))
     tkzr.vocab.save(out_dir.joinpath("vocab.gzip"))
+
+    tkzr.print_aux()
+    summarize(tkzr, tokens_timelines)
 
     tkzr2 = ClifTokenizer(data_dir=hm, vocab_path=out_dir.joinpath("vocab.gzip"))
     tokens_timelines2 = tkzr2.get_tokens_timelines()
     assert len(tkzr.vocab) == len(tkzr2.vocab)
     assert tkzr.vocab.lookup == tkzr2.vocab.lookup
-
-    """tokenized summary stats
-    """
-    print("Timelines generated: {}".format(tokens_timelines.shape[0]))
-    print("Vocabulary size: {}".format(len(tkzr.vocab)))
-    print(
-        "Summary stats of timeline lengths: \n {}".format(
-            tokens_timelines.select(pl.col("tokens").list.len()).describe()
-        )
-    )
-    for s in range(3):
-        print(
-            "Example timeline: \n {}".format(
-                [
-                    tkzr.vocab.reverse[t]
-                    for t in tokens_timelines.sample(1, seed=s).select("tokens").item()
-                ]
-            )
-        )
-    print(
-        "Summary stats of timeline duration: \n {}".format(
-            tokens_timelines.select(
-                pl.col("times").list.min().alias("start_time"),
-                pl.col("times").list.max().alias("end_time"),
-            )
-            .select((pl.col("end_time") - pl.col("start_time")).alias("duration"))
-            .describe()
-        )
-    )
-
-    with pl.Config(tbl_rows=len(tkzr.vocab)):
-        print(
-            "Top 20 tokens by usage: \n {}".format(
-                tokens_timelines.select("tokens")
-                .explode("tokens")
-                .rename({"tokens": "token"})
-                .join(tkzr.vocab.get_frame(), on="token")
-                .select("word")
-                .to_series()
-                .value_counts()
-                .sort("count", descending=True)
-                .head(20)
-            )
-        )

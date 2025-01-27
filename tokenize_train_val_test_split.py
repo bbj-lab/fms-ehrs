@@ -7,7 +7,9 @@ sets
 
 import pathlib
 
-from tokenizer import ClifTokenizer
+from tokenizer import ClifTokenizer, summarize
+
+verbose = True
 
 splits = ("train", "val", "test")
 
@@ -23,15 +25,31 @@ for s in splits:
     out_dirs[s].mkdir(exist_ok=True)
 
 # tokenize training set
-tkzr = ClifTokenizer(data_dir=data_dirs["train"])
+tkzr = ClifTokenizer(
+    data_dir=data_dirs["train"],
+    max_seq_length=1024,
+)
 tokens_timelines = tkzr.get_tokens_timelines()
+tokens_timelines = tkzr.pad_and_truncate(tokens_timelines)
 tokens_timelines.write_parquet(out_dirs["train"].joinpath("tokens_timelines.parquet"))
 tkzr.vocab.save(out_dirs["train"].joinpath("vocab.gzip"))
+
+if verbose:
+    print("train".upper().ljust(81, "-"))
+    tkzr.print_aux()
+    summarize(tkzr, tokens_timelines)
 
 # take the learned tokenizer and tokenize the validation and test sets
 for s in ("val", "test"):
     tkzr = ClifTokenizer(
-        data_dir=data_dirs[s], vocab_path=out_dirs["train"].joinpath("vocab.gzip")
+        data_dir=data_dirs[s],
+        vocab_path=out_dirs["train"].joinpath("vocab.gzip"),
+        max_seq_length=1024,
     )
     tokens_timelines = tkzr.get_tokens_timelines()
+    tokens_timelines = tkzr.pad_and_truncate(tokens_timelines)
     tokens_timelines.write_parquet(out_dirs[s].joinpath("tokens_timelines.parquet"))
+
+    if verbose:
+        print(s.upper().ljust(81, "-"))
+        summarize(tkzr, tokens_timelines)

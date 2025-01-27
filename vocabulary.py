@@ -50,16 +50,16 @@ class Vocabulary:
             raise Exception("Tokenizer is frozen after training.")
         return self
 
-    def has_aux(self, word: Hashable):
+    def has_aux(self, word: Hashable) -> bool:
         return word in self.aux
 
-    def in_lookup(self, word: Hashable):
+    def in_lookup(self, word: Hashable) -> bool:
         return word in self.lookup
 
     def get_aux(self, word: Hashable):
         return self.aux[word]
 
-    def save(self, filepath: Pathlike):
+    def save(self, filepath: Pathlike) -> typing.Self:
         with gzip.open(pathlib.Path(filepath).expanduser(), "w+") as f:
             pickle.dump(
                 {
@@ -71,7 +71,7 @@ class Vocabulary:
             )
         return self
 
-    def load(self, filepath: Pathlike):
+    def load(self, filepath: Pathlike) -> typing.Self:
         with gzip.open(pathlib.Path(filepath).expanduser(), mode="r+") as f:
             for k, v in pickle.load(f).items():
                 setattr(self, k, v)
