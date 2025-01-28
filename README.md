@@ -2,7 +2,8 @@
 
 This workflow tokenizes CLIF data
 (https://clif-consortium.github.io/website/data-dictionary.html) into
-`hospitalization_id`-level timelines.
+`hospitalization_id`-level timelines and trains a small instance of Mamba on the
+resulting data.
 
 The CLIF-2.0 specification provides the following schemas:
 <img src="./img/ERD-2.png" 
@@ -36,21 +37,21 @@ pip3 install torch torchvision torchaudio --index-url https://download.pytorch.o
 pip3 install -r requirements.txt
 ```
 
-Provided files are as follows:
+Dataset creation and tokenization was tested on a cluster with a large amount of
+memory. (All datasets could be fully loaded in memory.) To run on randi:
 
-1. [`create_development_sample.py`](./create_development_sample.py) pulls out a
-   table corresponding to the first 10,000 patients to have a hospitalization
-   event. This dataset can be used for quick prototyping.
+```sh
+sbatch 1_2_make_tokenized_datasets.sh
+```
 
-2. [`create_train_val_test_split.py`](./create_train_val_test_split.py)
-   partitions the full dataset into training, validation, and test sets of
-   `hospital_id`-related events at the `patient_id` level.
+Training is currently run with 8x Nvidia A100's:
 
-3. [`vocabulary.py`](./vocabulary.py) demonstrates the `Vocabulary` class that
-   powers tokenization.
+```sh
+sbatch 3_train_small_mamba.sh
+```
 
-4. [`tokenizer.py`](./tokenizer.py) demonstrates the `ClifTokenizer` class that
-   operates on a directory containing CLIF tables in parquet format.
+Monitoring statistics and logs are collected at:
+[https://wandb.ai/burkhart/clif_mamba](https://wandb.ai/burkhart/clif_mamba)
 
 <!--
 
