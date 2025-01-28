@@ -10,7 +10,7 @@ import polars as pl
 from vocabulary import Vocabulary
 
 Frame: typing.TypeAlias = pl.DataFrame | pl.LazyFrame
-Pathlike: typing.TypeAlias = pathlib.PurePath | str
+Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
 
 
 class ClifTokenizer:
@@ -25,6 +25,7 @@ class ClifTokenizer:
         data_dir: Pathlike = pathlib.Path("."),
         vocab_path: Pathlike = None,
         max_seq_length: int = None,
+        day_stay_filter: bool = False,
     ):
         """
         if no vocabulary is provided, we are in training mode; otherwise, the
@@ -41,6 +42,7 @@ class ClifTokenizer:
             self.vocab = Vocabulary().load(self.vocab_path)
             self.vocab.is_training = False
         self.max_seq_length = max_seq_length
+        self.day_stay_filter = bool(day_stay_filter)
 
     def load_tables(self):
         """lazy-load all parquet tables from the directory `self.data_dir`"""
@@ -104,12 +106,11 @@ class ClifTokenizer:
 
         self.tbl["patient"] = (
             self.tbl["patient"]
-            .select("patient_id", "race_category", "ethnicity_category", "sex_category")
             .group_by("patient_id")
             .agg(
-                pl.col("race_category").first(),
-                pl.col("ethnicity_category").first(),
-                pl.col("sex_category").first(),
+                pl.col("race_category").str.to_lowercase().first(),
+                pl.col("ethnicity_category").str.to_lowercase().first(),
+                pl.col("sex_category").str.to_lowercase().first(),
             )
             .with_columns(
                 pl.col("race_category").map_elements(
@@ -136,17 +137,17 @@ class ClifTokenizer:
             .group_by("hospitalization_id")
             .agg(
                 pl.col("patient_id").first(),
-                pl.col("admission_dttm").first().cast(pl.Datetime(time_unit="ms")),
-                pl.col("discharge_dttm").first().cast(pl.Datetime(time_unit="ms")),
+                pl.col("admission_dttm")
+                .first()
+                .cast(pl.Datetime(time_unit="ms"))
+                .alias("event_start"),
+                pl.col("discharge_dttm")
+                .first()
+                .cast(pl.Datetime(time_unit="ms"))
+                .alias("event_end"),
                 pl.col("age_at_admission").first(),
-                pl.col("admission_type_name").first(),
-                pl.col("discharge_category").first(),
-            )
-            .rename(
-                {
-                    "admission_dttm": "event_start",
-                    "discharge_dttm": "event_end",
-                }
+                pl.col("admission_type_name").str.to_lowercase().first(),
+                pl.col("discharge_category").str.to_lowercase().first(),
             )
             .with_columns(
                 pl.col("admission_type_name").map_elements(
@@ -196,21 +197,15 @@ class ClifTokenizer:
 
         self.tbl["adt"] = (
             self.tbl["adt"]
-            .rename(
-                {
-                    "in_dttm": "event_time",
-                    "out_dttm": "event_end",
-                    "location_category": "category",
-                }
-            )
-            .cast(
-                {
-                    "event_time": pl.Datetime(time_unit="ms"),
-                    "event_end": pl.Datetime(time_unit="ms"),
-                }
+            .with_columns(
+                event_time=pl.col("in_dttm").cast(pl.Datetime(time_unit="ms")),
+                event_end=pl.col("out_dttm").cast(pl.Datetime(time_unit="ms")),
+                category=pl.col("location_category").str.to_lowercase(),
             )
             .with_columns(
-                tokens=pl.col("category").map_elements(
+                tokens=pl.col("category")
+                .str.to_lowercase()
+                .map_elements(
                     lambda x: [self.vocab(x)],
                     return_dtype=pl.List(pl.Int64),
                     skip_nulls=False,
@@ -228,26 +223,16 @@ class ClifTokenizer:
 
         self.tbl["labs"] = (
             self.tbl["labs"]
-            .rename(
-                {
-                    "lab_collect_dttm": "event_start",
-                    "lab_result_dttm": "event_time",
-                    "lab_category": "category",
-                    "lab_value_numeric": "value",
-                }
-            )
-            .cast(
-                {
-                    "event_start": pl.Datetime(time_unit="ms"),
-                    "event_time": pl.Datetime(time_unit="ms"),
-                }
-            )
             .select(
                 "hospitalization_id",
-                "event_start",
-                "event_time",
-                "category",
-                "value",
+                pl.col("lab_collect_dttm")
+                .cast(pl.Datetime(time_unit="ms"))
+                .alias("event_start"),
+                pl.col("lab_result_dttm")
+                .cast(pl.Datetime(time_unit="ms"))
+                .alias("event_time"),
+                pl.col("lab_category").str.to_lowercase().alias("category"),
+                pl.col("lab_value_numeric").alias("value"),
             )
             .collect()
         )
@@ -255,38 +240,28 @@ class ClifTokenizer:
 
         self.tbl["vitals"] = (
             self.tbl["vitals"]
-            .rename(
-                {
-                    "recorded_dttm": "event_time",
-                    "vital_category": "category",
-                    "vital_value": "value",
-                }
+            .select(
+                "hospitalization_id",
+                pl.col("recorded_dttm")
+                .cast(pl.Datetime(time_unit="ms"))
+                .alias("event_time"),
+                pl.col("vital_category").str.to_lowercase().alias("category"),
+                pl.col("vital_value").alias("value"),
             )
-            .cast(
-                {
-                    "event_time": pl.Datetime(time_unit="ms"),
-                }
-            )
-            .select("hospitalization_id", "event_time", "category", "value")
             .collect()
         )
         self.tbl["vitals"] = self.process_cat_val_frame(self.tbl["vitals"], label="VTL")
 
         self.tbl["medication"] = (
             self.tbl["medication"]
-            .rename(
-                {
-                    "admin_dttm": "event_time",
-                    "med_category": "category",
-                    "med_dose": "value",
-                }
+            .select(
+                "hospitalization_id",
+                pl.col("admin_dttm")
+                .cast(pl.Datetime(time_unit="ms"))
+                .alias("event_time"),
+                pl.col("med_category").str.to_lowercase().alias("category"),
+                pl.col("med_dose").alias("value"),
             )
-            .cast(
-                {
-                    "event_time": pl.Datetime(time_unit="ms"),
-                }
-            )
-            .select("hospitalization_id", "event_time", "category", "value")
             .collect()
         )
         self.tbl["medication"] = self.process_cat_val_frame(
@@ -297,17 +272,10 @@ class ClifTokenizer:
         # numerical_value OR a categorical_value, depending on the assessment
         self.tbl["assessments"] = (
             self.tbl["assessments"]
-            .rename(
-                {
-                    "recorded_dttm": "event_time",
-                    "assessment_category": "category",
-                    "numerical_value": "value",
-                }
-            )
-            .cast(
-                {
-                    "event_time": pl.Datetime(time_unit="ms"),
-                }
+            .with_columns(
+                event_time=pl.col("recorded_dttm").cast(pl.Datetime(time_unit="ms")),
+                category=pl.col("assessment_category").str.to_lowercase(),
+                value=pl.col("numerical_value"),
             )
             .collect()
         )
@@ -341,23 +309,14 @@ class ClifTokenizer:
 
         self.tbl["respiratory"] = (
             self.tbl["respiratory"]
-            .rename(
-                {
-                    "recorded_dttm": "event_time",
-                }
-            )
-            .cast(
-                {
-                    "event_time": pl.Datetime(time_unit="ms"),
-                }
-            )
             .with_columns(
-                pl.col("mode_category").map_elements(
-                    self.vocab, return_dtype=pl.Int64, skip_nulls=False
-                ),
-                pl.col("device_category").map_elements(
-                    self.vocab, return_dtype=pl.Int64, skip_nulls=False
-                ),
+                pl.col("mode_category")
+                .str.to_lowercase()
+                .map_elements(self.vocab, return_dtype=pl.Int64, skip_nulls=False),
+                pl.col("device_category")
+                .str.to_lowercase()
+                .map_elements(self.vocab, return_dtype=pl.Int64, skip_nulls=False),
+                event_time=pl.col("recorded_dttm").cast(pl.Datetime(time_unit="ms")),
             )
             .with_columns(
                 tokens=pl.concat_list("mode_category", "device_category"),
@@ -372,15 +331,8 @@ class ClifTokenizer:
             self.tbl["position"]
             .collect()
             .filter(pl.col("position_category") == "prone")
-            .rename(
-                {
-                    "recorded_dttm": "event_time",
-                }
-            )
-            .cast(
-                {
-                    "event_time": pl.Datetime(time_unit="ms"),
-                }
+            .with_columns(
+                event_time=pl.col("recorded_dttm").cast(pl.Datetime(time_unit="ms"))
             )
             .with_columns(
                 tokens=pl.col("position_category").map_elements(
@@ -395,6 +347,26 @@ class ClifTokenizer:
                 ),
             )
             .cast({"times": pl.List(pl.Datetime(time_unit="ms"))})
+        )
+
+    def run_times_qc(self):
+        alt_times = (
+            self.tbl["vitals"]
+            .group_by("hospitalization_id")
+            .agg(
+                event_start_alt=pl.col("event_time").min(),
+                event_end_alt=pl.col("event_time").max(),
+            )
+        )
+
+        self.tbl["hospitalization"] = (
+            self.tbl["hospitalization"]
+            .join(alt_times, how="left", on="hospitalization_id", validate="1:1")
+            .with_columns(
+                event_start=pl.min_horizontal("event_start", "event_start_alt"),
+                event_end=pl.max_horizontal("event_end", "event_end_alt"),
+            )
+            .drop("event_start_alt", "event_end_alt")
         )
 
     def get_admission_frame(self) -> Frame:
@@ -476,26 +448,45 @@ class ClifTokenizer:
             )
         )
 
-        event_tokens = tokens_agg.join(times_agg, on="hospitalization_id")
+        event_tokens = tokens_agg.join(
+            times_agg, on="hospitalization_id", validate="1:1"
+        )
         return event_tokens
 
-    def get_tokens_timelines(self) -> tuple[Frame, dict] | Frame:
+    def get_tokens_timelines(self) -> Frame:
         self.load_tables()
         self.process_tables()
+        self.run_times_qc()
 
         # combine the admission tokens, event tokens, and discharge tokens
-        return (
+        tt = (
             self.get_admission_frame()
             .lazy()
-            .join(self.get_events_frame(), on="hospitalization_id")
-            .join(self.get_discharge_frame().lazy(), on="hospitalization_id")
+            .join(
+                self.get_events_frame(),
+                on="hospitalization_id",
+                how="left",
+                validate="1:1",
+            )
+            .join(
+                self.get_discharge_frame().lazy(),
+                on="hospitalization_id",
+                validate="1:1",
+            )
             .with_columns(
                 tokens=pl.concat_list("adm_tokens", "tokens", "dis_tokens"),
                 times=pl.concat_list("adm_times", "times", "dis_times"),
             )
             .select("hospitalization_id", "tokens", "times")
-            .collect()
         )
+
+        if self.day_stay_filter:
+            tt = tt.filter(
+                (pl.col("times").list.max() - pl.col("times").list.min())
+                >= pl.duration(days=1)
+            )
+
+        return tt.collect()
 
     def pad_and_truncate(self, tokens_timelines: Frame) -> Frame:
         if self.max_seq_length is not None:
@@ -587,15 +578,15 @@ if __name__ == "__main__":
     out_dir = hm.parent.joinpath(hm.stem + "-tokenized").expanduser()
     out_dir.mkdir(exist_ok=True)
 
-    tkzr = ClifTokenizer(data_dir=hm, max_seq_length=1024)
+    tkzr = ClifTokenizer(data_dir=hm, max_seq_length=1024, day_stay_filter=True)
     tokens_timelines = tkzr.get_tokens_timelines()
-    tokens_timelines = tkzr.pad_and_truncate(tokens_timelines)
-
-    tokens_timelines.write_parquet(out_dir.joinpath("tokens_timelines.parquet"))
-    tkzr.vocab.save(out_dir.joinpath("vocab.gzip"))
 
     tkzr.print_aux()
     summarize(tkzr, tokens_timelines)
+
+    tokens_timelines = tkzr.pad_and_truncate(tokens_timelines)
+    tokens_timelines.write_parquet(out_dir.joinpath("tokens_timelines.parquet"))
+    tkzr.vocab.save(out_dir.joinpath("vocab.gzip"))
 
     tkzr2 = ClifTokenizer(data_dir=hm, vocab_path=out_dir.joinpath("vocab.gzip"))
     tokens_timelines2 = tkzr2.get_tokens_timelines()

@@ -10,34 +10,31 @@ import pathlib
 from tokenizer import ClifTokenizer, summarize
 
 verbose = True
-
+version_name = "day-stays"
 splits = ("train", "val", "test")
 
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser()
 data_dirs = dict()
-data_dirs["train"] = hm.joinpath("clif-training-set")
-data_dirs["val"] = hm.joinpath("clif-validation-set")
-data_dirs["test"] = hm.joinpath("clif-test-set")
-
 out_dirs = dict()
 for s in splits:
-    out_dirs[s] = data_dirs[s].parent.joinpath(data_dirs[s].stem + "-tokenized")
-    out_dirs[s].mkdir(exist_ok=True)
+    data_dirs[s] = hm.joinpath("clif-data", "raw", s)
+    out_dirs[s] = hm.joinpath("clif-data", f"{version_name}-tokenized", s)
+    out_dirs[s].mkdir(exist_ok=True, parents=True)
 
 # tokenize training set
 tkzr = ClifTokenizer(
-    data_dir=data_dirs["train"],
-    max_seq_length=1024,
+    data_dir=data_dirs["train"], max_seq_length=1024, day_stay_filter=True
 )
 tokens_timelines = tkzr.get_tokens_timelines()
-tokens_timelines = tkzr.pad_and_truncate(tokens_timelines)
-tokens_timelines.write_parquet(out_dirs["train"].joinpath("tokens_timelines.parquet"))
-tkzr.vocab.save(out_dirs["train"].joinpath("vocab.gzip"))
 
 if verbose:
     print("train".upper().ljust(81, "-"))
     tkzr.print_aux()
     summarize(tkzr, tokens_timelines)
+
+tokens_timelines = tkzr.pad_and_truncate(tokens_timelines)
+tokens_timelines.write_parquet(out_dirs["train"].joinpath("tokens_timelines.parquet"))
+tkzr.vocab.save(out_dirs["train"].joinpath("vocab.gzip"))
 
 # take the learned tokenizer and tokenize the validation and test sets
 for s in ("val", "test"):
@@ -45,11 +42,13 @@ for s in ("val", "test"):
         data_dir=data_dirs[s],
         vocab_path=out_dirs["train"].joinpath("vocab.gzip"),
         max_seq_length=1024,
+        day_stay_filter=True,
     )
     tokens_timelines = tkzr.get_tokens_timelines()
-    tokens_timelines = tkzr.pad_and_truncate(tokens_timelines)
-    tokens_timelines.write_parquet(out_dirs[s].joinpath("tokens_timelines.parquet"))
 
     if verbose:
         print(s.upper().ljust(81, "-"))
         summarize(tkzr, tokens_timelines)
+
+    tokens_timelines = tkzr.pad_and_truncate(tokens_timelines)
+    tokens_timelines.write_parquet(out_dirs[s].joinpath("tokens_timelines.parquet"))

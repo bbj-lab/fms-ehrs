@@ -10,6 +10,7 @@ import pathlib
 
 import polars as pl
 
+version_name = "raw"
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/")
 data_dir = hm.joinpath("CLIF-MIMIC", "output", "rclif-2.1")
 splits = ("train", "val", "test")
@@ -17,6 +18,7 @@ splits = ("train", "val", "test")
 # partition patient ids
 patient_ids = (
     pl.scan_parquet(data_dir.joinpath("clif_hospitalization.parquet"))
+    .filter(pl.col("age_at_admission") >= 18)
     .group_by("patient_id")
     .agg(pl.col("admission_dttm").min().alias("first_admission"))
     .sort("first_admission")
@@ -48,7 +50,7 @@ hospitalization_ids = (
 )
 
 h_ids = dict()
-for s in ("train", "val", "test"):
+for s in splits:
     h_ids[s] = hospitalization_ids.join(p_ids[s], on="patient_id").select(
         "hospitalization_id"
     )
@@ -61,20 +63,15 @@ assert (
     == hospitalization_ids.n_unique()
 )
 
-"""
-create directories for storing the data splits
-"""
-
+# make directories
 dirs = dict()
-dirs["train"] = hm.joinpath("clif-training-set")
-dirs["val"] = hm.joinpath("clif-validation-set")
-dirs["test"] = hm.joinpath("clif-test-set")
-
-for d in dirs.values():
-    d.mkdir(mode=770, exist_ok=True)
-
-# generate sub-tables for each split
 for s in splits:
+    dirs[s] = hm.joinpath("clif-data", version_name, s)
+    dirs[s].mkdir(exist_ok=True, parents=True)
+
+# generate sub-tables
+for s in splits:
+
     pl.scan_parquet(data_dir.joinpath("clif_patient.parquet")).join(
         p_ids[s].lazy(), on="patient_id"
     ).sink_parquet(dirs[s].joinpath("clif_patient.parquet"))
@@ -89,6 +86,7 @@ for s in splits:
                 h_ids[s].lazy(), on="hospitalization_id"
             ).sink_parquet(dirs[s].joinpath(t.name))
 
+# display results
 print("-" * 42)
 for s in splits:
     print(s.upper().center(42, "="))
