@@ -9,4 +9,4 @@
 
 source ~/.bashrc
 source venv/bin/activate
-torchrun --nproc_per_node=8 trainer.py
+torchrun --nproc_per_node=8 3_train_small_mamba.py

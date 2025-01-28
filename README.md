@@ -59,8 +59,9 @@ Send code:
 ```sh
 rsync -avht \
       --cvs-exclude \
-      --exclude ".venv/*" \
+      --exclude "venv/*" \
       --exclude ".idea/*" \
+      --delete \
       ~/Documents/chicago/clif-tokenizer \
       randi:/gpfs/data/bbj-lab/users/burkh4rt
 ```
@@ -90,12 +91,20 @@ Run on randi:
 ```
 systemd-run --scope --user tmux new -s t3q
 srun -p tier3q \
-  --nodes=1 \
   --mem=1TB \
   --time=8:00:00 \
   --job-name=adhoc \
   --pty bash -i
 source venv/bin/activate
+```
+
+Troubleshoot:
+```
+srun -p gpuq \
+  --gres=gpu:8 \
+  --time=8:00:00 \
+  --job-name=adhoc \
+  --pty bash -i
 ```
 
 -->
