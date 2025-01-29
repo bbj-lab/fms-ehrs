@@ -9,10 +9,11 @@ import os
 import pathlib
 
 data_version = "day-stays"
-model_version = os.environ["WANDB_RUN_NAME"] = "neftune"
+model_version = "pretty-small"
 
 os.environ["HF_HOME"] = "/gpfs/data/bbj-lab/cache/huggingface/"
 os.environ["WANDB_PROJECT"] = "clif_mamba"
+os.environ["WANDB_RUN_NAME"] = "{d}-{m}".format(d=data_version, m=model_version)
 os.environ["WANDB_LOG_MODEL"] = "checkpoint"
 
 from datasets import load_dataset
@@ -35,6 +36,9 @@ output_dir.mkdir(exist_ok=True, parents=True)
 model_name = "state-spaces/mamba-130m-hf"
 config = AutoConfig.from_pretrained(
     model_name,
+    hidden_size=25,
+    n_layer=15,
+    num_hidden_layers=15,
     vocab_size=len(vocab),
     bos_token_id=vocab("TL_START"),
     eos_token_id=[vocab("TL_END"), vocab("TRUNC")],
@@ -63,7 +67,7 @@ training_args = SFTConfig(
     output_dir=str(output_dir),
     per_device_train_batch_size=32,
     per_device_eval_batch_size=32,
-    learning_rate=2e-4,
+    learning_rate=5e-4,  # cf. https://arxiv.org/pdf/2412.16178 tbl. 6
     num_train_epochs=10,
     save_total_limit=2,
     load_best_model_at_end=True,
@@ -81,11 +85,13 @@ trainer.train()
 trainer.save_model(
     str(
         output_dir.joinpath(
-            "mdl-{}".format(
-                datetime.datetime.now(datetime.timezone.utc)
+            "mdl-{d}-{m}-{t}".format(
+                d=data_version,
+                m=model_version,
+                t=datetime.datetime.now(datetime.timezone.utc)
                 .replace(microsecond=0)
                 .astimezone()
-                .isoformat()
+                .isoformat(),
             )
         )
     )
