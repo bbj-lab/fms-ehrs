@@ -102,9 +102,10 @@ source venv/bin/activate
 
 Troubleshoot:
 ```
+systemd-run --scope --user tmux new -s gpuq
 srun -p gpuq \
   --gres=gpu:8 \
-  --time=8:00:00 \
+  --time=4:00:00 \
   --job-name=adhoc \
   --pty bash -i
 ```
