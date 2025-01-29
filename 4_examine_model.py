@@ -4,41 +4,32 @@
 load a Mamba and play with it
 """
 
-
 import pathlib
 import re
 
 from transformers import AutoModelForCausalLM
-from datasets import load_dataset
 from torch import arange as t_arange
 from sklearn.manifold import TSNE
+from sklearn.decomposition import PCA
 
 import polars as pl
 import plotly.express as px
 
 from vocabulary import Vocabulary
 
+projector_type = "PCA"
 data_version = "day-stays"
-model_version = "neftune"
+model_version = "smallest"  # "small"
 
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser()
 
-splits = ("train", "val", "test")
-data_dirs = dict()
-for s in splits:
-    data_dirs[s] = hm.joinpath("clif-data", f"{data_version}-tokenized", s)
-
-vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
+train_dir = hm.joinpath("clif-data", f"{data_version}-tokenized", "train")
+vocab = Vocabulary().load(train_dir.joinpath("vocab.gzip"))
 output_dir = hm.joinpath("clif-mdls", model_version)
 
-model = AutoModelForCausalLM.from_pretrained(output_dir.joinpath("checkpoint-1500"))
-
-dataset = load_dataset(
-    "parquet",
-    data_files={
-        s: str(data_dirs[s].joinpath("tokens_timelines.parquet"))
-        for s in ("train", "val", "test")
-    },
+model = AutoModelForCausalLM.from_pretrained(
+    # output_dir.joinpath("mdl-day-stays-small-2025-01-29T05:56:46-06:00")
+    output_dir.joinpath("mdl-day-stays-smallest-2025-01-28T22:16:07-06:00")
 )
 
 
@@ -54,9 +45,18 @@ def key_type(word: str) -> str:
     return "OTHER"
 
 
+"""
+dimensionality reduction on token embeddings
+"""
+
 # size: vocab x emb_dim
 emb = model.get_input_embeddings()(t_arange(len(vocab)))
-proj = TSNE(n_components=2, random_state=42, perplexity=10).fit_transform(emb.detach())
+projector = (
+    PCA(n_components=2, random_state=42)
+    if projector_type == "PCA"
+    else TSNE(n_components=2, random_state=42, perplexity=150)
+)
+proj = projector.fit_transform(emb.detach())
 
 df = (
     pl.from_numpy(data=proj, schema=["dim1", "dim2"])
@@ -81,3 +81,30 @@ fig = px.scatter(
 )
 
 fig.write_html(hm.joinpath("embedding_vis.html"))
+
+"""
+quantile embeddings only
+"""
+
+# size: vocab x emb_dim
+emb = model.get_input_embeddings()(t_arange(10))
+projector = (
+    PCA(n_components=2, random_state=42)
+    if projector_type == "PCA"
+    else TSNE(n_components=2, random_state=42, perplexity=150)
+)
+proj = projector.fit_transform(emb.detach())
+
+fig = px.scatter(
+    pl.from_numpy(data=proj, schema=["dim1", "dim2"]).with_columns(
+        token=pl.Series(list(vocab.lookup.keys())[:10])
+    ),
+    x="dim1",
+    y="dim2",
+    color="token",
+    width=650,
+    title="Quantile embedding",
+    hover_name="token",
+)
+
+fig.write_html(hm.joinpath("embedding_q.html"))
