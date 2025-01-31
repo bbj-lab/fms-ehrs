@@ -7,13 +7,12 @@ load a Mamba and play with it
 import pathlib
 import re
 
-from transformers import AutoModelForCausalLM
-from torch import arange as t_arange
-from sklearn.manifold import TSNE
-from sklearn.decomposition import PCA
-
-import polars as pl
 import plotly.express as px
+import polars as pl
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
+from torch import arange as t_arange
+from transformers import AutoModelForCausalLM
 
 from vocabulary import Vocabulary
 

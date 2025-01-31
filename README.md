@@ -2,8 +2,8 @@
 
 This workflow tokenizes CLIF data
 (https://clif-consortium.github.io/website/data-dictionary.html) into
-`hospitalization_id`-level timelines and trains a small instance of Mamba on
-the resulting data.
+`hospitalization_id`-level timelines and trains a small instance of Mamba on the
+resulting data.
 
 The CLIF-2.0 specification provides the following schemas:
 <img src="./img/ERD-2.png" 
@@ -37,8 +37,8 @@ pip3 install torch torchvision torchaudio --index-url https://download.pytorch.o
 pip3 install -r requirements.txt
 ```
 
-Dataset creation and tokenization was tested on a cluster with a large amount
-of memory. (All datasets could be fully loaded in memory.) To run on randi:
+Dataset creation and tokenization was tested on a cluster with a large amount of
+memory. (All datasets could be fully loaded in memory.) To run on randi:
 
 ```sh
 sbatch 1_2_make_tokenized_datasets.sh
@@ -104,8 +104,8 @@ Troubleshoot:
 ```
 systemd-run --scope --user tmux new -s gpuq
 srun -p gpuq \
-  --gres=gpu:8 \
-  --time=4:00:00 \
+  --gres=gpu:1 \
+  --time=8:00:00 \
   --job-name=adhoc \
   --pty bash -i
 ```

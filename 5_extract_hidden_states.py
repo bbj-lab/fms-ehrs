@@ -1,28 +1,32 @@
 #!/usr/bin/env python3
 
 """
-grab the final hidden state from each provided sequence
+grab the final hidden state (at just under 24h) from each provided sequence
 """
 
 import pathlib
 
-from transformers import AutoModelForCausalLM
-from datasets import load_dataset
-from tqdm import tqdm
-
 import numpy as np
 import torch as t
 import torch.distributed as dist
+from datasets import load_dataset
+from tqdm import tqdm
+from transformers import AutoModelForCausalLM
 
 from vocabulary import Vocabulary
 
-data_version = "day-stays"
+data_version = "first-24h"
 model_version = "small"
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser()
 
+is_parallel = t.cuda.device_count() > 1
+
 # prepare parallelism
-dist.init_process_group(backend="nccl")
-rank = dist.get_rank()
+if is_parallel:
+    dist.init_process_group(backend="nccl")
+    rank = dist.get_rank()
+else:
+    rank = 0
 device = t.device(f"cuda:{rank}")
 t.cuda.set_device(device)
 
@@ -50,8 +54,8 @@ model = AutoModelForCausalLM.from_pretrained(
 ).to(device)
 d = model.config.hidden_size
 model = model.to(device)
-model = t.nn.parallel.DistributedDataParallel(model, device_ids=[rank])
-
+if is_parallel:
+    model = t.nn.parallel.DistributedDataParallel(model, device_ids=[rank])
 
 # iterate over splits and run inference using model
 batch_sz = 2**7
@@ -64,10 +68,19 @@ for s in splits:
     features[s] = np.empty((n, d))
     for batch_idx in tqdm(t.split(t.arange(n), batch_sz)):
         batch = dataset[s]["input_ids"][batch_idx].to(device)
+        final_nonpadding_idx = (
+            t.argmax((batch == vocab("PAD")).int(), axis=1, keepdim=True) - 1
+        )
+        # t.gather(batch, 1, final_nonpadding_idx)
         with t.no_grad():
             x = model.forward(input_ids=batch, output_hidden_states=True)
-            features[s][batch_idx] = x.hidden_states[-1][:, -1, :].detach().to("cpu")
+            ret = t.empty(
+                size=(batch_sz, d), dtype=x.hidden_states[-1].dtype, device=device
+            )
+            for i, j in enumerate(final_nonpadding_idx):
+                ret[i] = x.hidden_states[-1][i, j, :]
+            features[s][batch_idx] = ret.detach().to("cpu")
 
 # save out results
 for s in splits:
-    np.savez(data_dirs[s].joinpath("features__.npy"), features[s])
+    np.savez(data_dirs[s].joinpath("features.npy"), features[s])

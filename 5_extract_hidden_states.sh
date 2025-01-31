@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=extract-state-reps
+#SBATCH --job-name=extract-states
 #SBATCH --output=./output/%j.stdout
 #SBATCH --chdir=/gpfs/data/bbj-lab/users/burkh4rt/clif-tokenizer
 #SBATCH --partition=gpuq
