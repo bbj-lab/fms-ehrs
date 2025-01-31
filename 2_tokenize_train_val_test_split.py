@@ -10,7 +10,7 @@ import pathlib
 from tokenizer import ClifTokenizer, summarize
 
 verbose = True
-version_name = "day-stays"
+data_version = "first-24h"
 splits = ("train", "val", "test")
 
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser()
@@ -18,12 +18,16 @@ data_dirs = dict()
 out_dirs = dict()
 for s in splits:
     data_dirs[s] = hm.joinpath("clif-data", "raw", s)
-    out_dirs[s] = hm.joinpath("clif-data", f"{version_name}-tokenized", s)
+    out_dirs[s] = hm.joinpath("clif-data", f"{data_version}-tokenized", s)
     out_dirs[s].mkdir(exist_ok=True, parents=True)
 
 # tokenize training set
 tkzr = ClifTokenizer(
-    data_dir=data_dirs["train"], max_seq_length=1024, day_stay_filter=True
+    data_dir=data_dirs["train"],
+    vocab_path=hm.joinpath("clif-data", "day-stays-tokenized", "train", "vocab.gzip"),
+    max_seq_length=1024,
+    day_stay_filter=True,
+    cut_at_24h=True,
 )
 tokens_timelines = tkzr.get_tokens_timelines()
 
@@ -40,9 +44,12 @@ tkzr.vocab.save(out_dirs["train"].joinpath("vocab.gzip"))
 for s in ("val", "test"):
     tkzr = ClifTokenizer(
         data_dir=data_dirs[s],
-        vocab_path=out_dirs["train"].joinpath("vocab.gzip"),
+        vocab_path=hm.joinpath(
+            "clif-data", "day-stays-tokenized", "train", "vocab.gzip"
+        ),
         max_seq_length=1024,
         day_stay_filter=True,
+        cut_at_24h=True,
     )
     tokens_timelines = tkzr.get_tokens_timelines()
 

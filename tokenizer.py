@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import functools
 import os
 import pathlib
 import typing
@@ -26,6 +27,7 @@ class ClifTokenizer:
         vocab_path: Pathlike = None,
         max_seq_length: int = None,
         day_stay_filter: bool = False,
+        cut_at_24h: bool = False,
     ):
         """
         if no vocabulary is provided, we are in training mode; otherwise, the
@@ -43,6 +45,7 @@ class ClifTokenizer:
             self.vocab.is_training = False
         self.max_seq_length = max_seq_length
         self.day_stay_filter = bool(day_stay_filter)
+        self.cut_at_24h = bool(cut_at_24h)
 
     def load_tables(self):
         """lazy-load all parquet tables from the directory `self.data_dir`"""
@@ -367,6 +370,7 @@ class ClifTokenizer:
                 event_end=pl.max_horizontal("event_end", "event_end_alt"),
             )
             .drop("event_start_alt", "event_end_alt")
+            .filter(pl.col("event_start") < pl.col("event_end"))
         )
 
     def get_admission_frame(self) -> Frame:
@@ -453,6 +457,26 @@ class ClifTokenizer:
         )
         return event_tokens
 
+    def cut_at_time(
+        self, tokens_timelines: Frame, duration: pl.Duration = pl.duration(days=1)
+    ) -> Frame:
+        """allows us to select the first 24h of someone's timeline for predictive purposes"""
+        tt = (
+            tokens_timelines.with_columns(
+                valid_length=(
+                    pl.col("times").list.eval(
+                        pl.element() - pl.col("").min() <= duration
+                    )
+                ).list.count_matches(True),
+            )
+            .with_columns(
+                pl.col("times").list.slice(offset=0, length=pl.col("valid_length")),
+                pl.col("tokens").list.slice(offset=0, length=pl.col("valid_length")),
+            )
+            .filter(pl.col("times").list.max() - pl.col("times").list.min() <= duration)
+        )
+        return tt
+
     def get_tokens_timelines(self) -> Frame:
         self.load_tables()
         self.process_tables()
@@ -486,13 +510,16 @@ class ClifTokenizer:
                 >= pl.duration(days=1)
             )
 
+        if self.cut_at_24h:
+            tt = self.cut_at_time(tt)
+
         return tt.collect()
 
     def pad_and_truncate(self, tokens_timelines: Frame) -> Frame:
         if self.max_seq_length is not None:
-            tt = tokens_timelines.with_columns(
+            tt = tokens_timelines.lazy().with_columns(
                 seq_len=pl.col("tokens").list.len()
-            ).lazy()
+            )
             tt_under = tt.filter(pl.col("seq_len") <= self.max_seq_length).with_columns(
                 padded=pl.concat_list(
                     "tokens",
@@ -515,7 +542,11 @@ class ClifTokenizer:
 
     def print_aux(self):
         for k, v in self.vocab.aux.items():
-            print(f"{k}: {v.round(2)}")
+            print(
+                "{k}: {v}".format(
+                    k=k, v=list(map(functools.partial(round, ndigits=2), v))
+                )
+            )
 
 
 def summarize(tokenizer: ClifTokenizer, tokens_timelines: Frame):
@@ -578,7 +609,9 @@ if __name__ == "__main__":
     out_dir = hm.parent.joinpath(hm.stem + "-tokenized").expanduser()
     out_dir.mkdir(exist_ok=True)
 
-    tkzr = ClifTokenizer(data_dir=hm, max_seq_length=1024, day_stay_filter=True)
+    tkzr = ClifTokenizer(
+        data_dir=hm, max_seq_length=1024, day_stay_filter=True, cut_at_24h=True
+    )
     tokens_timelines = tkzr.get_tokens_timelines()
 
     tkzr.print_aux()
