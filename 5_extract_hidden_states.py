@@ -71,11 +71,12 @@ for s in splits:
         final_nonpadding_idx = (
             t.argmax((batch == vocab("PAD")).int(), axis=1, keepdim=True) - 1
         )
-        # t.gather(batch, 1, final_nonpadding_idx)
         with t.no_grad():
             x = model.forward(input_ids=batch, output_hidden_states=True)
             ret = t.empty(
-                size=(batch_sz, d), dtype=x.hidden_states[-1].dtype, device=device
+                size=(final_nonpadding_idx.size(dim=0), d),
+                dtype=x.hidden_states[-1].dtype,
+                device=device,
             )
             for i, j in enumerate(final_nonpadding_idx):
                 ret[i] = x.hidden_states[-1][i, j, :]
@@ -83,4 +84,4 @@ for s in splits:
 
 # save out results
 for s in splits:
-    np.savez(data_dirs[s].joinpath("features.npy"), features[s])
+    np.save(data_dirs[s].joinpath("features.npy"), features[s])
