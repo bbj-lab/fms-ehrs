@@ -110,4 +110,13 @@ srun -p gpuq \
   --pty bash -i
 ```
 
+Grab features and outcomes:
+```
+export hm=/gpfs/data/bbj-lab/users/burkh4rt
+rsync -avht \
+    --exclude "**/tokens_timelines.parquet" \
+    randi:${hm}/clif-data/first-24h-tokenized \
+    ~/Documents/chicago/clif-tokenizer/results
+```
+
 -->

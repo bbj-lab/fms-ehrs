@@ -65,6 +65,7 @@ jupyterlab_pygments==0.3.0
 jupyterlab_server==2.27.3
 jupyterlab_widgets==3.0.13
 kaleido==0.2.1
+lightgbm==4.5.0
 mamba-ssm==2.2.4
 markdown-it-py==3.0.0
 MarkupSafe==2.1.5
