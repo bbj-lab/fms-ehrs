@@ -8,8 +8,8 @@ import datetime
 import os
 import pathlib
 
-data_version = "day-stays"
-model_version = "smallest"
+data_version = "day_stays_qc"
+model_version = "small"
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser().absolute()
 
 os.environ["HF_HOME"] = "/gpfs/data/bbj-lab/cache/huggingface/"
@@ -17,7 +17,6 @@ os.environ["WANDB_CACHE_DIR"] = "/scratch/burkh4rt/"
 os.environ["WANDB_DIR"] = hm.joinpath("wandb").__str__()
 os.environ["WANDB_PROJECT"] = "clif_mamba"
 os.environ["WANDB_RUN_NAME"] = "{d}-{m}".format(d=data_version, m=model_version)
-# os.environ["WANDB_LOG_MODEL"] = "checkpoint"
 
 from datasets import load_dataset
 from transformers import AutoConfig, AutoModelForCausalLM
@@ -81,7 +80,7 @@ training_args = SFTConfig(
 trainer = SFTTrainer(
     model,
     train_dataset=dataset["train"],
-    eval_dataset=dataset["train"],
+    eval_dataset=dataset["val"],
     args=training_args,
 )
 trainer.train()
