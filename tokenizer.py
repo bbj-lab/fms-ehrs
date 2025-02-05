@@ -506,7 +506,7 @@ class ClifTokenizer:
 
         if self.day_stay_filter:
             tt = tt.filter(
-                (pl.col("times").list.max() - pl.col("times").list.min())
+                (pl.col("times").list.get(-1) - pl.col("times").list.get(0))
                 >= pl.duration(days=1)
             )
 

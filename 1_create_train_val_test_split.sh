@@ -10,4 +10,3 @@
 source ~/.bashrc
 source venv/bin/activate
 python3 1_create_train_val_test_split.py
-python3 2_tokenize_train_val_test_split.py

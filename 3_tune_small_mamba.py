@@ -4,19 +4,18 @@
 train a small version of Mamba on our tokenized & padded data
 """
 
-import datetime
 import os
 import pathlib
 
-data_version = "day_stays_qc"
-model_version = "small"
+data_version = "day-stays"
+model_version = "small-lr-search"
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser().absolute()
 
 os.environ["HF_HOME"] = "/gpfs/data/bbj-lab/cache/huggingface/"
 os.environ["WANDB_CACHE_DIR"] = "/scratch/burkh4rt/"
 os.environ["WANDB_DIR"] = hm.joinpath("wandb").__str__()
-os.environ["WANDB_PROJECT"] = "clif_mamba"
-os.environ["WANDB_RUN_NAME"] = "{d}-{m}".format(d=data_version, m=model_version)
+os.environ["WANDB_PROJECT"] = "mamba_clif_mimic"
+os.environ["WANDB_RUN_NAME"] = model_version
 
 from datasets import load_dataset
 from transformers import AutoConfig, AutoModelForCausalLM
@@ -46,7 +45,11 @@ config = AutoConfig.from_pretrained(
     eos_token_id=[vocab("TL_END"), vocab("TRUNC")],
     pad_token_id=vocab("PAD"),
 )
-model = AutoModelForCausalLM.from_config(config)
+
+
+def model_init(trial):
+    return AutoModelForCausalLM.from_config(config)
+
 
 # load data
 dataset = (
@@ -61,6 +64,16 @@ dataset = (
     .shuffle(seed=42)
 )
 
+
+def optuna_hp_space(trial):
+    return {
+        "learning_rate": trial.suggest_float("learning_rate", 1e-4, 1e-3, log=True),
+        "per_device_train_batch_size": trial.suggest_categorical(
+            "per_device_train_batch_size", [16, 32]
+        ),
+    }
+
+
 # train model
 training_args = SFTConfig(
     report_to="wandb",
@@ -73,28 +86,40 @@ training_args = SFTConfig(
     num_train_epochs=10,
     save_total_limit=2,
     load_best_model_at_end=True,
-    neftune_noise_alpha=5,
+    # neftune_noise_alpha=5,
     eval_strategy="steps",
     save_strategy="steps",
 )
+
 trainer = SFTTrainer(
-    model,
+    model=model_init(None),
+    model_init=model_init,
     train_dataset=dataset["train"],
-    eval_dataset=dataset["val"],
+    eval_dataset=dataset["train"],
     args=training_args,
 )
-trainer.train()
-trainer.save_model(
-    str(
-        output_dir.joinpath(
-            "mdl-{d}-{m}-{t}".format(
-                d=data_version,
-                m=model_version,
-                t=datetime.datetime.now(datetime.timezone.utc)
-                .replace(microsecond=0)
-                .astimezone()
-                .isoformat(),
-            )
-        )
-    )
+
+best_trial = trainer.hyperparameter_search(
+    direction="minimize",
+    backend="optuna",
+    hp_space=optuna_hp_space,
+    n_trials=20,
 )
+
+print(best_trial)
+
+# trainer.train()
+# trainer.save_model(
+#     str(
+#         output_dir.joinpath(
+#             "mdl-{d}-{m}-{t}".format(
+#                 d=data_version,
+#                 m=model_version,
+#                 t=datetime.datetime.now(datetime.timezone.utc)
+#                 .replace(microsecond=0)
+#                 .astimezone()
+#                 .isoformat(),
+#             )
+#         )
+#     )
+# )
