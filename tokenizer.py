@@ -463,15 +463,20 @@ class ClifTokenizer:
         """allows us to select the first 24h of someone's timeline for predictive purposes"""
         tt = (
             tokens_timelines.with_columns(
-                valid_length=(
+                first_fail_or_0=(
                     pl.col("times").list.eval(
                         pl.element() - pl.col("").min() <= duration
                     )
-                ).list.count_matches(True),
+                ).list.arg_min(),
             )
             .with_columns(
-                pl.col("times").list.slice(offset=0, length=pl.col("valid_length")),
-                pl.col("tokens").list.slice(offset=0, length=pl.col("valid_length")),
+                valid_length=pl.when(pl.col("first_fail_or_0") == 0)
+                .then(pl.col("times").list.len())
+                .otherwise(pl.col("first_fail_or_0"))
+            )
+            .with_columns(
+                pl.col("times").list.head(pl.col("valid_length")),
+                pl.col("tokens").list.head(pl.col("valid_length")),
             )
             .filter(pl.col("times").list.max() - pl.col("times").list.min() <= duration)
         )
@@ -625,3 +630,6 @@ if __name__ == "__main__":
     tokens_timelines2 = tkzr2.get_tokens_timelines()
     assert len(tkzr.vocab) == len(tkzr2.vocab)
     assert tkzr.vocab.lookup == tkzr2.vocab.lookup
+
+    tt = ClifTokenizer(data_dir=hm).get_tokens_timelines()
+    x = tt.with_columns(tt=pl.struct("tokens", "times")).select("tt").head(1).item()
