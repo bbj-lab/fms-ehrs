@@ -17,8 +17,8 @@ from transformers import AutoModelForCausalLM
 from vocabulary import Vocabulary
 
 projector_type = "PCA"
-data_version = "day-stays"
-model_version = "smallest"  # "small"
+data_version = "day_stays_qc_first_24h"
+model_version = "small"  # "small"
 
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser()
 
@@ -27,8 +27,7 @@ vocab = Vocabulary().load(train_dir.joinpath("vocab.gzip"))
 output_dir = hm.joinpath("clif-mdls", model_version)
 
 model = AutoModelForCausalLM.from_pretrained(
-    # output_dir.joinpath("mdl-day-stays-small-2025-01-29T05:56:46-06:00")
-    output_dir.joinpath("mdl-day-stays-smallest-2025-01-28T22:16:07-06:00")
+    output_dir.joinpath("mdl-day_stays_qc-small-2025-02-05T19:20:52-06:00")
 )
 
 
