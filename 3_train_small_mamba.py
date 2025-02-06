@@ -9,7 +9,7 @@ import os
 import pathlib
 
 data_version = "day_stays_qc"
-model_version = "small"
+model_version = "small-neftune-std-lr"
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser().absolute()
 
 os.environ["HF_HOME"] = "/gpfs/data/bbj-lab/cache/huggingface/"
@@ -69,11 +69,11 @@ training_args = SFTConfig(
     output_dir=str(output_dir),
     per_device_train_batch_size=32,
     per_device_eval_batch_size=32,
-    learning_rate=4e-4,  # 2e-4 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
+    learning_rate=2e-4,  # 2e-4 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
     num_train_epochs=10,
     save_total_limit=2,
     load_best_model_at_end=True,
-    # neftune_noise_alpha=5,
+    neftune_noise_alpha=5,
     eval_strategy="steps",
     save_strategy="steps",
 )
