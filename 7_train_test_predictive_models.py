@@ -10,15 +10,15 @@ import pathlib
 
 import lightgbm as lgb
 import numpy as np
-import polars as pl
 import pandas as pd
+import polars as pl
 import sklearn.metrics as skl_mets
 
 pd.options.display.float_format = "{:,.3f}".format
 
-data_version = "first-24h"
+data_version = "day_stays_qc_first_24h"
 # change the following flag to "False" for better performance
-fast = True
+fast = False
 
 if os.uname().nodename.startswith("cri"):
     hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/clif-data")

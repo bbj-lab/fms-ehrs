@@ -19,9 +19,8 @@ data_version = "day_stays_qc_first_24h"
 model_version = "small"
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser()
 
-is_parallel = t.cuda.device_count() > 1
-
 # prepare parallelism
+is_parallel = t.cuda.device_count() > 1
 if is_parallel:
     dist.init_process_group(backend="nccl")
     rank = dist.get_rank()
@@ -39,13 +38,16 @@ for s in splits:
 vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
 output_dir = hm.joinpath("clif-mdls", model_version)
 
-dataset = load_dataset(
-    "parquet",
-    data_files={
-        s: str(data_dirs[s].joinpath("tokens_timelines.parquet")) for s in splits
-    },
-).map(lambda batch: {"input_ids": batch["padded"]}, batched=True)
-dataset.set_format("torch")
+dataset = (
+    load_dataset(
+        "parquet",
+        data_files={
+            s: str(data_dirs[s].joinpath("tokens_timelines.parquet")) for s in splits
+        },
+    )
+    .map(lambda batch: {"input_ids": batch["padded"]}, batched=True)
+    .with_format("torch")
+)
 
 # load and prep model
 model = AutoModelForCausalLM.from_pretrained(
