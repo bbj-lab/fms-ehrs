@@ -566,15 +566,20 @@ def summarize(tokenizer: ClifTokenizer, tokens_timelines: Frame):
         )
     )
 
+    # for s in range(3):
+    #     print(
+    #         "Example timeline: \n {}".format(
+    #             [
+    #                 tokenizer.vocab.reverse[t]
+    #                 for t in tokens_timelines.sample(1, seed=s).select("tokens").item()
+    #             ]
+    #         )
+    #     )
+
     for s in range(3):
-        print(
-            "Example timeline: \n {}".format(
-                [
-                    tokenizer.vocab.reverse[t]
-                    for t in tokens_timelines.sample(1, seed=s).select("tokens").item()
-                ]
-            )
-        )
+        print("Example timeline".ljust(79, "="))
+        for t in tokens_timelines.sample(1, seed=s).select("tokens").item():
+            print(tokenizer.vocab.reverse[t])
 
     print(
         "Summary stats of timeline duration: \n {}".format(
@@ -615,7 +620,9 @@ if __name__ == "__main__":
     out_dir.mkdir(exist_ok=True)
 
     tkzr = ClifTokenizer(
-        data_dir=hm, max_seq_length=1024, day_stay_filter=True, cut_at_24h=True
+        data_dir=hm,
+        max_seq_length=1024,
+        day_stay_filter=True,  # cut_at_24h=True
     )
     tokens_timelines = tkzr.get_tokens_timelines()
 

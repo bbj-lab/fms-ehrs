@@ -9,13 +9,13 @@ import os
 import pathlib
 
 data_version = "day_stays_qc"
-model_version = "small-neftune-std-lr"
+model_version = "small"
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser().absolute()
 
 os.environ["HF_HOME"] = "/gpfs/data/bbj-lab/cache/huggingface/"
 os.environ["WANDB_CACHE_DIR"] = "/scratch/burkh4rt/"
 os.environ["WANDB_DIR"] = hm.joinpath("wandb").__str__()
-os.environ["WANDB_PROJECT"] = "clif_mamba"
+os.environ["WANDB_PROJECT"] = "mamba_clif_mimic"
 os.environ["WANDB_RUN_NAME"] = "{d}-{m}".format(d=data_version, m=model_version)
 
 from datasets import load_dataset
@@ -26,9 +26,9 @@ from vocabulary import Vocabulary
 
 # locate data and vocab
 splits = ("train", "val")
-data_dirs = dict()
-for s in splits:
-    data_dirs[s] = hm.joinpath("clif-data", f"{data_version}-tokenized", s)
+data_dirs = {
+    s: hm.joinpath("clif-data", f"{data_version}-tokenized", s) for s in splits
+}
 vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
 output_dir = hm.joinpath("clif-mdls", model_version)
 output_dir.mkdir(exist_ok=True, parents=True)
@@ -69,11 +69,12 @@ training_args = SFTConfig(
     output_dir=str(output_dir),
     per_device_train_batch_size=32,
     per_device_eval_batch_size=32,
-    learning_rate=2e-4,  # 2e-4 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
+    gradient_accumulation_steps=2,  # simulate larger batch sizes
+    learning_rate=5e-4,  # 2e-4 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
     num_train_epochs=10,
     save_total_limit=2,
     load_best_model_at_end=True,
-    neftune_noise_alpha=5,
+    # neftune_noise_alpha=5,
     eval_strategy="steps",
     save_strategy="steps",
 )
