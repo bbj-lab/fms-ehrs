@@ -17,7 +17,8 @@ import sklearn.metrics as skl_mets
 pd.options.display.float_format = "{:,.3f}".format
 
 data_version = "day_stays_qc_first_24h"
-# change the following flag to "False" for better performance
+model_version = "small-lr-search"  # "small"
+# set the following flag to "False" for better performance
 fast = False
 
 if os.uname().nodename.startswith("cri"):
@@ -35,7 +36,7 @@ for s in splits:
 """
 data = dict()
 for s in ("train", "val"):
-    feats = np.load(data_dirs[s].joinpath("features.npy"))
+    feats = np.load(data_dirs[s].joinpath("features-{m}.npy".format(m=model_version)))
     mort = (
         pl.scan_parquet(data_dirs[s].joinpath("outcomes.parquet"))
         .select("same_admission_death")
@@ -87,7 +88,7 @@ for met in (
 """
 
 for s in ("train", "val"):
-    feats = np.load(data_dirs[s].joinpath("features.npy"))
+    feats = np.load(data_dirs[s].joinpath("features-{m}.npy".format(m=model_version)))
     mort = (
         pl.scan_parquet(data_dirs[s].joinpath("outcomes.parquet"))
         .select("length_of_stay")

@@ -8,6 +8,7 @@ import pathlib
 import re
 
 import plotly.express as px
+import plotly.graph_objects as go
 import polars as pl
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
@@ -18,16 +19,16 @@ from vocabulary import Vocabulary
 
 projector_type = "PCA"
 data_version = "day_stays_qc_first_24h"
-model_version = "small"  # "small"
+model_version = "small-lr-search"  # "small"
 
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser()
 
 train_dir = hm.joinpath("clif-data", f"{data_version}-tokenized", "train")
 vocab = Vocabulary().load(train_dir.joinpath("vocab.gzip"))
-output_dir = hm.joinpath("clif-mdls", model_version)
+mdl_dir = hm.joinpath("clif-mdls", model_version)
 
 model = AutoModelForCausalLM.from_pretrained(
-    output_dir.joinpath("mdl-day_stays_qc-small-2025-02-05T19:20:52-06:00")
+    mdl_dir.joinpath("run-1", "checkpoint-9000")
 )
 
 
@@ -103,6 +104,17 @@ fig = px.scatter(
     width=650,
     title="Quantile embedding",
     hover_name="token",
+)
+
+# connect Q0->Q1->Q2->...->Q9
+fig.add_trace(
+    go.Scatter(
+        x=proj[:, 0],
+        y=proj[:, 1],
+        mode="lines",
+        line=dict(color="grey", width=0.75),
+        showlegend=False,
+    )
 )
 
 fig.write_html(hm.joinpath("embedding_q.html"))

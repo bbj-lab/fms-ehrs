@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=generate-outcomes-vllm
+#SBATCH --job-name=generate-predictions-vllm
 #SBATCH --output=./output/%j.stdout
 #SBATCH --chdir=/gpfs/data/bbj-lab/users/burkh4rt/clif-tokenizer
 #SBATCH --partition=gpuq
@@ -9,4 +9,4 @@
 
 source ~/.bashrc
 source venv/bin/activate
-python3 10_outcomes_with_vllm.py
+python3 10_predictions_with_vllm.py

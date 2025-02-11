@@ -16,7 +16,7 @@ from transformers import AutoModelForCausalLM
 from vocabulary import Vocabulary
 
 data_version = "day_stays_qc_first_24h"
-model_version = "small"
+model_version = "small-lr-search"  # "small"
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser()
 
 # prepare parallelism
@@ -36,7 +36,7 @@ for s in splits:
     data_dirs[s] = hm.joinpath("clif-data", f"{data_version}-tokenized", s)
 
 vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
-output_dir = hm.joinpath("clif-mdls", model_version)
+mdl_dir = hm.joinpath("clif-mdls", model_version)
 
 dataset = (
     load_dataset(
@@ -51,8 +51,8 @@ dataset = (
 
 # load and prep model
 model = AutoModelForCausalLM.from_pretrained(
-    output_dir.joinpath("mdl-day_stays_qc-small-2025-02-05T19:20:52-06:00")
-).to(device)
+    mdl_dir.joinpath("run-1", "checkpoint-9000")
+)
 d = model.config.hidden_size
 model = model.to(device)
 if is_parallel:
@@ -85,4 +85,6 @@ for s in splits:
 
 # save out results
 for s in splits:
-    np.save(data_dirs[s].joinpath("features.npy"), features[s])
+    np.save(
+        data_dirs[s].joinpath("features-{m}.npy".format(m=model_version)), features[s]
+    )

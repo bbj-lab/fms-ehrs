@@ -9,7 +9,7 @@ import pathlib
 
 
 data_version = "day_stays_qc"
-model_version = "small-lr-search"
+model_version = "smallest-lr-search"
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser().absolute()
 
 os.environ["HF_HOME"] = "/gpfs/data/bbj-lab/cache/huggingface/"
@@ -39,10 +39,10 @@ def model_init(trial):
     model_name = "state-spaces/mamba-130m-hf"
     config = AutoConfig.from_pretrained(
         model_name,
-        # hidden_size=25,  # 768 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
-        # n_layer=15,  # 24 -- ibid
-        # num_hidden_layers=15,  # 24 -- ibid
-        # state_size=16,  # 16 -- ibid
+        hidden_size=2**6,  # 768 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
+        n_layer=2**4,  # 24 -- ibid
+        num_hidden_layers=2**4,  # 24 -- ibid
+        state_size=2**3,  # 16 -- ibid
         vocab_size=len(vocab),
         bos_token_id=vocab("TL_START"),
         eos_token_id=[vocab("TL_END"), vocab("TRUNC")],

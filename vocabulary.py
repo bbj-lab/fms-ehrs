@@ -21,12 +21,12 @@ class Vocabulary:
     `aux` mapping words -> auxiliary info
     """
 
-    def __init__(self, words: tuple = ()):
+    def __init__(self, *, is_training: bool = True, words: tuple = ()):
         assert len(set(words)) == len(words)
         self.lookup = {v: i for i, v in enumerate(words)}
         self.reverse = dict(enumerate(words))
         self.aux = {}
-        self._is_training = True
+        self._is_training = is_training
 
     def __call__(self, word: Hashable) -> int | None:
         try:
