@@ -118,3 +118,19 @@ fig.add_trace(
 )
 
 fig.write_html(hm.joinpath("embedding_q.html"))
+
+
+"""
+return basic parameters from searches
+"""
+
+keys = ("hidden_size", "n_layer", "num_hidden_layers", "state_size", "vocab_size")
+for s in ("small-lr-search", "smaller-lr-search", "smallest-lr-search"):
+    print(s.ljust(79, "="))
+    m = next(iter(hm.joinpath("clif-mdls", s).glob("**/checkpoint-*")))
+    model = AutoModelForCausalLM.from_pretrained(m)
+    conf = model.config.to_dict()
+    for k in keys:
+        print("{}: {}".format(k, conf[k]))
+
+vocab.print_aux()

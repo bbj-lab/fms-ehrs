@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=tokenize-clif
+#SBATCH --job-name=tokenize-clif-data
 #SBATCH --output=./output/%j.stdout
 #SBATCH --chdir=/gpfs/data/bbj-lab/users/burkh4rt/clif-tokenizer
 #SBATCH --partition=tier3q

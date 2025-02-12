@@ -14,7 +14,7 @@ import sklearn.metrics as skl_mets
 from vocabulary import Vocabulary
 
 data_version = "day_stays_qc_first_24h"
-model_version = "small"
+model_version = "smaller-lr-search"
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser()
 k = 10_000
 
@@ -28,21 +28,29 @@ vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
 
 determined = list()
 expired = list()
+n_gend = list()
 
-for fp in data_dirs["test"].glob(f"responses_k{k}_rep_*_of_*.pkl"):
+
+for fp in data_dirs["test"].glob(f"responses_k{k}_rep_*_of_*-{model_version}.pkl"):
     det = list()
     exp = list()
+    gen = list()
     with open(fp, "rb") as f:
         response_list = pickle.load(f)
         for x in response_list:
             det.append(len(x) < k)
             exp.append(vocab("expired") in x)
+            gen.append(len(x))
     determined.append(det)
     expired.append(exp)
+    n_gend.append(gen)
 
-determined, expired = map(np.array, (determined, expired))
+determined, expired, n_gend = map(np.array, (determined, expired, n_gend))
 
 print("Determined: {}%".format(100 * determined.mean().round(5)))
+print(
+    "Tokens generated: {:.2f} avg. (std. of {:.2f})".format(n_gend.mean(), n_gend.std())
+)
 
 mort_pred = expired.mean(axis=0)
 
@@ -80,7 +88,7 @@ for met in (
         "{}: {:.3f}".format(
             met,
             getattr(skl_mets, f"{met}_score")(
-                y_true=mort_true, y_pred=np.round(mort_pred)
+                y_true=mort_true, y_pred=(mort_pred >= 0.5)
             ),
         )
     )

@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 
-import functools
+"""
+provides a simple tokenizing interface to take tabular CLIF data and convert
+it to tokenized timelines at the hospitalization_id level
+"""
+
 import os
 import pathlib
 import typing
@@ -546,12 +550,7 @@ class ClifTokenizer:
             return tokens_timelines
 
     def print_aux(self):
-        for k, v in self.vocab.aux.items():
-            print(
-                "{k}: {v}".format(
-                    k=k, v=list(map(functools.partial(round, ndigits=2), v))
-                )
-            )
+        self.vocab.print_aux()
 
 
 def summarize(tokenizer: ClifTokenizer, tokens_timelines: Frame):
@@ -566,20 +565,20 @@ def summarize(tokenizer: ClifTokenizer, tokens_timelines: Frame):
         )
     )
 
-    # for s in range(3):
-    #     print(
-    #         "Example timeline: \n {}".format(
-    #             [
-    #                 tokenizer.vocab.reverse[t]
-    #                 for t in tokens_timelines.sample(1, seed=s).select("tokens").item()
-    #             ]
-    #         )
-    #     )
-
     for s in range(3):
-        print("Example timeline".ljust(79, "="))
-        for t in tokens_timelines.sample(1, seed=s).select("tokens").item():
-            print(tokenizer.vocab.reverse[t])
+        print(
+            "Example timeline: \n {}".format(
+                [
+                    tokenizer.vocab.reverse[t]
+                    for t in tokens_timelines.sample(1, seed=s).select("tokens").item()
+                ]
+            )
+        )
+
+    # for s in range(3):
+    #     print("Example timeline".ljust(79, "="))
+    #     for t in tokens_timelines.sample(1, seed=s).select("tokens").item():
+    #         print(tokenizer.vocab.reverse[t])
 
     print(
         "Summary stats of timeline duration: \n {}".format(

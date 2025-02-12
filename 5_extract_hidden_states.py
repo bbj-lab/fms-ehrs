@@ -15,9 +15,11 @@ from transformers import AutoModelForCausalLM
 
 from vocabulary import Vocabulary
 
-data_version = "day_stays_qc_first_24h"
-model_version = "small-lr-search"  # "small"
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser()
+
+data_version = "day_stays_qc_first_24h"
+model_version = "smaller-lr-search"  # "small"
+model_loc = hm.joinpath("clif-mdls", model_version, "run-2", "checkpoint-18000")
 
 # prepare parallelism
 is_parallel = t.cuda.device_count() > 1
@@ -36,7 +38,6 @@ for s in splits:
     data_dirs[s] = hm.joinpath("clif-data", f"{data_version}-tokenized", s)
 
 vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
-mdl_dir = hm.joinpath("clif-mdls", model_version)
 
 dataset = (
     load_dataset(
@@ -50,16 +51,14 @@ dataset = (
 )
 
 # load and prep model
-model = AutoModelForCausalLM.from_pretrained(
-    mdl_dir.joinpath("run-1", "checkpoint-9000")
-)
+model = AutoModelForCausalLM.from_pretrained(model_loc)
 d = model.config.hidden_size
 model = model.to(device)
 if is_parallel:
     model = t.nn.parallel.DistributedDataParallel(model, device_ids=[rank])
 
 # iterate over splits and run inference using model
-batch_sz = 2**7
+batch_sz = 2**8
 features = dict()
 
 for s in splits:

@@ -15,14 +15,15 @@ from vllm import LLM, SamplingParams
 
 from vocabulary import Vocabulary
 
+hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser()
+
 data_version = "day_stays_qc_first_24h"
+model_version = "smaller-lr-search"  # "small"
+model_loc = hm.joinpath("clif-mdls", model_version, "run-2", "checkpoint-18000")
+
 k = 10_000
 n_samp = 20
 top_p = 0.9
-model_version = "small-lr-search"  # "small"
-
-hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser()
-mdl_dir = hm.joinpath("clif-mdls", model_version)
 
 # load and prep data
 splits = ("train", "val", "test")
@@ -63,7 +64,7 @@ dataset = (
 
 # load and prep model
 model = LLM(
-    model=str(mdl_dir.joinpath("run-1", "checkpoint-9000")),
+    model=str(model_loc),
     trust_remote_code=True,
     skip_tokenizer_init=True,
 )
@@ -90,6 +91,9 @@ for rep in range(n_samp):
     response_list = [list(op.outputs[0].token_ids) for op in outp]
 
     with open(
-        data_dirs[s].joinpath(f"responses_k{k}_rep_{rep}_of_{n_samp}.pkl"), "wb"
+        data_dirs[s].joinpath(
+            f"responses_k{k}_rep_{rep}_of_{n_samp}-{model_version}.pkl"
+        ),
+        "wb",
     ) as fp:
         pickle.dump(response_list, fp)
