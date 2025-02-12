@@ -9,13 +9,13 @@ import os
 import pathlib
 
 data_version = "day_stays_qc"
-model_version = "small"
+model_version = "small-neftune"
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser().absolute()
 
 os.environ["HF_HOME"] = "/gpfs/data/bbj-lab/cache/huggingface/"
 os.environ["WANDB_CACHE_DIR"] = "/scratch/burkh4rt/"
 os.environ["WANDB_DIR"] = hm.joinpath("wandb").__str__()
-os.environ["WANDB_PROJECT"] = "mamba_clif_mimic"
+os.environ["WANDB_PROJECT"] = "mamba_clif_mimic_qc"
 os.environ["WANDB_RUN_NAME"] = "{d}-{m}".format(d=data_version, m=model_version)
 
 from datasets import load_dataset
@@ -37,10 +37,6 @@ output_dir.mkdir(exist_ok=True, parents=True)
 model_name = "state-spaces/mamba-130m-hf"
 config = AutoConfig.from_pretrained(
     model_name,
-    # hidden_size=25,  # 768 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
-    # n_layer=15,  # 24 -- ibid
-    # num_hidden_layers=15,  # 24 -- ibid
-    # state_size=16,  # 16 -- ibid
     vocab_size=len(vocab),
     bos_token_id=vocab("TL_START"),
     eos_token_id=[vocab("TL_END"), vocab("TRUNC")],
@@ -70,11 +66,11 @@ training_args = SFTConfig(
     per_device_train_batch_size=32,
     per_device_eval_batch_size=32,
     gradient_accumulation_steps=2,  # simulate larger batch sizes
-    learning_rate=5e-4,  # 2e-4 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
+    learning_rate=2e-4,  # 2e-4 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
     num_train_epochs=10,
     save_total_limit=2,
     load_best_model_at_end=True,
-    # neftune_noise_alpha=5,
+    neftune_noise_alpha=5,
     eval_strategy="steps",
     save_strategy="steps",
 )

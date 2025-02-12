@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 
+"""
+provides a generic class for creating and maintaining a map from a vocabulary
+of strings to unique integers
+"""
+
 import collections
+import functools
 import gzip
 import pathlib
 import pickle
@@ -21,7 +27,7 @@ class Vocabulary:
     `aux` mapping words -> auxiliary info
     """
 
-    def __init__(self, *, is_training: bool = True, words: tuple = ()):
+    def __init__(self, words: tuple = (), *, is_training: bool = True):
         assert len(set(words)) == len(words)
         self.lookup = {v: i for i, v in enumerate(words)}
         self.reverse = dict(enumerate(words))
@@ -93,6 +99,14 @@ class Vocabulary:
     def is_training(self, value: bool):
         self._is_training = value
 
+    def print_aux(self):
+        for k, v in self.aux.items():
+            print(
+                "{k}: {v}".format(
+                    k=k, v=list(map(functools.partial(round, ndigits=2), v))
+                )
+            )
+
 
 if __name__ == "__main__":
 
@@ -105,6 +119,7 @@ if __name__ == "__main__":
     v1 = Vocabulary(tuple(map(lambda i: f"Q{i}", range(10))))
     v1(42)
     v1.set_aux(42, np.sort(rng.integers(low=0, high=1000, size=9)))
+    v1.print_aux()
 
     v2 = Vocabulary()
 
