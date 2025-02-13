@@ -34,7 +34,7 @@ output_dir.mkdir(exist_ok=True, parents=True)
 
 def model_init(trial=None):
     # grab a small mamba for training
-    model_name = "state-spaces/mamba-130m-hf"
+    model_name = "state-spaces/mamba-370m-hf"
     config = AutoConfig.from_pretrained(
         model_name,
         # hidden_size=2**6,  # 768 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
@@ -72,7 +72,7 @@ def optuna_hp_space(trial):
         "gradient_accumulation_steps": trial.suggest_int(
             "gradient_accumulation_steps", 1, 3
         ),
-        "num_train_epochs": trial.suggest_int("num_train_epochs", 1, 3),
+        "num_train_epochs": trial.suggest_int("num_train_epochs", 3, 5),
     }
 
 
