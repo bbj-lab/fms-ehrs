@@ -9,4 +9,4 @@
 
 source ~/.bashrc
 source venv/bin/activate
-python3 8_predictions_with_vllm.py
+python3 08_predictions_with_vllm.py

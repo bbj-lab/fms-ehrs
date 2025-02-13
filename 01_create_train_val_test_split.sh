@@ -9,4 +9,4 @@
 
 source ~/.bashrc
 source venv/bin/activate
-python3 1_create_train_val_test_split.py
+python3 01_create_train_val_test_split.py

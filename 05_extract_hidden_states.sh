@@ -9,4 +9,4 @@
 
 source ~/.bashrc
 source venv/bin/activate
-torchrun --nproc_per_node=8 5_extract_hidden_states.py
+torchrun --nproc_per_node=8 05_extract_hidden_states.py
