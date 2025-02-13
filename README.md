@@ -5,26 +5,9 @@ This workflow tokenizes CLIF data
 `hospitalization_id`-level timelines and trains a small instance of Mamba on the
 resulting data.
 
-The CLIF-2.0 specification provides the following schemas:
-<img src="./img/ERD-2.png" 
-       alt="schematic for CLIF-2.0" 
-       style="max-width:700px;width:100%">
-
 The conversion script for
 [MIMIC-IV-3.1](https://physionet.org/content/mimiciv/3.1/) data creates 9 of
-these tables:
-
-- patient
-- hospitalization
-- adt
-- vitals
-- patient assessments
-- respiratory support
-- labs
-- medication admin continuous
-- position
-
-The tables created using the conversion can be found at
+these tables. The tables created using the conversion can be found at
 `/gpfs/data/bbj-lab/users/burkh4rt/CLIF-MIMIC/rclif`.
 
 The python scripts can be run in an environment as described in the
@@ -36,22 +19,6 @@ source venv/bin/activate
 pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 pip3 install -r requirements.txt
 ```
-
-Dataset creation and tokenization was tested on a cluster with a large amount of
-memory. (All datasets could be fully loaded in memory.) To run on randi:
-
-```sh
-sbatch 1_2_make_tokenized_datasets.sh
-```
-
-Training is currently run with 8x Nvidia A100's:
-
-```sh
-sbatch 3_train_small_mamba.sh
-```
-
-Monitoring statistics and logs are collected at:
-[https://wandb.ai/burkhart/clif_mamba](https://wandb.ai/burkhart/clif_mamba)
 
 <!--
 

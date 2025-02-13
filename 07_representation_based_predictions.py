@@ -161,7 +161,7 @@ for model_version in ("small-lr-search", "smaller-lr-search"):
                 y_true=mort_true[icu_t_mask], y_pred=np.round(mort_pred[icu_t_mask])
             )
 
-    print(results.astype({"count": "int"}))
+    print(results.astype({"count": "int"}).sort_values("count", ascending=False))
 
     """ regression for length of stay (in hours)
     """

@@ -29,23 +29,28 @@ vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
 determined = list()
 expired = list()
 n_gend = list()
-
+fin_tkn = list()
 
 for fp in data_dirs["test"].glob(f"responses_k{k}_rep_*_of_*-{model_version}.pkl"):
     det = list()
     exp = list()
     gen = list()
+    fin = list()
     with open(fp, "rb") as f:
         response_list = pickle.load(f)
         for x in response_list:
             det.append(len(x) < k)
             exp.append(vocab("expired") in x)
             gen.append(len(x))
+            fin.append(x[-1])
     determined.append(det)
     expired.append(exp)
     n_gend.append(gen)
+    fin_tkn.append(fin)
 
-determined, expired, n_gend = map(np.array, (determined, expired, n_gend))
+determined, expired, n_gend, fin_tkn = map(
+    np.array, (determined, expired, n_gend, fin_tkn)
+)
 
 print("Determined: {}%".format(100 * determined.mean().round(5)))
 print(
@@ -70,7 +75,7 @@ print(
     ),
 )
 
-print("{pred} predicted deaths".format(pred=mort_pred.sum().astype(int)))
+print("{pred} predicted deaths".format(pred=mort_pred.round().astype(int).sum()))
 
 print(
     "roc_auc: {:.3f}".format(
@@ -88,7 +93,10 @@ for met in (
         "{}: {:.3f}".format(
             met,
             getattr(skl_mets, f"{met}_score")(
-                y_true=mort_true, y_pred=(mort_pred >= 0.5)
+                y_true=mort_true, y_pred=(mort_pred >= 0.3)
             ),
         )
     )
+
+uniq = lambda arr: dict(zip(*np.unique(arr, return_counts=True)))
+uniq()
