@@ -67,7 +67,7 @@ def optuna_hp_space(trial):
     return {
         "learning_rate": trial.suggest_float("learning_rate", 1e-4, 5e-4, log=True),
         "per_device_train_batch_size": trial.suggest_categorical(
-            "per_device_train_batch_size", [8, 16, 32]
+            "per_device_train_batch_size", [4, 8, 16]
         ),
         "gradient_accumulation_steps": trial.suggest_int(
             "gradient_accumulation_steps", 1, 3
@@ -82,8 +82,8 @@ training_args = SFTConfig(
     run_name=model_version,
     max_seq_length=1024,
     output_dir=str(output_dir),
-    per_device_train_batch_size=32,
-    per_device_eval_batch_size=32,
+    per_device_train_batch_size=4,
+    per_device_eval_batch_size=4,
     gradient_accumulation_steps=2,  # simulate larger batch sizes
     learning_rate=2e-4,  # 2e-4 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
     num_train_epochs=1,
