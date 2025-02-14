@@ -72,3 +72,45 @@ for cut_at_24h in (False, True):
 
         tokens_timelines = tkzr.pad_and_truncate(tokens_timelines)
         tokens_timelines.write_parquet(out_dirs[s].joinpath("tokens_timelines.parquet"))
+
+"""
+examine results
+"""
+
+import numpy as np
+import polars as pl
+import vocabulary as vocab
+
+v = vocab.Vocabulary().load(
+    hm.joinpath("clif-data", "day_stays_qc-tokenized", "train", "vocab.gzip")
+)
+
+df = (
+    pl.scan_parquet(
+        hm.joinpath(
+            "clif-data",
+            "day_stays_qc-tokenized",
+            "train",
+            "tokens_timelines.parquet",
+        )
+    )
+    .select(
+        mort=pl.col("tokens").list.contains(v("expired")),
+        mort_trunc=pl.col("padded").list.contains(v("expired")),
+        orig_len=pl.col("tokens").list.len(),
+    )
+    .collect()
+)
+
+mort = df.select("mort").to_numpy().ravel()
+mort_trunc = df.select("mort_trunc").to_numpy().ravel()
+
+# anytime there's a death in the truncated set, there should be one in the original
+assert np.where(mort_trunc, mort, True).all()
+
+print("Mortality: {}".format(mort.sum()))
+print("Mortality seen by model: {}".format(mort_trunc.sum()))
+
+
+df.select("orig_len").describe()
+df.filter(pl.col("mort")).select("orig_len").describe()

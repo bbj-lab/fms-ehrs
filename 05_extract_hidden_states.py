@@ -18,8 +18,8 @@ from vocabulary import Vocabulary
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser()
 
 data_version = "day_stays_qc_first_24h"
-model_version = "smaller-lr-search"  # "small"
-model_loc = hm.joinpath("clif-mdls", model_version, "run-2", "checkpoint-18000")
+model_version = "smallest-lr-search"  # "small"
+model_loc = hm.joinpath("clif-mdls", model_version, "run-2", "checkpoint-5500")
 
 # prepare parallelism
 is_parallel = t.cuda.device_count() > 1

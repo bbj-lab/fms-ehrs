@@ -1,12 +1,12 @@
 #!/bin/bash
 
-#SBATCH --job-name=tune-clif-mamba
+#SBATCH --job-name=extract-outcomes
 #SBATCH --output=./output/%j.stdout
 #SBATCH --chdir=/gpfs/data/bbj-lab/users/burkh4rt/clif-tokenizer
-#SBATCH --partition=gpuq
-#SBATCH --gres=gpu:8
-#SBATCH --time=1-00:00:00
+#SBATCH --partition=tier3q
+#SBATCH --mem=1TB
+#SBATCH --time=1:00:00
 
 source ~/.bashrc
 source venv/bin/activate
-torchrun --nproc_per_node=8 3_tune_small_mamba.py
+python3 06_extract_outcomes.py

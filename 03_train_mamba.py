@@ -9,12 +9,12 @@ import os
 import pathlib
 
 data_version = "day_stays_qc"
-model_version = "small-neftune"
+model_version = "medium"
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser().absolute()
 
 os.environ["HF_HOME"] = "/gpfs/data/bbj-lab/cache/huggingface/"
 os.environ["WANDB_CACHE_DIR"] = "/scratch/burkh4rt/"
-os.environ["WANDB_DIR"] = hm.joinpath("wandb").__str__()
+os.environ["WANDB_DIR"] = "/scratch/burkh4rt/"
 os.environ["WANDB_PROJECT"] = "mamba_clif_mimic_qc"
 os.environ["WANDB_RUN_NAME"] = "{d}-{m}".format(d=data_version, m=model_version)
 
@@ -34,7 +34,7 @@ output_dir = hm.joinpath("clif-mdls", model_version)
 output_dir.mkdir(exist_ok=True, parents=True)
 
 # grab a small mamba for training
-model_name = "state-spaces/mamba-130m-hf"
+model_name = "state-spaces/mamba-370m-hf"
 config = AutoConfig.from_pretrained(
     model_name,
     vocab_size=len(vocab),
@@ -63,14 +63,14 @@ training_args = SFTConfig(
     run_name=model_version,
     max_seq_length=1024,
     output_dir=str(output_dir),
-    per_device_train_batch_size=32,
-    per_device_eval_batch_size=32,
-    gradient_accumulation_steps=2,  # simulate larger batch sizes
+    per_device_train_batch_size=16,
+    per_device_eval_batch_size=16,
+    gradient_accumulation_steps=1,  # simulate larger batch sizes
     learning_rate=2e-4,  # 2e-4 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
-    num_train_epochs=10,
+    num_train_epochs=1,
     save_total_limit=2,
     load_best_model_at_end=True,
-    neftune_noise_alpha=5,
+    # neftune_noise_alpha=5,
     eval_strategy="steps",
     save_strategy="steps",
 )

@@ -5,7 +5,9 @@ This workflow tokenizes CLIF data
 `hospitalization_id`-level timelines and trains a small instance of Mamba on
 the resulting data.
 
-The tables created using the conversion can be found at
+The conversion script for
+[MIMIC-IV-3.1](https://physionet.org/content/mimiciv/3.1/) data creates 9 of
+these tables. The tables created using the conversion can be found at
 `/gpfs/data/bbj-lab/users/burkh4rt/CLIF-MIMIC/rclif`.
 
 The python scripts (with the exception of FHE-based stuff) can be run in an
@@ -83,7 +85,7 @@ Troubleshoot:
 ```
 systemd-run --scope --user tmux new -s gpuq
 srun -p gpuq \
-  --gres=gpu:1 \
+  --gres=gpu:4 \
   --time=8:00:00 \
   --job-name=adhoc \
   --pty bash -i

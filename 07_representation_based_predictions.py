@@ -21,7 +21,7 @@ pd.options.display.max_colwidth = 100
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/clif-data")
 
 data_version = "day_stays_qc_first_24h"
-for model_version in ("small-lr-search", "smaller-lr-search"):
+for model_version in ("smallest-lr-search", "smaller-lr-search", "small-lr-search"):
     print(model_version)
 
     # set the following flag to "False" for better performance
@@ -161,7 +161,7 @@ for model_version in ("small-lr-search", "smaller-lr-search"):
                 y_true=mort_true[icu_t_mask], y_pred=np.round(mort_pred[icu_t_mask])
             )
 
-    print(results.astype({"count": "int"}))
+    print(results.astype({"count": "int"}).sort_values("count", ascending=False))
 
     """ regression for length of stay (in hours)
     """
