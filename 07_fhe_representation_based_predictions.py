@@ -9,13 +9,11 @@ import pathlib
 
 import numpy as np
 import polars as pl
-
-from xgboost.sklearn import XGBClassifier as SklearnXGBClassifier
-from concrete.ml.sklearn import XGBClassifier as ConcreteXGBClassifier
 from concrete.compiler import check_gpu_available
+from concrete.ml.sklearn import XGBClassifier as ConcreteXGBClassifier
 from sklearn.metrics import roc_auc_score as skl_auc
 from sklearn.model_selection import GridSearchCV
-
+from xgboost.sklearn import XGBClassifier as SklearnXGBClassifier
 
 if os.uname().nodename.startswith("cri"):
     data_hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/clif-data")

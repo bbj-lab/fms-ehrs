@@ -9,9 +9,7 @@ import pathlib
 
 import numpy as np
 import polars as pl
-
 from concrete.ml.sklearn import SGDClassifier
-
 
 if os.uname().nodename.startswith("cri"):
     data_hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/clif-data")
@@ -40,6 +38,7 @@ for s in splits:
         .select("same_admission_death")
         .collect()
         .to_numpy()
+        .astype(int)
         .ravel()
     )
 
@@ -62,7 +61,7 @@ for s in ("val", "test"):
 
 model = SGDClassifier(
     random_state=42,
-    max_iter=50,
+    max_iter=10,
     fit_encrypted=True,
     parameters_range=parameters_range,
     verbose=1,
@@ -70,3 +69,18 @@ model = SGDClassifier(
 
 n_train = 100
 model.fit(feats["train"][:n_train], mort["train"][:n_train], fhe="execute")
+model.compile(feats["train"][:n_train])
+
+model.predict_proba(feats["val"][:10], fhe="execute")
+
+""" typical output on local machine:
+Compiling training circuit on device 'cpu'...
+Compilation took 2.2327 seconds.
+Key Generation...
+Key generation took 19.0704 seconds.
+Training on encrypted data...
+Iteration 0 took 303.54 seconds.
+Iteration 1 took 293.87 seconds.
+Iteration 2 took 321.67 seconds.
+Iteration 3 took 292.35 seconds.
+"""
