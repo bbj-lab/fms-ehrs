@@ -79,6 +79,7 @@ examine results
 
 import numpy as np
 import polars as pl
+
 import vocabulary as vocab
 
 v = vocab.Vocabulary().load(

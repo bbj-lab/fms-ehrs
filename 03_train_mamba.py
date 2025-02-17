@@ -18,7 +18,7 @@ os.environ["WANDB_DIR"] = "/scratch/burkh4rt/"
 os.environ["WANDB_PROJECT"] = "mamba_clif_mimic_qc"
 os.environ["WANDB_RUN_NAME"] = "{d}-{m}".format(d=data_version, m=model_version)
 
-from datasets import load_dataset
+from datasets import Features, Sequence, Value, load_dataset
 from transformers import AutoConfig, AutoModelForCausalLM
 from trl import SFTConfig, SFTTrainer
 
@@ -53,7 +53,12 @@ dataset = (
             for s in ("train", "val")
         },
     )
-    .map(lambda batch: {"input_ids": batch["padded"]}, batched=True)
+    .map(
+        lambda batch: {"input_ids": batch["padded"]},
+        batched=True,
+        remove_columns=["hospitalization_id", "tokens", "times", "seq_len", "padded"],
+        features=Features({"input_ids": Sequence(Value("uint8"))}),
+    )
     .shuffle(seed=42)
 )
 
