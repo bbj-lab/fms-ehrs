@@ -29,9 +29,10 @@ seem to on randi. You may need to create an environment in Python 3.11 to run
 that:
 
 ```sh
-conda create -n concrete python=3.11
+conda env create -f concrete-environment.yml
 conda activate concrete
-pip3 install concrete-ml polars
+pip uninstall concrete-python
+pip install --extra-index-url https://pypi.zama.ai/gpu concrete-python
 ```
 
 <!--
@@ -40,10 +41,13 @@ Send code:
 ```sh
 rsync -avht \
       --cvs-exclude \
-      --exclude "venv/*" \
-      --exclude ".idea/*" \
-      --exclude "output/*" \
-      --exclude "wandb/*" \
+      --exclude "venv/" \
+      --exclude ".idea/" \
+      --exclude "output/" \
+      --exclude "wandb/" \
+      --exclude ".tmp/" \
+      --exclude "results/" \
+      --exclude ".artifacts/" \
       --delete \
       ~/Documents/chicago/clif-tokenizer \
       randi:/gpfs/data/bbj-lab/users/burkh4rt
@@ -52,6 +56,7 @@ rsync -avht \
 Update venv:
 ```sh
 pip3 list --format=freeze > requirements.txt
+conda env export > environment.yml
 ```
 
 Grab development sample:
