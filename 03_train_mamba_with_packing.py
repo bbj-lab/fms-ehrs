@@ -20,14 +20,15 @@ os.environ["WANDB_DIR"] = "/scratch/burkh4rt/"
 os.environ["WANDB_PROJECT"] = "mamba_clif_mimic_packing"
 os.environ["WANDB_RUN_NAME"] = "{d}-{m}".format(d=data_version, m=model_version)
 
-from datasets import Features, Sequence, Value, load_dataset, IterableDataset, Dataset
 import torch as t
+from datasets import Features, IterableDataset, Sequence, Value, load_dataset
 from transformers import AutoConfig, AutoModelForCausalLM
 from trl import SFTConfig, SFTTrainer
 
 from vocabulary import Vocabulary
 
 n_epochs = 10
+max_seq_length = 1024
 rng = t.Generator().manual_seed(42)
 
 # locate data and vocab
@@ -38,6 +39,28 @@ data_dirs = {
 vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
 output_dir = hm.joinpath("clif-mdls", model_version)
 output_dir.mkdir(exist_ok=True, parents=True)
+
+
+def get_padding(
+    tk: int = vocab("PAD"), poisson_rate: float = 7.0, generator: t.Generator = rng
+):
+    size = t.poisson(t.tensor(poisson_rate), generator=generator).to(t.uint8)
+    return t.full(size=(size.item(),), fill_value=tk, dtype=t.uint8)
+
+
+# chunk out the dataset in a way that teaches padding
+def chunk_iterable(it, chunk_size: int = max_seq_length):
+    ret: t.Tensor = t.Tensor(size=(0,))
+    for eg in it:
+        x = t.concat((eg["input_ids"], get_padding()))
+        while x.size(dim=0) > 0:
+            ndiff = min(chunk_size - ret.size(dim=0), x.size(dim=0))
+            ret = t.concat((ret, x[:ndiff]))
+            x = x[ndiff:]
+            if ret.size(dim=0) == chunk_size:
+                yield {"input_ids": ret.to(t.uint8)}
+                ret = t.Tensor(size=(0,))
+
 
 # load data
 dataset = (
@@ -56,37 +79,14 @@ dataset = (
     .with_format("torch")
 )
 
-# repeat the training data n_epochs times and shuffle it
-training_dset = IterableDataset.from_generator(
-    lambda: itertools.chain.from_iterable(
-        itertools.tee(iter(dataset["train"]), n_epochs)
-    )
-).shuffle(seed=42)
-
-
-def get_padding(
-    tk: int = vocab("PAD"), poisson_rate: float = 10.0, generator: t.Generator = rng
-):
-    size = t.poisson(t.tensor(poisson_rate), generator=generator).to(t.uint8)
-    return t.full(size=(size.item(),), fill_value=tk, dtype=t.uint8)
-
-
-# chunk out the dataset in a way that teaches padding
-def chunk_iterable(it, chunk_size=1024):
-    ret = t.Tensor(size=(0,))
-    for eg in it:
-        x = t.concat((eg["input_ids"], get_padding()))
-        while x.size(dim=0) > 0:
-            ndiff = min(chunk_size - ret.size(dim=0), x.size(dim=0))
-            ret = t.concat((ret, x[:ndiff]))
-            x = x[ndiff:]
-            if ret.size(dim=0) == chunk_size:
-                yield {"input_ids": ret.to(t.uint8)}
-                ret = t.Tensor(size=(0,))
-
-
 train_me = IterableDataset.from_generator(
-    lambda: chunk_iterable(training_dset),
+    lambda: chunk_iterable(
+        IterableDataset.from_generator(
+            lambda: itertools.chain.from_iterable(
+                itertools.repeat(iter(dataset["train"]), n_epochs)
+            )
+        ).shuffle(seed=42, buffer_size=1024)
+    ),
     features=Features({"input_ids": Sequence(Value("uint8"))}),
 )
 
@@ -94,7 +94,6 @@ validate_me = IterableDataset.from_generator(
     lambda: chunk_iterable(dataset["val"]),
     features=Features({"input_ids": Sequence(Value("uint8"))}),
 )
-
 
 # grab a small mamba for training
 model_name = "state-spaces/mamba-130m-hf"
@@ -135,6 +134,7 @@ training_args = SFTConfig(
     eval_strategy="steps",
     save_strategy="steps",
     max_steps=max_steps,
+    max_seq_length=max_seq_length,
 )
 
 trainer = SFTTrainer(
