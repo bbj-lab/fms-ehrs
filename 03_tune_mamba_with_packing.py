@@ -1,24 +1,22 @@
 #!/usr/bin/env python3
 
 """
-train a small version of Mamba with a packing strategy and 
+train a small version of Mamba with a packing strategy and
 Poisson-distributed padding
 """
 
-import datetime
 import itertools
 import os
 import pathlib
 
 data_version = "day_stays_qc"
-model_version = "small-packed"
+model_version = "small-packing-search"
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser().absolute()
 
 os.environ["HF_HOME"] = "/gpfs/data/bbj-lab/cache/huggingface/"
 os.environ["WANDB_CACHE_DIR"] = "/scratch/burkh4rt/"
-os.environ["WANDB_DIR"] = "/scratch/burkh4rt/"
 os.environ["WANDB_PROJECT"] = "mamba_clif_mimic_packing"
-os.environ["WANDB_RUN_NAME"] = "{d}-{m}".format(d=data_version, m=model_version)
+os.environ["WANDB_RUN_NAME"] = model_version
 
 import torch as t
 from datasets import Features, IterableDataset, Sequence, Value, load_dataset
@@ -27,7 +25,7 @@ from trl import SFTConfig, SFTTrainer
 
 from vocabulary import Vocabulary
 
-n_epochs = 10
+n_epochs = 5
 max_seq_length = 1024
 rng = t.Generator().manual_seed(42)
 
@@ -39,6 +37,23 @@ data_dirs = {
 vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
 output_dir = hm.joinpath("clif-mdls", model_version)
 output_dir.mkdir(exist_ok=True, parents=True)
+
+
+def model_init(trial=None):
+    # grab a small mamba for training
+    model_name = "state-spaces/mamba-130m-hf"
+    config = AutoConfig.from_pretrained(
+        model_name,
+        # hidden_size=2**6,  # 768 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
+        # n_layer=2**4,  # 24 -- ibid
+        # num_hidden_layers=2**4,  # 24 -- ibid
+        # state_size=2**3,  # 16 -- ibid
+        vocab_size=len(vocab),
+        bos_token_id=vocab("TL_START"),
+        eos_token_id=vocab("TL_END"),
+        pad_token_id=vocab("PAD"),
+    )
+    return AutoModelForCausalLM.from_config(config)
 
 
 def get_padding(
@@ -95,37 +110,34 @@ validate_me = IterableDataset.from_generator(
     features=Features({"input_ids": Sequence(Value("uint8"))}),
 )
 
-# grab a small mamba for training
-model_name = "state-spaces/mamba-130m-hf"
-config = AutoConfig.from_pretrained(
-    model_name,
-    vocab_size=len(vocab),
-    bos_token_id=vocab("TL_START"),
-    eos_token_id=vocab("TL_END"),
-    pad_token_id=vocab("PAD"),
-    # hidden_size=2**6,  # 768 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
-    # n_layer=2**4,  # 24 -- ibid
-    # num_hidden_layers=2**4,  # 24 -- ibid
-    # state_size=2**3,  # 16 -- ibid
-)
-model = AutoModelForCausalLM.from_config(config)
 
-per_device_train_batch_size = 16
+def optuna_hp_space(trial):
+    return {
+        "learning_rate": trial.suggest_float("learning_rate", 5e-5, 5e-4, log=True),
+        "per_device_train_batch_size": trial.suggest_categorical(
+            "per_device_train_batch_size", [4, 8, 16]
+        ),
+        "gradient_accumulation_steps": trial.suggest_int(
+            "gradient_accumulation_steps", 1, 3
+        ),
+    }
+
+
+min_batch_size = 4
 max_steps = (
-    dataset["train"].num_rows
-    * n_epochs
-    // per_device_train_batch_size
-    // t.cuda.device_count()
+    dataset["train"].num_rows * n_epochs // min_batch_size // t.cuda.device_count()
 )
+
 
 # train model
 training_args = SFTConfig(
     report_to="wandb",
     run_name=model_version,
+    max_seq_length=max_seq_length,
     output_dir=str(output_dir),
-    per_device_train_batch_size=per_device_train_batch_size,
-    per_device_eval_batch_size=16,
-    gradient_accumulation_steps=1,  # simulate larger batch sizes
+    per_device_train_batch_size=4,
+    per_device_eval_batch_size=4,
+    gradient_accumulation_steps=2,  # simulate larger batch sizes
     learning_rate=2e-4,  # 2e-4 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
     num_train_epochs=1,
     save_total_limit=2,
@@ -134,27 +146,21 @@ training_args = SFTConfig(
     eval_strategy="steps",
     save_strategy="steps",
     max_steps=max_steps,
-    max_seq_length=max_seq_length,
 )
 
 trainer = SFTTrainer(
-    model,
+    model=model_init(),
+    model_init=model_init,
     train_dataset=train_me,
     eval_dataset=validate_me,
     args=training_args,
 )
-trainer.train()
-trainer.save_model(
-    str(
-        output_dir.joinpath(
-            "mdl-{d}-{m}-{t}".format(
-                d=data_version,
-                m=model_version,
-                t=datetime.datetime.now(datetime.timezone.utc)
-                .replace(microsecond=0)
-                .astimezone()
-                .isoformat(),
-            )
-        )
-    )
+
+best_trial = trainer.hyperparameter_search(
+    direction="minimize",
+    backend="optuna",
+    hp_space=optuna_hp_space,
+    n_trials=5,
 )
+
+print(best_trial)
