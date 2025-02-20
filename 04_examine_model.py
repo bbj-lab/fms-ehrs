@@ -19,16 +19,18 @@ from vocabulary import Vocabulary
 
 projector_type = "PCA"
 data_version = "day_stays_qc_first_24h"
-model_version = "small-lr-search"  # "small"
 
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser()
 
 train_dir = hm.joinpath("clif-data", f"{data_version}-tokenized", "train")
 vocab = Vocabulary().load(train_dir.joinpath("vocab.gzip"))
-mdl_dir = hm.joinpath("clif-mdls", model_version)
-
+model_version = "small-packed"  # "small"
 model = AutoModelForCausalLM.from_pretrained(
-    mdl_dir.joinpath("run-1", "checkpoint-9000")
+    hm.joinpath(
+        "clif-mdls",
+        model_version,
+        "mdl-day_stays_qc-small-packed-2025-02-18T19:25:32-06:00",
+    )
 )
 
 
@@ -79,7 +81,7 @@ fig = px.scatter(
     hover_name="token",
 )
 
-fig.write_html(hm.joinpath("embedding_vis.html"))
+fig.write_html(hm.joinpath("embedding_vis-{m}.html".format(m=model_version)))
 
 """
 quantile embeddings only
@@ -117,7 +119,7 @@ fig.add_trace(
     )
 )
 
-fig.write_html(hm.joinpath("embedding_q.html"))
+fig.write_html(hm.joinpath("embedding_q-{m}.html".format(m=model_version)))
 
 
 """

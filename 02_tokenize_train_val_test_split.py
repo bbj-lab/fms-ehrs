@@ -81,6 +81,10 @@ import numpy as np
 import polars as pl
 
 import vocabulary as vocab
+from logger import get_logger
+
+logger = get_logger()
+logger.info("running {}".format(__file__))
 
 v = vocab.Vocabulary().load(
     hm.joinpath("clif-data", "day_stays_qc-tokenized", "train", "vocab.gzip")

@@ -6,6 +6,7 @@ N.B.: we move the padding from the right (for training) to the left (so that
 the most recent context is the timeline and the padding comes beforehand)
 """
 
+import os
 import pathlib
 import pickle
 
@@ -13,17 +14,34 @@ import torch as t
 from datasets import load_dataset
 from vllm import LLM, SamplingParams
 
+from logger import get_logger
 from vocabulary import Vocabulary
 
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser()
 
 data_version = "day_stays_qc_first_24h"
-model_version = "smaller-lr-search"  # "small"
-model_loc = hm.joinpath("clif-mdls", model_version, "run-2", "checkpoint-18000")
+model_version = "small-packed"  # "small"
+model_loc = hm.joinpath(
+    "clif-mdls",
+    model_version,
+    "mdl-day_stays_qc-small-packed-2025-02-18T19:25:32-06:00",
+)
 
 k = 10_000
 n_samp = 20
 top_p = 0.9
+
+if os.getenv("RANK", "0") == "0":
+    logger = get_logger()
+    logger.info("running {}".format(__file__))
+    logger.log_env()
+    logger.info(f"{data_version=}")
+    logger.info(f"{model_version=}")
+    logger.info(f"{model_loc=}")
+    logger.info(f"{k=}")
+    logger.info(f"{n_samp=}")
+    logger.info(f"{top_p=}")
+
 
 # load and prep data
 splits = ("train", "val", "test")

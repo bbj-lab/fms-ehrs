@@ -12,11 +12,11 @@ import pathlib
 data_version = "day_stays_qc"
 model_version = "small-packing-search"
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser().absolute()
+jid = os.getenv("SLURM_JOB_ID", "")
 
 os.environ["HF_HOME"] = "/gpfs/data/bbj-lab/cache/huggingface/"
 os.environ["WANDB_CACHE_DIR"] = "/scratch/burkh4rt/"
 os.environ["WANDB_PROJECT"] = "mamba_clif_mimic_packing"
-os.environ["WANDB_RUN_NAME"] = model_version
 
 import torch as t
 from datasets import Features, IterableDataset, Sequence, Value, load_dataset
@@ -94,7 +94,7 @@ dataset = (
     .with_format("torch")
 )
 
-train_me = IterableDataset.from_generator(
+train_set = IterableDataset.from_generator(
     lambda: chunk_iterable(
         IterableDataset.from_generator(
             lambda: itertools.chain.from_iterable(
@@ -105,7 +105,7 @@ train_me = IterableDataset.from_generator(
     features=Features({"input_ids": Sequence(Value("uint8"))}),
 )
 
-validate_me = IterableDataset.from_generator(
+val_set = IterableDataset.from_generator(
     lambda: chunk_iterable(dataset["val"]),
     features=Features({"input_ids": Sequence(Value("uint8"))}),
 )
@@ -132,7 +132,7 @@ max_steps = (
 # train model
 training_args = SFTConfig(
     report_to="wandb",
-    run_name=model_version,
+    run_name="{m}-{j}".format(m=model_version, j=jid),
     max_seq_length=max_seq_length,
     output_dir=str(output_dir),
     per_device_train_batch_size=4,
@@ -151,8 +151,8 @@ training_args = SFTConfig(
 trainer = SFTTrainer(
     model=model_init(),
     model_init=model_init,
-    train_dataset=train_me,
-    eval_dataset=validate_me,
+    train_dataset=train_set,
+    eval_dataset=val_set,
     args=training_args,
 )
 

@@ -10,11 +10,11 @@ import pathlib
 data_version = "day_stays_qc"
 model_version = "medium-lr-search"
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser().absolute()
+jid = os.getenv("SLURM_JOB_ID", "")
 
 os.environ["HF_HOME"] = "/gpfs/data/bbj-lab/cache/huggingface/"
 os.environ["WANDB_CACHE_DIR"] = "/scratch/burkh4rt/"
 os.environ["WANDB_PROJECT"] = "mamba_clif_mimic_qc"
-os.environ["WANDB_RUN_NAME"] = model_version
 
 from datasets import Features, Sequence, Value, load_dataset
 from transformers import AutoConfig, AutoModelForCausalLM
@@ -84,7 +84,7 @@ def optuna_hp_space(trial):
 # train model
 training_args = SFTConfig(
     report_to="wandb",
-    run_name=model_version,
+    run_name="{m}-{j}".format(m=model_version, j=jid),
     max_seq_length=1024,
     output_dir=str(output_dir),
     per_device_train_batch_size=4,

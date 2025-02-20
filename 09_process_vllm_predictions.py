@@ -99,4 +99,5 @@ for met in (
     )
 
 uniq = lambda arr: dict(zip(*np.unique(arr, return_counts=True)))
-uniq()
+for k, v in uniq(fin_tkn.ravel()).items():
+    print(vocab.reverse[k], ": ", np.round(v / fin_tkn.size, 3), sep="")
