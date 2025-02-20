@@ -34,7 +34,15 @@ for s in splits:
             ).dt.total_hours(),
             same_admission_death=pl.col("tokens").list.contains(vocab("expired")),
         )
-        .select("hospitalization_id", "length_of_stay", "same_admission_death")
+        .with_columns(
+            long_length_of_stay=pl.col("length_of_stay") > 24 * 7  # 7 days in hours
+        )
+        .select(
+            "hospitalization_id",
+            "length_of_stay",
+            "same_admission_death",
+            "long_length_of_stay",
+        )
     )
     (
         pl.scan_parquet(data_dirs[s].joinpath("tokens_timelines.parquet"))

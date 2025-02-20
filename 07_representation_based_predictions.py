@@ -22,10 +22,10 @@ hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/clif-data")
 
 data_version = "day_stays_qc_first_24h"
 for model_version in ("smallest-lr-search", "smaller-lr-search", "small-lr-search"):
-    print(model_version)
+    print(model_version.upper().ljust(79, "="))
 
     # set the following flag to "False" for better performance
-    fast = False
+    fast = True
 
     splits = ("train", "val", "test")
     data_dirs = dict()
@@ -34,6 +34,7 @@ for model_version in ("smallest-lr-search", "smaller-lr-search", "small-lr-searc
 
     """ classifier for admission mortality
     """
+    print("admission mortality".upper().ljust(79, "-"))
     data = dict()
     for s in ("train", "val"):
         feats = np.load(
@@ -52,7 +53,7 @@ for model_version in ("smallest-lr-search", "smaller-lr-search", "small-lr-searc
         {"metric": "auc", "objective": "binary", "force_col_wise": True}
         | ({} if fast else {"learning_rate": 0.05}),
         data["train"],
-        100 if fast else 1000,
+        20 if fast else 1000,
         valid_sets=[data["val"]],
     )
     mort_pred = bst.predict(
@@ -87,7 +88,7 @@ for model_version in ("smallest-lr-search", "smaller-lr-search", "small-lr-searc
             )
         )
 
-    """breakdown by ICU / non-ICU & ICU type
+    """ breakdown by ICU / non-ICU & ICU type
     """
 
     test_ids = pl.scan_parquet(
@@ -163,8 +164,122 @@ for model_version in ("smallest-lr-search", "smaller-lr-search", "small-lr-searc
 
     print(results.astype({"count": "int"}).sort_values("count", ascending=False))
 
-    """ regression for length of stay (in hours)
+    """ classifier for long length of stay
     """
+    print("long length of stay".upper().ljust(79, "-"))
+
+    data = dict()
+    for s in ("train", "val"):
+        feats = np.load(
+            data_dirs[s].joinpath("features-{m}.npy".format(m=model_version))
+        )
+        llos = (
+            pl.scan_parquet(data_dirs[s].joinpath("outcomes.parquet"))
+            .select("long_length_of_stay")
+            .collect()
+            .to_numpy()
+            .astype(int)
+            .ravel()
+        )
+        data[s] = lgb.Dataset(feats, label=llos)
+
+    bst = lgb.train(
+        {"metric": "auc", "objective": "binary", "force_col_wise": True}
+        | ({} if fast else {"learning_rate": 0.05}),
+        data["train"],
+        20 if fast else 1000,
+        valid_sets=[data["val"]],
+    )
+    llos_pred = bst.predict(
+        np.load(data_dirs["test"].joinpath("features-{m}.npy".format(m=model_version)))
+    )
+    llos_true = (
+        pl.scan_parquet(data_dirs["test"].joinpath("outcomes.parquet"))
+        .select("long_length_of_stay")
+        .cast(pl.Int64)
+        .collect()
+        .to_numpy()
+    )
+
+    print(
+        "roc_auc: {:.3f}".format(
+            skl_mets.roc_auc_score(y_true=llos_true, y_score=llos_pred)
+        )
+    )
+
+    for met in (
+        "accuracy",
+        "balanced_accuracy",
+        "precision",
+        "recall",
+    ):
+        print(
+            "{}: {:.3f}".format(
+                met,
+                getattr(skl_mets, f"{met}_score")(
+                    y_true=llos_true, y_pred=np.round(llos_pred)
+                ),
+            )
+        )
+
+    """ breakdown by ICU / non-ICU & ICU type
+    """
+
+    print(
+        "ICU roc_auc: {:.3f}".format(
+            skl_mets.roc_auc_score(
+                y_true=llos_true[icu_mask], y_score=llos_pred[icu_mask]
+            )
+        )
+    )
+
+    print(
+        "No ICU roc_auc: {:.3f}".format(
+            skl_mets.roc_auc_score(
+                y_true=llos_true[~icu_mask], y_score=llos_pred[~icu_mask]
+            )
+        )
+    )
+
+    results_lloc = pd.DataFrame(
+        columns=[
+            "count",
+            "roc_auc",
+            "accuracy",
+            "balanced_accuracy",
+            "precision",
+            "recall",
+        ],
+        index=icu_types,
+    ).rename_axis(index="icu_types")
+
+    for icu_t in icu_types:
+        icu_t_mask = (
+            test_icu.select(pl.col("careunit") == icu_t)
+            .fill_null(False)
+            .collect()
+            .to_numpy()
+            .ravel()
+        )
+        results_lloc.loc[icu_t, "count"] = icu_t_mask.sum()
+        results_lloc.loc[icu_t, "roc_auc"] = skl_mets.roc_auc_score(
+            y_true=llos_true[icu_t_mask], y_score=llos_pred[icu_t_mask]
+        )
+        for met in (
+            "accuracy",
+            "balanced_accuracy",
+            "precision",
+            "recall",
+        ):
+            results_lloc.loc[icu_t, met] = getattr(skl_mets, f"{met}_score")(
+                y_true=llos_true[icu_t_mask], y_pred=np.round(llos_pred[icu_t_mask])
+            )
+
+    print(results_lloc.astype({"count": "int"}).sort_values("count", ascending=False))
+
+    """ regression for length of stay (in hours)
+    
+    print("length of stay (regression)".upper().ljust(79, "-"))
 
     for s in ("train", "val"):
         feats = np.load(
@@ -183,7 +298,7 @@ for model_version in ("smallest-lr-search", "smaller-lr-search", "small-lr-searc
         {"objective": "regression", "force_col_wise": True}
         | ({} if fast else {"learning_rate": 0.05}),
         data["train"],
-        100 if fast else 1000,
+        20 if fast else 1000,
         valid_sets=[data["val"]],
     )
     los_pred = bst.predict(
@@ -208,3 +323,5 @@ for model_version in ("smallest-lr-search", "smaller-lr-search", "small-lr-searc
                 getattr(skl_mets, met)(y_true=los_true, y_pred=los_pred),
             )
         )
+    
+    """
