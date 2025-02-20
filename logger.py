@@ -7,6 +7,7 @@ import datetime
 import logging
 import os
 import subprocess
+import sys
 
 
 class SlurmLogger(logging.Logger):
@@ -26,7 +27,8 @@ class SlurmLogger(logging.Logger):
 
     def log_env(self):
 
-        self.info("running on {}".format(os.uname().nodename))
+        self.info("running Python {}".format(sys.version))
+        self.info("on {}".format(os.uname().nodename))
         self.info("tz-info: {}".format(datetime.datetime.now().astimezone().tzinfo))
         if slurm_job_id := os.getenv("SLURM_JOB_ID", ""):
             self.info("slurm job id: {}".format(slurm_job_id))
