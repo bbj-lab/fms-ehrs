@@ -5,31 +5,49 @@ train a small version of Mamba with a packing strategy and
 Poisson-distributed padding
 """
 
-import datetime
 import itertools
 import os
 import pathlib
 
 data_version = "day_stays_qc"
-model_version = "small-packed"
+model_name = "state-spaces/mamba-130m-hf"
+model_version = "small-packed-rev"
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser().absolute()
+jid = os.getenv("SLURM_JOB_ID", "")
 
 os.environ["HF_HOME"] = "/gpfs/data/bbj-lab/cache/huggingface/"
 os.environ["WANDB_CACHE_DIR"] = "/scratch/burkh4rt/"
 os.environ["WANDB_DIR"] = "/scratch/burkh4rt/"
 os.environ["WANDB_PROJECT"] = "mamba_clif_mimic_packing"
-os.environ["WANDB_RUN_NAME"] = "{d}-{m}".format(d=data_version, m=model_version)
 
 import torch as t
 from datasets import Features, IterableDataset, Sequence, Value, load_dataset
 from transformers import AutoConfig, AutoModelForCausalLM
 from trl import SFTConfig, SFTTrainer
 
+from logger import get_logger
 from vocabulary import Vocabulary
 
 n_epochs = 10
 max_seq_length = 1024
+learning_rate = 2e-4
+per_device_train_batch_size = 16
+per_device_eval_batch_size = 16
 rng = t.Generator().manual_seed(42)
+
+
+if os.getenv("RANK", "0") == "0":
+    logger = get_logger()
+    logger.info("running {}".format(__file__))
+    logger.log_env()
+    logger.info(f"{data_version=}")
+    logger.info(f"{model_name=}")
+    logger.info(f"{model_version=}")
+    logger.info(f"{n_epochs=}")
+    logger.info(f"{max_seq_length=}")
+    logger.info(f"{learning_rate=}")
+    logger.info(f"{per_device_train_batch_size=}")
+    logger.info(f"{per_device_eval_batch_size=}")
 
 # locate data and vocab
 splits = ("train", "val")
@@ -79,7 +97,7 @@ dataset = (
     .with_format("torch")
 )
 
-train_me = IterableDataset.from_generator(
+train_set = IterableDataset.from_generator(
     lambda: chunk_iterable(
         IterableDataset.from_generator(
             lambda: itertools.chain.from_iterable(
@@ -90,13 +108,12 @@ train_me = IterableDataset.from_generator(
     features=Features({"input_ids": Sequence(Value("uint8"))}),
 )
 
-validate_me = IterableDataset.from_generator(
+val_set = IterableDataset.from_generator(
     lambda: chunk_iterable(dataset["val"]),
     features=Features({"input_ids": Sequence(Value("uint8"))}),
 )
 
 # grab a small mamba for training
-model_name = "state-spaces/mamba-130m-hf"
 config = AutoConfig.from_pretrained(
     model_name,
     vocab_size=len(vocab),
@@ -110,7 +127,6 @@ config = AutoConfig.from_pretrained(
 )
 model = AutoModelForCausalLM.from_config(config)
 
-per_device_train_batch_size = 16
 max_steps = (
     dataset["train"].num_rows
     * n_epochs
@@ -121,12 +137,12 @@ max_steps = (
 # train model
 training_args = SFTConfig(
     report_to="wandb",
-    run_name=model_version,
+    run_name="{m}-{j}".format(m=model_version, j=jid),
     output_dir=str(output_dir),
     per_device_train_batch_size=per_device_train_batch_size,
-    per_device_eval_batch_size=16,
+    per_device_eval_batch_size=per_device_eval_batch_size,
     gradient_accumulation_steps=1,  # simulate larger batch sizes
-    learning_rate=2e-4,  # 2e-4 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
+    learning_rate=learning_rate,  # 2e-4 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
     num_train_epochs=1,
     save_total_limit=2,
     load_best_model_at_end=True,
@@ -139,21 +155,18 @@ training_args = SFTConfig(
 
 trainer = SFTTrainer(
     model,
-    train_dataset=train_me,
-    eval_dataset=validate_me,
+    train_dataset=train_set,
+    eval_dataset=val_set,
     args=training_args,
 )
 trainer.train()
 trainer.save_model(
     str(
         output_dir.joinpath(
-            "mdl-{d}-{m}-{t}".format(
+            "mdl-{d}-{m}-{j}".format(
                 d=data_version,
                 m=model_version,
-                t=datetime.datetime.now(datetime.timezone.utc)
-                .replace(microsecond=0)
-                .astimezone()
-                .isoformat(),
+                j=jid,
             )
         )
     )

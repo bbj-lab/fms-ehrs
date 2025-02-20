@@ -4,6 +4,7 @@
 grab the final hidden state (at just under 24h) from each provided sequence
 """
 
+import os
 import pathlib
 
 import numpy as np
@@ -13,13 +14,28 @@ from datasets import load_dataset
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM
 
+from logger import get_logger
 from vocabulary import Vocabulary
 
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser()
 
 data_version = "day_stays_qc_first_24h"
-model_version = "smallest-lr-search"  # "small"
-model_loc = hm.joinpath("clif-mdls", model_version, "run-2", "checkpoint-5500")
+model_version = "small-packed"  # "small"
+model_loc = hm.joinpath(
+    "clif-mdls",
+    model_version,
+    "mdl-day_stays_qc-small-packed-2025-02-18T19:25:32-06:00",
+)
+batch_sz = 2**7
+
+if os.getenv("RANK", "0") == "0":
+    logger = get_logger()
+    logger.info("running {}".format(__file__))
+    logger.log_env()
+    logger.info(f"{data_version=}")
+    logger.info(f"{model_version=}")
+    logger.info(f"{model_loc=}")
+    logger.info(f"{batch_sz=}")
 
 # prepare parallelism
 is_parallel = t.cuda.device_count() > 1
@@ -51,14 +67,13 @@ dataset = (
 )
 
 # load and prep model
-model = AutoModelForCausalLM.from_pretrained(model_loc)
+model = AutoModelForCausalLM.from_pretrained(model_loc)  # in eval mode by default
 d = model.config.hidden_size
 model = model.to(device)
 if is_parallel:
     model = t.nn.parallel.DistributedDataParallel(model, device_ids=[rank])
 
 # iterate over splits and run inference using model
-batch_sz = 2**8
 features = dict()
 
 for s in splits:
@@ -71,7 +86,7 @@ for s in splits:
         final_nonpadding_idx = (
             t.argmax((batch == vocab("PAD")).int(), axis=1, keepdim=True) - 1
         )
-        with t.no_grad():
+        with t.inference_mode():
             x = model.forward(input_ids=batch, output_hidden_states=True)
             ret = t.empty(
                 size=(final_nonpadding_idx.size(dim=0), d),

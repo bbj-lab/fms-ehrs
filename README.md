@@ -25,11 +25,11 @@ pip3 install -r requirements.txt
 Send code:
 ```sh
 rsync -avht \
-      --cvs-exclude \
-      --exclude "venv/*" \
-      --exclude ".idea/*" \
-      --exclude "output/*" \
-      --exclude "wandb/*" \
+      --exclude "venv/" \
+      --exclude ".idea/" \
+      --exclude "output/" \
+      --exclude "wandb/" \
+      --exclude "results/" \
       --delete \
       ~/Documents/chicago/clif-tokenizer \
       randi:/gpfs/data/bbj-lab/users/burkh4rt

@@ -10,6 +10,11 @@ import pathlib
 
 import polars as pl
 
+from logger import get_logger
+
+logger = get_logger()
+logger.info("running {}".format(__file__))
+
 version_name = "raw"
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/")
 data_dir = hm.joinpath("CLIF-MIMIC", "output", "rclif-2.1")
