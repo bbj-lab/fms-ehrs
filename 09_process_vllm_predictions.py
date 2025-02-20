@@ -14,9 +14,9 @@ import sklearn.metrics as skl_mets
 from vocabulary import Vocabulary
 
 data_version = "day_stays_qc_first_24h"
-model_version = "smaller-lr-search"
+model_version = "small-packed"
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser()
-k = 10_000
+k = 25_000
 
 # load and prep data
 splits = ("train", "val", "test")
@@ -39,6 +39,9 @@ for fp in data_dirs["test"].glob(f"responses_k{k}_rep_*_of_*-{model_version}.pkl
     with open(fp, "rb") as f:
         response_list = pickle.load(f)
         for x in response_list:
+            if x[-1] not in {vocab("expired"), vocab("TL_END")}:
+                print(x[-1])
+
             det.append(len(x) < k)
             exp.append(vocab("expired") in x)
             gen.append(len(x))
@@ -93,7 +96,7 @@ for met in (
         "{}: {:.3f}".format(
             met,
             getattr(skl_mets, f"{met}_score")(
-                y_true=mort_true, y_pred=(mort_pred >= 0.3)
+                y_true=mort_true, y_pred=(mort_pred >= 0.5)
             ),
         )
     )

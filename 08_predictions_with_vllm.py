@@ -6,6 +6,7 @@ N.B.: we move the padding from the right (for training) to the left (so that
 the most recent context is the timeline and the padding comes beforehand)
 """
 
+import argparse
 import os
 import pathlib
 import pickle
@@ -17,6 +18,11 @@ from vllm import LLM, SamplingParams
 from logger import get_logger
 from vocabulary import Vocabulary
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--rep", type=int, required=False)
+args = parser.parse_args()
+rep = args.rep
+
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser()
 
 data_version = "day_stays_qc_first_24h"
@@ -27,14 +33,15 @@ model_loc = hm.joinpath(
     "mdl-day_stays_qc-small-packed-2025-02-18T19:25:32-06:00",
 )
 
-k = 10_000
-n_samp = 20
-top_p = 0.9
+k = 25_000
+n_samp = 1
+top_p = 0.95
 
 if os.getenv("RANK", "0") == "0":
     logger = get_logger()
     logger.info("running {}".format(__file__))
     logger.log_env()
+    logger.info(f"{rep=}")
     logger.info(f"{data_version=}")
     logger.info(f"{model_version=}")
     logger.info(f"{model_loc=}")
@@ -80,38 +87,33 @@ dataset = (
     )
 )
 
-# load and prep model
-model = LLM(
-    model=str(model_loc),
-    trust_remote_code=True,
-    skip_tokenizer_init=True,
+
+"""
+If `max_model_len < max_tokens + context_length`, generation will stop at max_model_len - context_length without warning or error...
+"""
+
+model = LLM(model=str(model_loc), skip_tokenizer_init=True, max_model_len=k + 1024)
+
+sampling_params = SamplingParams(
+    top_p=top_p,
+    max_tokens=k,
+    n=1,
+    stop_token_ids=[
+        vocab("TL_END"),
+        vocab("expired"),
+    ],
+    detokenize=False,
+    seed=rep,
 )
+outp = model.generate(
+    prompt_token_ids=dataset[s]["input_ids"].tolist(),
+    sampling_params=sampling_params,
+    use_tqdm=True,
+)
+response_list = [list(op.outputs[0].token_ids) for op in outp]
 
-for rep in range(n_samp):
-    sampling_params = SamplingParams(
-        top_p=top_p,
-        max_tokens=k,
-        n=1,
-        stop_token_ids=[
-            vocab("TL_END"),
-            vocab("PAD"),
-            vocab("TRUNC"),
-            vocab("expired"),
-        ],
-        detokenize=False,
-        seed=rep,
-    )
-    outp = model.generate(
-        prompt_token_ids=dataset[s]["input_ids"].tolist(),
-        sampling_params=sampling_params,
-        use_tqdm=True,
-    )
-    response_list = [list(op.outputs[0].token_ids) for op in outp]
-
-    with open(
-        data_dirs[s].joinpath(
-            f"responses_k{k}_rep_{rep}_of_{n_samp}-{model_version}.pkl"
-        ),
-        "wb",
-    ) as fp:
-        pickle.dump(response_list, fp)
+with open(
+    data_dirs[s].joinpath(f"responses_k{k}_rep_{rep}_of_{n_samp}-{model_version}.pkl"),
+    "wb",
+) as fp:
+    pickle.dump(response_list, fp)

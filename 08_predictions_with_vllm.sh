@@ -6,7 +6,8 @@
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:1
 #SBATCH --time=24:00:00
+#SBATCH --array=0-19
 
 source ~/.bashrc
 source venv/bin/activate
-python3 08_predictions_with_vllm.py
+python3 08_predictions_with_vllm.py --rep "${SLURM_ARRAY_TASK_ID}"

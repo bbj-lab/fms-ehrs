@@ -21,11 +21,13 @@ pd.options.display.max_colwidth = 100
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/clif-data")
 
 data_version = "day_stays_qc_first_24h"
-for model_version in ("smallest-lr-search", "smaller-lr-search", "small-lr-search"):
+for model_version in (
+    "small-packed",
+):  # ("smallest-lr-search", "smaller-lr-search", "small-lr-search"):
     print(model_version.upper().ljust(79, "="))
 
     # set the following flag to "False" for better performance
-    fast = True
+    fast = False
 
     splits = ("train", "val", "test")
     data_dirs = dict()
