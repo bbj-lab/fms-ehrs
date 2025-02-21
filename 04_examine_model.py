@@ -24,13 +24,9 @@ hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser()
 
 train_dir = hm.joinpath("clif-data", f"{data_version}-tokenized", "train")
 vocab = Vocabulary().load(train_dir.joinpath("vocab.gzip"))
-model_version = "small-packed"  # "small"
+model_version = "smallest-packed"  # "small"
 model = AutoModelForCausalLM.from_pretrained(
-    hm.joinpath(
-        "clif-mdls",
-        model_version,
-        "mdl-day_stays_qc-small-packed-2025-02-18T19:25:32-06:00",
-    )
+    hm.joinpath("clif-mdls-archive", "smallest-packing-tuning-run0")
 )
 
 
@@ -126,13 +122,13 @@ fig.write_html(hm.joinpath("embedding_q-{m}.html".format(m=model_version)))
 return basic parameters from searches
 """
 
-keys = ("hidden_size", "n_layer", "num_hidden_layers", "state_size", "vocab_size")
-for s in ("small-lr-search", "smaller-lr-search", "smallest-lr-search"):
-    print(s.ljust(79, "="))
-    m = next(iter(hm.joinpath("clif-mdls", s).glob("**/checkpoint-*")))
-    model = AutoModelForCausalLM.from_pretrained(m)
-    conf = model.config.to_dict()
-    for k in keys:
-        print("{}: {}".format(k, conf[k]))
-
-vocab.print_aux()
+# keys = ("hidden_size", "n_layer", "num_hidden_layers", "state_size", "vocab_size")
+# for s in ("small-lr-search", "smaller-lr-search", "smallest-lr-search"):
+#     print(s.ljust(79, "="))
+#     m = next(iter(hm.joinpath("clif-mdls", s).glob("**/checkpoint-*")))
+#     model = AutoModelForCausalLM.from_pretrained(m)
+#     conf = model.config.to_dict()
+#     for k in keys:
+#         print("{}: {}".format(k, conf[k]))
+#
+# vocab.print_aux()

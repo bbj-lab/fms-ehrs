@@ -31,12 +31,8 @@ rep = args.rep
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser()
 
 data_version = "day_stays_qc_first_24h"
-model_version = "small-packed"  # "small"
-model_loc = hm.joinpath(
-    "clif-mdls",
-    model_version,
-    "mdl-day_stays_qc-small-packed-2025-02-18T19:25:32-06:00",
-)
+model_version = "smallest-packed"  # "small"
+model_loc = hm.joinpath("clif-mdls-archive", "smallest-packing-tuning-run0")
 
 k = 25_000
 n_samp = 1
