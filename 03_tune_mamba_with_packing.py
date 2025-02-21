@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-train a small version of Mamba with a packing strategy and
+train a smaller version of Mamba with a packing strategy and
 Poisson-distributed padding
 """
 
@@ -10,7 +10,7 @@ import os
 import pathlib
 
 data_version = "day_stays_qc"
-model_version = "small-packing-tuning"
+model_version = "smallest-packing-tuning"
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser().absolute()
 jid = os.getenv("SLURM_JOB_ID", "")
 
@@ -36,7 +36,6 @@ if os.getenv("RANK", "0") == "0":
     logger.info("running {}".format(__file__))
     logger.log_env()
     logger.info(f"{data_version=}")
-    logger.info(f"{model_name=}")
     logger.info(f"{model_version=}")
     logger.info(f"{n_epochs=}")
     logger.info(f"{max_seq_length=}")
@@ -56,10 +55,10 @@ def model_init(trial=None):
     model_name = "state-spaces/mamba-130m-hf"
     config = AutoConfig.from_pretrained(
         model_name,
-        # hidden_size=2**6,  # 768 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
-        # n_layer=2**4,  # 24 -- ibid
-        # num_hidden_layers=2**4,  # 24 -- ibid
-        # state_size=2**3,  # 16 -- ibid
+        hidden_size=2**6,  # 768 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
+        n_layer=2**4,  # 24 -- ibid
+        num_hidden_layers=2**4,  # 24 -- ibid
+        state_size=2**3,  # 16 -- ibid
         vocab_size=len(vocab),
         bos_token_id=vocab("TL_START"),
         eos_token_id=vocab("TL_END"),
