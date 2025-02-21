@@ -39,9 +39,6 @@ for fp in data_dirs["test"].glob(f"responses_k{k}_rep_*_of_*-{model_version}.pkl
     with open(fp, "rb") as f:
         response_list = pickle.load(f)
         for x in response_list:
-            if x[-1] not in {vocab("expired"), vocab("TL_END")}:
-                print(x[-1])
-
             det.append(len(x) < k)
             exp.append(vocab("expired") in x)
             gen.append(len(x))
