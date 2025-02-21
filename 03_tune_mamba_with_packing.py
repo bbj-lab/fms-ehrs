@@ -10,24 +10,36 @@ import os
 import pathlib
 
 data_version = "day_stays_qc"
-model_version = "small-packing-search"
+model_version = "small-packing-tuning"
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser().absolute()
 jid = os.getenv("SLURM_JOB_ID", "")
 
 os.environ["HF_HOME"] = "/gpfs/data/bbj-lab/cache/huggingface/"
 os.environ["WANDB_CACHE_DIR"] = "/scratch/burkh4rt/"
-os.environ["WANDB_PROJECT"] = "mamba_clif_mimic_packing"
+os.environ["WANDB_PROJECT"] = "mamba_clif_mimic_packing_tuning"
 
 import torch as t
 from datasets import Features, IterableDataset, Sequence, Value, load_dataset
 from transformers import AutoConfig, AutoModelForCausalLM
 from trl import SFTConfig, SFTTrainer
 
+from logger import get_logger
 from vocabulary import Vocabulary
 
 n_epochs = 5
 max_seq_length = 1024
 rng = t.Generator().manual_seed(42)
+
+
+if os.getenv("RANK", "0") == "0":
+    logger = get_logger()
+    logger.info("running {}".format(__file__))
+    logger.log_env()
+    logger.info(f"{data_version=}")
+    logger.info(f"{model_name=}")
+    logger.info(f"{model_version=}")
+    logger.info(f"{n_epochs=}")
+    logger.info(f"{max_seq_length=}")
 
 # locate data and vocab
 splits = ("train", "val")
