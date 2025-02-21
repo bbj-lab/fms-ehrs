@@ -15,9 +15,10 @@ jid = os.getenv("SLURM_JOB_ID", "")
 os.environ["HF_HOME"] = "/gpfs/data/bbj-lab/cache/huggingface/"
 os.environ["WANDB_CACHE_DIR"] = "/scratch/burkh4rt/"
 os.environ["WANDB_PROJECT"] = "mamba_clif_mimic_qc"
+os.environ["WANDB_RUN_NAME"] = "{m}-{j}".format(m=model_version, j=jid)
 
 from datasets import Features, Sequence, Value, load_dataset
-from transformers import AutoConfig, AutoModelForCausalLM
+from transformers import AutoConfig, AutoModelForCausalLM, EarlyStoppingCallback
 from trl import SFTConfig, SFTTrainer
 
 from vocabulary import Vocabulary
@@ -28,13 +29,17 @@ data_dirs = {
     s: hm.joinpath("clif-data", f"{data_version}-tokenized", s) for s in splits
 }
 vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
-output_dir = hm.joinpath("clif-mdls", model_version)
+output_dir = hm.joinpath("clif-mdls", "{m}-{j}".format(m=model_version, j=jid))
 output_dir.mkdir(exist_ok=True, parents=True)
 
 
 def model_init(trial=None):
     # grab a small mamba for training
-    model_name = "state-spaces/mamba-370m-hf"
+    model_name = (
+        "state-spaces/mamba-130m-hf"
+        if model_version.startswith("small")
+        else "state-spaces/mamba-370m-hf"
+    )
     config = AutoConfig.from_pretrained(
         model_name,
         # hidden_size=2**6,  # 768 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
@@ -93,10 +98,12 @@ training_args = SFTConfig(
     learning_rate=2e-4,  # 2e-4 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
     num_train_epochs=1,
     save_total_limit=2,
+    metric_for_best_model="eval_loss",
     load_best_model_at_end=True,
-    # neftune_noise_alpha=5,
+    greater_is_better=False,
     eval_strategy="steps",
-    save_strategy="steps",
+    save_strategy="best",
+    ddp_find_unused_parameters=False,
 )
 
 trainer = SFTTrainer(
@@ -105,6 +112,7 @@ trainer = SFTTrainer(
     train_dataset=dataset["train"],
     eval_dataset=dataset["val"],
     args=training_args,
+    callbacks=[EarlyStoppingCallback(early_stopping_patience=3)],
 )
 
 best_trial = trainer.hyperparameter_search(

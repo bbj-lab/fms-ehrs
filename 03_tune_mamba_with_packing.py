@@ -10,17 +10,18 @@ import os
 import pathlib
 
 data_version = "day_stays_qc"
-model_version = "smallest-packing-tuning"
+model_version = "medium-packing-tuning"
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser().absolute()
 jid = os.getenv("SLURM_JOB_ID", "")
 
 os.environ["HF_HOME"] = "/gpfs/data/bbj-lab/cache/huggingface/"
 os.environ["WANDB_CACHE_DIR"] = "/scratch/burkh4rt/"
 os.environ["WANDB_PROJECT"] = "mamba_clif_mimic_packing_tuning"
+os.environ["WANDB_RUN_NAME"] = "{m}-{j}".format(m=model_version, j=jid)
 
 import torch as t
 from datasets import Features, IterableDataset, Sequence, Value, load_dataset
-from transformers import AutoConfig, AutoModelForCausalLM
+from transformers import AutoConfig, AutoModelForCausalLM, EarlyStoppingCallback
 from trl import SFTConfig, SFTTrainer
 
 from logger import get_logger
@@ -41,24 +42,28 @@ if os.getenv("RANK", "0") == "0":
     logger.info(f"{max_seq_length=}")
 
 # locate data and vocab
-splits = ("train", "val")
 data_dirs = {
-    s: hm.joinpath("clif-data", f"{data_version}-tokenized", s) for s in splits
+    s: hm.joinpath("clif-data", f"{data_version}-tokenized", s)
+    for s in ("train", "val")
 }
 vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
-output_dir = hm.joinpath("clif-mdls", model_version)
+output_dir = hm.joinpath("clif-mdls", "{m}-{j}".format(m=model_version, j=jid))
 output_dir.mkdir(exist_ok=True, parents=True)
 
 
 def model_init(trial=None):
     # grab a small mamba for training
-    model_name = "state-spaces/mamba-130m-hf"
+    model_name = (
+        "state-spaces/mamba-130m-hf"
+        if model_version.startswith("small")
+        else "state-spaces/mamba-370m-hf"
+    )
     config = AutoConfig.from_pretrained(
         model_name,
-        hidden_size=2**6,  # 768 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
-        n_layer=2**4,  # 24 -- ibid
-        num_hidden_layers=2**4,  # 24 -- ibid
-        state_size=2**3,  # 16 -- ibid
+        # hidden_size=2**6,  # 768 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
+        # n_layer=2**4,  # 24 -- ibid
+        # num_hidden_layers=2**4,  # 24 -- ibid
+        # state_size=2**3,  # 16 -- ibid
         vocab_size=len(vocab),
         bos_token_id=vocab("TL_START"),
         eos_token_id=vocab("TL_END"),
@@ -152,11 +157,13 @@ training_args = SFTConfig(
     learning_rate=2e-4,  # 2e-4 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
     num_train_epochs=1,
     save_total_limit=2,
+    metric_for_best_model="eval_loss",
     load_best_model_at_end=True,
-    # neftune_noise_alpha=5,
+    greater_is_better=False,
     eval_strategy="steps",
-    save_strategy="steps",
+    save_strategy="best",
     max_steps=max_steps,
+    ddp_find_unused_parameters=False,
 )
 
 trainer = SFTTrainer(
@@ -165,6 +172,7 @@ trainer = SFTTrainer(
     train_dataset=train_set,
     eval_dataset=val_set,
     args=training_args,
+    callbacks=[EarlyStoppingCallback(early_stopping_patience=3)],
 )
 
 best_trial = trainer.hyperparameter_search(

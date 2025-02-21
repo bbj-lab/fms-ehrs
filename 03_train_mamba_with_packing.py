@@ -10,8 +10,12 @@ import os
 import pathlib
 
 data_version = "day_stays_qc"
-model_name = "state-spaces/mamba-130m-hf"
 model_version = "small-packed-rev"
+model_name = (
+    "state-spaces/mamba-130m-hf"
+    if model_version.startswith("small")
+    else "state-spaces/mamba-370m-hf"
+)
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser().absolute()
 jid = os.getenv("SLURM_JOB_ID", "")
 
@@ -19,10 +23,11 @@ os.environ["HF_HOME"] = "/gpfs/data/bbj-lab/cache/huggingface/"
 os.environ["WANDB_CACHE_DIR"] = "/scratch/burkh4rt/"
 os.environ["WANDB_DIR"] = "/scratch/burkh4rt/"
 os.environ["WANDB_PROJECT"] = "mamba_clif_mimic_packing"
+os.environ["WANDB_RUN_NAME"] = "{m}-{j}".format(m=model_version, j=jid)
 
 import torch as t
 from datasets import Features, IterableDataset, Sequence, Value, load_dataset
-from transformers import AutoConfig, AutoModelForCausalLM
+from transformers import AutoConfig, AutoModelForCausalLM, EarlyStoppingCallback
 from trl import SFTConfig, SFTTrainer
 
 from logger import get_logger
@@ -55,7 +60,7 @@ data_dirs = {
     s: hm.joinpath("clif-data", f"{data_version}-tokenized", s) for s in splits
 }
 vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
-output_dir = hm.joinpath("clif-mdls", model_version)
+output_dir = hm.joinpath("clif-mdls", "{m}-{j}".format(m=model_version, j=jid))
 output_dir.mkdir(exist_ok=True, parents=True)
 
 
@@ -145,12 +150,14 @@ training_args = SFTConfig(
     learning_rate=learning_rate,  # 2e-4 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
     num_train_epochs=1,
     save_total_limit=2,
+    metric_for_best_model="eval_loss",
     load_best_model_at_end=True,
-    # neftune_noise_alpha=5,
+    greater_is_better=False,
     eval_strategy="steps",
-    save_strategy="steps",
+    save_strategy="best",
     max_steps=max_steps,
     max_seq_length=max_seq_length,
+    ddp_find_unused_parameters=False,
 )
 
 trainer = SFTTrainer(
@@ -158,6 +165,7 @@ trainer = SFTTrainer(
     train_dataset=train_set,
     eval_dataset=val_set,
     args=training_args,
+    callbacks=[EarlyStoppingCallback(early_stopping_patience=3)],
 )
 trainer.train()
 trainer.save_model(
