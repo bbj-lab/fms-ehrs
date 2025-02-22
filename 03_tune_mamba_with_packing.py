@@ -42,9 +42,10 @@ if os.getenv("RANK", "0") == "0":
     logger.info(f"{max_seq_length=}")
 
 # locate data and vocab
+splits = ("train", "val")
 data_dirs = {
     s: hm.joinpath("clif-data", f"{data_version}-tokenized", s)
-    for s in ("train", "val")
+    for s in splits
 }
 vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
 output_dir = hm.joinpath("clif-mdls", "{m}-{j}".format(m=model_version, j=jid))
