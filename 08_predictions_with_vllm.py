@@ -31,8 +31,9 @@ rep = args.rep
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser()
 
 data_version = "day_stays_qc_first_24h"
-model_version = "smallest-packed"  # "small"
-model_loc = hm.joinpath("clif-mdls-archive", "smallest-packing-tuning-run0")
+model_loc = hm.joinpath(
+    "clif-mdls-archive", "medium-packing-tuning-57164794-run2-ckpt-7000"
+)
 
 k = 25_000
 n_samp = 1
@@ -44,7 +45,7 @@ if os.getenv("RANK", "0") == "0":
     logger.log_env()
     logger.info(f"{rep=}")
     logger.info(f"{data_version=}")
-    logger.info(f"{model_version=}")
+    logger.info(f"{model_loc.stem=}")
     logger.info(f"{model_loc=}")
     logger.info(f"{k=}")
     logger.info(f"{n_samp=}")
@@ -125,7 +126,7 @@ outp = model.generate(
 response_list = [list(op.outputs[0].token_ids) for op in outp]
 
 with open(
-    data_dirs[s].joinpath(f"responses_k{k}_rep_{rep}_of_{n_samp}-{model_version}.pkl"),
+    data_dirs[s].joinpath(f"responses_k{k}_rep_{rep}_of_{n_samp}-{model_loc.stem}.pkl"),
     "wb",
 ) as fp:
     pickle.dump(response_list, fp)

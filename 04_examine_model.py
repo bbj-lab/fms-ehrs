@@ -24,10 +24,10 @@ hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser()
 
 train_dir = hm.joinpath("clif-data", f"{data_version}-tokenized", "train")
 vocab = Vocabulary().load(train_dir.joinpath("vocab.gzip"))
-model_version = "smallest-packed"  # "small"
-model = AutoModelForCausalLM.from_pretrained(
-    hm.joinpath("clif-mdls-archive", "smallest-packing-tuning-run0")
+model_loc = hm.joinpath(
+    "clif-mdls-archive", "medium-packing-tuning-57164794-run2-ckpt-7000"
 )
+model = AutoModelForCausalLM.from_pretrained(model_loc)
 
 
 def key_type(word: str) -> str:
@@ -77,7 +77,7 @@ fig = px.scatter(
     hover_name="token",
 )
 
-fig.write_html(hm.joinpath("embedding_vis-{m}.html".format(m=model_version)))
+fig.write_html(hm.joinpath("embedding_vis-{m}.html".format(m=model_loc.stem)))
 
 """
 quantile embeddings only
@@ -115,7 +115,7 @@ fig.add_trace(
     )
 )
 
-fig.write_html(hm.joinpath("embedding_q-{m}.html".format(m=model_version)))
+fig.write_html(hm.joinpath("embedding_q-{m}.html".format(m=model_loc.stem)))
 
 
 """
