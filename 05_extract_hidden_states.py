@@ -20,16 +20,17 @@ from vocabulary import Vocabulary
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser()
 
 data_version = "day_stays_qc_first_24h"
-model_version = "smallest-packed"  # "small"
-model_loc = hm.joinpath("clif-mdls-archive", "smallest-packing-tuning-run0")
-batch_sz = 2**7
+model_loc = hm.joinpath(
+    "clif-mdls-archive", "medium-packing-tuning-57164794-run2-ckpt-7000"
+)
+batch_sz = 2**5
 
 if os.getenv("RANK", "0") == "0":
     logger = get_logger()
     logger.info("running {}".format(__file__))
     logger.log_env()
     logger.info(f"{data_version=}")
-    logger.info(f"{model_version=}")
+    logger.info(f"{model_loc.stem=}")
     logger.info(f"{model_loc=}")
     logger.info(f"{batch_sz=}")
 
@@ -96,5 +97,5 @@ for s in splits:
 # save out results
 for s in splits:
     np.save(
-        data_dirs[s].joinpath("features-{m}.npy".format(m=model_version)), features[s]
+        data_dirs[s].joinpath("features-{m}.npy".format(m=model_loc.stem)), features[s]
     )
