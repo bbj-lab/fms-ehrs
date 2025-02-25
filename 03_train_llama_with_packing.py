@@ -5,17 +5,12 @@ train a small version of Mamba with a packing strategy and
 Poisson-distributed padding
 """
 
-import itertools
 import os
 import pathlib
 
 data_version = "day_stays_qc"
-model_version = "small-packed-rev"
-model_name = (
-    "state-spaces/mamba-130m-hf"
-    if model_version.startswith("small")
-    else "state-spaces/mamba-370m-hf"
-)
+model_version = "llama1b"
+model_name = "meta-llama/Llama-3.2-1B"
 hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser().absolute()
 jid = os.getenv("SLURM_JOB_ID", "")
 
@@ -35,11 +30,8 @@ from dataset import Datasets
 n_epochs = 10
 max_seq_length = 1024
 learning_rate = 2e-4
-per_device_train_batch_size = 16
-per_device_eval_batch_size = 16
-output_dir = hm.joinpath("clif-mdls", "{m}-{j}".format(m=model_version, j=jid))
-output_dir.mkdir(exist_ok=True, parents=True)
-
+per_device_train_batch_size = 4
+per_device_eval_batch_size = 4
 
 if os.getenv("RANK", "0") == "0":
     logger = get_logger()
@@ -53,12 +45,12 @@ if os.getenv("RANK", "0") == "0":
     logger.info(f"{learning_rate=}")
     logger.info(f"{per_device_train_batch_size=}")
     logger.info(f"{per_device_eval_batch_size=}")
-    logger.info(f"{output_dir=}")
 
 
-dataset = Datasets(
-    data_version=data_version, hm=hm, collation="packed", max_seq_length=max_seq_length
-)
+output_dir = hm.joinpath("clif-mdls", "{m}-{j}".format(m=model_version, j=jid))
+output_dir.mkdir(exist_ok=True, parents=True)
+
+dataset = Datasets(data_version=data_version, hm=hm, collation="packed")
 
 
 # grab a small mamba for training
@@ -68,10 +60,6 @@ config = AutoConfig.from_pretrained(
     bos_token_id=dataset.vocab("TL_START"),
     eos_token_id=dataset.vocab("TL_END"),
     pad_token_id=dataset.vocab("PAD"),
-    # hidden_size=2**6,  # 768 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
-    # n_layer=2**4,  # 24 -- ibid
-    # num_hidden_layers=2**4,  # 24 -- ibid
-    # state_size=2**3,  # 16 -- ibid
 )
 model = AutoModelForCausalLM.from_config(config)
 
