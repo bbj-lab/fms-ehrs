@@ -17,20 +17,19 @@ os.environ["WANDB_CACHE_DIR"] = "/scratch/burkh4rt/"
 os.environ["WANDB_PROJECT"] = "mamba_clif_mimic_qc"
 os.environ["WANDB_RUN_NAME"] = "{m}-{j}".format(m=model_version, j=jid)
 
-from datasets import Features, Sequence, Value, load_dataset
 from transformers import AutoConfig, AutoModelForCausalLM, EarlyStoppingCallback
 from trl import SFTConfig, SFTTrainer
 
-from vocabulary import Vocabulary
+from logger import get_logger
+from dataset import Datasets
 
-# locate data and vocab
-splits = ("train", "val")
-data_dirs = {
-    s: hm.joinpath("clif-data", f"{data_version}-tokenized", s) for s in splits
-}
-vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
+if os.getenv("RANK", "0") == "0":
+    logger = get_logger()
+
 output_dir = hm.joinpath("clif-mdls", "{m}-{j}".format(m=model_version, j=jid))
 output_dir.mkdir(exist_ok=True, parents=True)
+
+dataset = Datasets(data_version=data_version, hm=hm, collation="padded")
 
 
 def model_init(trial=None):
@@ -46,31 +45,12 @@ def model_init(trial=None):
         # n_layer=2**4,  # 24 -- ibid
         # num_hidden_layers=2**4,  # 24 -- ibid
         # state_size=2**3,  # 16 -- ibid
-        vocab_size=len(vocab),
-        bos_token_id=vocab("TL_START"),
-        eos_token_id=[vocab("TL_END"), vocab("TRUNC")],
-        pad_token_id=vocab("PAD"),
+        vocab_size=len(dataset.vocab),
+        bos_token_id=dataset.vocab("TL_START"),
+        eos_token_id=[dataset.vocab("TL_END"), dataset.vocab("TRUNC")],
+        pad_token_id=dataset.vocab("PAD"),
     )
     return AutoModelForCausalLM.from_config(config)
-
-
-# load data
-dataset = (
-    load_dataset(
-        "parquet",
-        data_files={
-            s: str(data_dirs[s].joinpath("tokens_timelines.parquet"))
-            for s in ("train", "val")
-        },
-    )
-    .map(
-        lambda batch: {"input_ids": batch["padded"]},
-        batched=True,
-        remove_columns=["hospitalization_id", "tokens", "times", "seq_len", "padded"],
-        features=Features({"input_ids": Sequence(Value("uint8"))}),
-    )
-    .shuffle(seed=42)
-)
 
 
 def optuna_hp_space(trial):
@@ -109,8 +89,8 @@ training_args = SFTConfig(
 trainer = SFTTrainer(
     model=model_init(),
     model_init=model_init,
-    train_dataset=dataset["train"],
-    eval_dataset=dataset["val"],
+    train_dataset=dataset.get_train_dataset(),
+    eval_dataset=dataset.get_val_dataset(),
     args=training_args,
     callbacks=[EarlyStoppingCallback(early_stopping_patience=3)],
 )

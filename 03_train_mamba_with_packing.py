@@ -26,19 +26,19 @@ os.environ["WANDB_PROJECT"] = "mamba_clif_mimic_packing"
 os.environ["WANDB_RUN_NAME"] = "{m}-{j}".format(m=model_version, j=jid)
 
 import torch as t
-from datasets import Features, IterableDataset, Sequence, Value, load_dataset
 from transformers import AutoConfig, AutoModelForCausalLM, EarlyStoppingCallback
 from trl import SFTConfig, SFTTrainer
 
 from logger import get_logger
-from vocabulary import Vocabulary
+from dataset import Datasets
 
 n_epochs = 10
 max_seq_length = 1024
 learning_rate = 2e-4
 per_device_train_batch_size = 16
 per_device_eval_batch_size = 16
-rng = t.Generator().manual_seed(42)
+output_dir = hm.joinpath("clif-mdls", "{m}-{j}".format(m=model_version, j=jid))
+output_dir.mkdir(exist_ok=True, parents=True)
 
 
 if os.getenv("RANK", "0") == "0":
@@ -53,78 +53,21 @@ if os.getenv("RANK", "0") == "0":
     logger.info(f"{learning_rate=}")
     logger.info(f"{per_device_train_batch_size=}")
     logger.info(f"{per_device_eval_batch_size=}")
-
-# locate data and vocab
-splits = ("train", "val")
-data_dirs = {
-    s: hm.joinpath("clif-data", f"{data_version}-tokenized", s) for s in splits
-}
-vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
-output_dir = hm.joinpath("clif-mdls", "{m}-{j}".format(m=model_version, j=jid))
-output_dir.mkdir(exist_ok=True, parents=True)
+    logger.info(f"{output_dir=}")
 
 
-def get_padding(
-    tk: int = vocab("PAD"), poisson_rate: float = 7.0, generator: t.Generator = rng
-):
-    size = t.poisson(t.tensor(poisson_rate), generator=generator).to(t.uint8)
-    return t.full(size=(size.item(),), fill_value=tk, dtype=t.uint8)
-
-
-# chunk out the dataset in a way that teaches padding
-def chunk_iterable(it, chunk_size: int = max_seq_length):
-    ret: t.Tensor = t.Tensor(size=(0,))
-    for eg in it:
-        x = t.concat((eg["input_ids"], get_padding()))
-        while x.size(dim=0) > 0:
-            ndiff = min(chunk_size - ret.size(dim=0), x.size(dim=0))
-            ret = t.concat((ret, x[:ndiff]))
-            x = x[ndiff:]
-            if ret.size(dim=0) == chunk_size:
-                yield {"input_ids": ret.to(t.uint8)}
-                ret = t.Tensor(size=(0,))
-
-
-# load data
-dataset = (
-    load_dataset(
-        "parquet",
-        data_files={
-            s: str(data_dirs[s].joinpath("tokens_timelines.parquet")) for s in splits
-        },
-    )
-    .map(
-        lambda batch: {"input_ids": batch["tokens"]},
-        batched=True,
-        remove_columns=["hospitalization_id", "tokens", "times", "seq_len", "padded"],
-        features=Features({"input_ids": Sequence(Value("uint8"))}),
-    )
-    .with_format("torch")
+dataset = Datasets(
+    data_version=data_version, hm=hm, collation="packed", max_seq_length=max_seq_length
 )
 
-train_set = IterableDataset.from_generator(
-    lambda: chunk_iterable(
-        IterableDataset.from_generator(
-            lambda: itertools.chain.from_iterable(
-                itertools.repeat(iter(dataset["train"]), n_epochs)
-            )
-        ).shuffle(seed=42, buffer_size=1024)
-    ),
-    features=Features({"input_ids": Sequence(Value("uint8"))}),
-)
-
-val_set = IterableDataset.from_generator(
-    lambda: chunk_iterable(dataset["val"]),
-    features=Features({"input_ids": Sequence(Value("uint8"))}),
-)
 
 # grab a small mamba for training
 config = AutoConfig.from_pretrained(
     model_name,
-    vocab_size=len(vocab),
-    bos_token_id=vocab("TL_START"),
-    eos_token_id=vocab("TL_END"),
-    pad_token_id=vocab("PAD"),
+    vocab_size=len(dataset.vocab),
+    bos_token_id=dataset.vocab("TL_START"),
+    eos_token_id=dataset.vocab("TL_END"),
+    pad_token_id=dataset.vocab("PAD"),
     # hidden_size=2**6,  # 768 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
     # n_layer=2**4,  # 24 -- ibid
     # num_hidden_layers=2**4,  # 24 -- ibid
@@ -133,10 +76,7 @@ config = AutoConfig.from_pretrained(
 model = AutoModelForCausalLM.from_config(config)
 
 max_steps = (
-    dataset["train"].num_rows
-    * n_epochs
-    // per_device_train_batch_size
-    // t.cuda.device_count()
+    dataset.n_train * n_epochs // per_device_train_batch_size // t.cuda.device_count()
 )
 
 # train model
@@ -162,8 +102,8 @@ training_args = SFTConfig(
 
 trainer = SFTTrainer(
     model,
-    train_dataset=train_set,
-    eval_dataset=val_set,
+    train_dataset=dataset.get_train_dataset(n_epochs=n_epochs),
+    eval_dataset=dataset.get_val_dataset(),
     args=training_args,
     callbacks=[EarlyStoppingCallback(early_stopping_patience=3)],
 )
