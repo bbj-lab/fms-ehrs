@@ -9,10 +9,10 @@ import os
 import pathlib
 import typing
 
+import datasets as ds
 import numpy as np
 import polars as pl
 import torch as t
-import datasets as ds
 
 from vocabulary import Vocabulary
 
@@ -55,7 +55,7 @@ class Datasets:
             .map(
                 lambda batch: {
                     "input_ids": batch[
-                        "padded" if self.collation == "padded" else "tokens"
+                        "padded" if (self.collation == "padded") else "tokens"
                     ]
                 },
                 batched=True,
@@ -64,6 +64,7 @@ class Datasets:
                     "tokens",
                     "times",
                     "seq_len",
+                    "padded",
                 ],
                 features=ds.Features({"input_ids": ds.Sequence(ds.Value("uint8"))}),
             )

@@ -642,31 +642,31 @@ if __name__ == "__main__":
     assert len(tkzr.vocab) == len(tkzr2.vocab)
     assert tkzr.vocab.lookup == tkzr2.vocab.lookup
 
-    # vented_ex = (
-    #     tokens_timelines.filter(
-    #         pl.col("tokens").list.contains(tkzr.vocab("high flow nc"))
-    #     )
-    #     .select("tokens")
-    #     .head(1)
-    #     .item()
-    #     .to_numpy()
-    # )
-    # with open(
-    #     pathlib.Path(__file__).parent.joinpath(
-    #         "img", "example_timeline_with_ventilation.txt"
-    #     ),
-    #     "w",
-    # ) as f:
-    #     for t in vented_ex:
-    #         f.write(str(tkzr.vocab.reverse[t]) + "\n")
-    #
-    # tkzr.load_tables()
-    # print(
-    #     tkzr.tbl["hospitalization"]
-    #     .filter(pl.col("hospitalization_id") == "27304928")
-    #     .collect()
-    # )
-    #
-    # for k, v in tkzr.tbl.items():
-    #     if k not in ("hospitalization", "patient"):
-    #         print(v.filter(pl.col("hospitalization_id") == "27304928").collect())
+    vented_ex = (
+        tokens_timelines.filter(
+            pl.col("tokens").list.contains(tkzr.vocab("high flow nc"))
+        )
+        .select("tokens")
+        .head(1)
+        .item()
+        .to_numpy()
+    )
+    with open(
+        pathlib.Path(__file__).parent.joinpath(
+            "img", "example_timeline_with_ventilation.txt"
+        ),
+        "w",
+    ) as f:
+        for t in vented_ex:
+            f.write(str(tkzr.vocab.reverse[t]) + "\n")
+
+    tkzr.load_tables()
+    print(
+        tkzr.tbl["hospitalization"]
+        .filter(pl.col("hospitalization_id") == "27304928")
+        .collect()
+    )
+
+    for k, v in tkzr.tbl.items():
+        if k not in ("hospitalization", "patient"):
+            print(v.filter(pl.col("hospitalization_id") == "27304928").collect())
