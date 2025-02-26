@@ -4,6 +4,8 @@
 """
 
 import datetime
+import functools
+import inspect
 import logging
 import os
 import subprocess
@@ -61,6 +63,20 @@ class SlurmLogger(logging.Logger):
         if get_branch.returncode == 0:
             self.info("branch: {}".format(get_branch.stdout.decode().strip().upper()))
 
+    def log_calls(self, func: callable) -> callable:
+
+        @functools.wraps(func)
+        def log_io(*args, **kwargs):
+            func_args = inspect.signature(func).bind(*args, **kwargs).arguments
+            self.info(f"{func.__name__} called with---")
+            for k, v in func_args.items():
+                self.info(f"{k}: {v}")
+            y = func(*args, **kwargs)
+            self.info(f"---{func.__name__}")
+            return y
+
+        return log_io
+
 
 def get_logger() -> SlurmLogger:
     logging.setLoggerClass(SlurmLogger)
@@ -71,3 +87,11 @@ def get_logger() -> SlurmLogger:
 if __name__ == "__main__":
     logger = get_logger()
     logger.log_env()
+
+    a = 3
+
+    @logger.log_calls
+    def foo(a, **kargs):
+        pass
+
+    foo(a, b=4)
