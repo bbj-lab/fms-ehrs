@@ -24,7 +24,8 @@ class SlurmLogger(logging.Logger):
         ch = logging.StreamHandler()
         ch.setLevel(logging.INFO)
         ch.setFormatter(formatter)
-        self.addHandler(ch)
+        if os.getenv("RANK", "0") == "0":
+            self.addHandler(ch)
         self.propagate = False
 
     def log_env(self):
@@ -67,9 +68,10 @@ class SlurmLogger(logging.Logger):
 
         @functools.wraps(func)
         def log_io(*args, **kwargs):
-            func_args = inspect.signature(func).bind(*args, **kwargs).arguments
+            func_args = inspect.signature(func).bind_partial(*args, **kwargs)
+            func_args.apply_defaults()
             self.info(f"{func.__name__} called with---")
-            for k, v in func_args.items():
+            for k, v in func_args.arguments.items():
                 self.info(f"{k}: {v}")
             y = func(*args, **kwargs)
             self.info(f"---{func.__name__}")
@@ -91,7 +93,7 @@ if __name__ == "__main__":
     a = 3
 
     @logger.log_calls
-    def foo(a, **kargs):
+    def foo(a, x=3, **kargs):
         pass
 
     foo(a, b=4)
