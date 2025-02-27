@@ -29,8 +29,8 @@ class SlurmLogger(logging.Logger):
         self.propagate = False
 
     def log_env(self):
-
-        self.info("running Python {}".format(sys.version))
+        self.info("from {}".format(os.getcwd()))
+        self.info("with Python {}".format(sys.version))
         self.info("on {}".format(os.uname().nodename))
         self.info("tz-info: {}".format(datetime.datetime.now().astimezone().tzinfo))
         if slurm_job_id := os.getenv("SLURM_JOB_ID", ""):
