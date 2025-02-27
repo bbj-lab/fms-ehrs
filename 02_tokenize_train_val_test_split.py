@@ -9,8 +9,8 @@ import pathlib
 
 import fire as fi
 
-from tokenizer import ClifTokenizer
 from logger import get_logger
+from tokenizer import ClifTokenizer
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
@@ -20,29 +20,30 @@ logger.log_env()
 @logger.log_calls
 def main(
     *,
-    data_hm: os.PathLike = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/clif-data"),
+    data_dir: os.PathLike = "../clif-data/",
     data_version: str = "day_stays_qc",
     max_padded_len: int = 1024,
     day_stay_filter: bool = True,
+    include_24h_cut: bool = True,
 ):
-    data_hm = pathlib.Path(data_hm).expanduser().resolve()
+    data_dir = pathlib.Path(data_dir).expanduser().resolve()
     splits = ("train", "val", "test")
 
-    for cut_at_24h in (False, True):
+    for cut_at_24h in (False, True) if include_24h_cut else (False,):
         v = data_version + ("_first_24h" if cut_at_24h else "")
 
-        data_dirs = dict()
-        out_dirs = dict()
+        dirs_in = dict()
+        dirs_out = dict()
         for s in splits:
-            data_dirs[s] = data_hm.joinpath("raw", s)
-            out_dirs[s] = data_hm.joinpath(f"{v}-tokenized", s)
-            out_dirs[s].mkdir(exist_ok=True, parents=True)
+            dirs_in[s] = data_dir.joinpath("raw", s)
+            dirs_out[s] = data_dir.joinpath(f"{v}-tokenized", s)
+            dirs_out[s].mkdir(exist_ok=True, parents=True)
 
         # tokenize training set
         tkzr = ClifTokenizer(
-            data_dir=data_dirs["train"],
+            data_dir=dirs_in["train"],
             vocab_path=(
-                data_hm.joinpath(f"{data_version}-tokenized", "train", "vocab.gzip")
+                data_dir.joinpath(f"{data_version}-tokenized", "train", "vocab.gzip")
                 if cut_at_24h
                 else None
             ),
@@ -53,16 +54,18 @@ def main(
         tokens_timelines = tkzr.get_tokens_timelines()
         tokens_timelines = tkzr.pad_and_truncate(tokens_timelines)
         tokens_timelines.write_parquet(
-            out_dirs["train"].joinpath("tokens_timelines.parquet")
+            dirs_out["train"].joinpath("tokens_timelines.parquet")
         )
-        tkzr.vocab.save(out_dirs["train"].joinpath("vocab.gzip"))
+        tkzr.vocab.save(dirs_out["train"].joinpath("vocab.gzip"))
 
         # take the learned tokenizer and tokenize the validation and test sets
         for s in ("val", "test"):
             tkzr = ClifTokenizer(
-                data_dir=data_dirs[s],
+                data_dir=dirs_in[s],
                 vocab_path=(
-                    data_hm.joinpath(f"{data_version}-tokenized", "train", "vocab.gzip")
+                    data_dir.joinpath(
+                        f"{data_version}-tokenized", "train", "vocab.gzip"
+                    )
                 ),
                 max_padded_len=max_padded_len,
                 day_stay_filter=day_stay_filter,
@@ -71,7 +74,7 @@ def main(
             tokens_timelines = tkzr.get_tokens_timelines()
             tokens_timelines = tkzr.pad_and_truncate(tokens_timelines)
             tokens_timelines.write_parquet(
-                out_dirs[s].joinpath("tokens_timelines.parquet")
+                dirs_out[s].joinpath("tokens_timelines.parquet")
             )
 
 

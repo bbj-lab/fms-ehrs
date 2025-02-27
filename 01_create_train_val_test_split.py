@@ -22,21 +22,30 @@ logger.log_env()
 def main(
     *,
     version_name: str = "raw",
-    hm: os.PathLike = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/"),
+    data_dir_in: os.PathLike = "../CLIF-MIMIC/output/rclif-2.1/",
+    data_dir_out: os.PathLike = "../clif-data/",
     train_frac: float = 0.7,
     val_frac: float = 0.1,
 ):
-    hm = pathlib.Path(hm).expanduser().resolve()
+
+    data_dir_in, data_dir_out = map(
+        lambda d: pathlib.Path(d).expanduser().resolve(),
+        (data_dir_in, data_dir_out),
+    )
 
     if train_frac + val_frac > 1:
         raise f"check {train_frac=} and {val_frac=}"
 
-    data_dir = hm.joinpath("CLIF-MIMIC", "output", "rclif-2.1")
+    # make output sub-directories
     splits = ("train", "val", "test")
+    dirs_out = dict()
+    for s in splits:
+        dirs_out[s] = data_dir_out.joinpath(version_name, s)
+        dirs_out[s].mkdir(exist_ok=True, parents=True)
 
     # partition patient ids
     patient_ids = (
-        pl.scan_parquet(data_dir.joinpath("clif_hospitalization.parquet"))
+        pl.scan_parquet(data_dir_in.joinpath("clif_hospitalization.parquet"))
         .filter(pl.col("age_at_admission") >= 18)
         .group_by("patient_id")
         .agg(pl.col("admission_dttm").min().alias("first_admission"))
@@ -62,7 +71,7 @@ def main(
 
     # partition hospitalization ids according to the patient split
     hospitalization_ids = (
-        pl.scan_parquet(data_dir.joinpath("clif_hospitalization.parquet"))
+        pl.scan_parquet(data_dir_in.joinpath("clif_hospitalization.parquet"))
         .select("patient_id", "hospitalization_id")
         .unique()
         .collect()
@@ -82,28 +91,22 @@ def main(
         == hospitalization_ids.n_unique()
     )
 
-    # make directories
-    dirs = dict()
-    for s in splits:
-        dirs[s] = hm.joinpath("clif-data", version_name, s)
-        dirs[s].mkdir(exist_ok=True, parents=True)
-
     # generate sub-tables
     for s in splits:
 
-        pl.scan_parquet(data_dir.joinpath("clif_patient.parquet")).join(
+        pl.scan_parquet(data_dir_in.joinpath("clif_patient.parquet")).join(
             p_ids[s].lazy(), on="patient_id"
-        ).sink_parquet(dirs[s].joinpath("clif_patient.parquet"))
+        ).sink_parquet(dirs_out[s].joinpath("clif_patient.parquet"))
 
-        pl.scan_parquet(data_dir.joinpath("clif_hospitalization.parquet")).join(
+        pl.scan_parquet(data_dir_in.joinpath("clif_hospitalization.parquet")).join(
             h_ids[s].lazy(), on="hospitalization_id"
-        ).sink_parquet(dirs[s].joinpath("clif_hospitalization.parquet"))
+        ).sink_parquet(dirs_out[s].joinpath("clif_hospitalization.parquet"))
 
-        for t in data_dir.glob("*.parquet"):
+        for t in data_dir_in.glob("*.parquet"):
             if t.stem.split("_", 1)[1] not in ("hospitalization", "patient"):
                 pl.scan_parquet(t).join(
                     h_ids[s].lazy(), on="hospitalization_id"
-                ).sink_parquet(dirs[s].joinpath(t.name))
+                ).sink_parquet(dirs_out[s].joinpath(t.name))
 
 
 if __name__ == "__main__":
