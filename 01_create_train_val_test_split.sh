@@ -12,6 +12,6 @@ source ~/.bashrc
 source venv/bin/activate
 python3 01_create_train_val_test_split.py \
      --data_dir_in "${hm}/CLIF-MIMIC/output/rclif-2.1/" \
-     --data_dir_out "${hm}/clif-data/TEST" \
+     --data_dir_out "${hm}/clif-data/" \
      --train_frac 0.7 \
      --val_frac 0.1
