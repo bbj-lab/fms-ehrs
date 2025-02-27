@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-train a small LLM with a packing strategy
+train a small model with a packing strategy
 """
 
 import os

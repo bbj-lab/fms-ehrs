@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-train a small LLM with a packing strategy
+train a small model with a packing strategy
 """
 
 import os
@@ -32,6 +32,7 @@ def main(
     model_name: str = "meta-llama/Llama-3.2-1B",
     per_device_train_batch_size: int = 16,
     per_device_eval_batch_size: int = 16,
+    gradient_accumulation_steps=3,
     hm: os.PathLike = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/")
     .expanduser()
     .absolute(),
@@ -80,7 +81,7 @@ def main(
         output_dir=str(output_dir),
         per_device_train_batch_size=per_device_train_batch_size,
         per_device_eval_batch_size=per_device_eval_batch_size,
-        gradient_accumulation_steps=1,  # simulate larger batch sizes
+        gradient_accumulation_steps=gradient_accumulation_steps,  # simulate larger batch sizes
         learning_rate=learning_rate,  # 2e-4 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
         num_train_epochs=1,
         save_total_limit=2,

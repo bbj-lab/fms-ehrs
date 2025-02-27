@@ -1,14 +1,13 @@
 #!/bin/bash
 
-#SBATCH --job-name=tokenize-data
+#SBATCH --job-name=examine-mdl
 #SBATCH --output=./output/%j.stdout
 #SBATCH --chdir=/gpfs/data/bbj-lab/users/burkh4rt/clif-tokenizer
-#SBATCH --partition=tier3q
-#SBATCH --mem=1TB
+#SBATCH --partition=gpuq
+#SBATCH --gres=gpu:1
 #SBATCH --time=1:00:00
 
 source ~/.bashrc
 source venv/bin/activate
-python3 02_tokenize_train_val_test_split.py \
-     --data_version day_stays_qc \
-
+python3 04_examine_model.py \
+        --projector_type PCA \
