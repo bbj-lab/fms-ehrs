@@ -37,7 +37,7 @@ class Datasets:
         self.max_seq_length = max_seq_length
         self.shuffle_buffer_size = shuffle_buffer_size
         self.t_rng = t.Generator().manual_seed(42)
-        self.n_rng = np.random.default_rng(42)
+        self.np_rng = np.random.default_rng(42)
         self.splits = ("train", "val", "test")
         self.data_dirs = {
             s: self.hm.joinpath("clif-data", f"{self.data_version}-tokenized", s)
@@ -98,7 +98,7 @@ class Datasets:
 
     def get_train_dataset(self, n_epochs: int = 10):
         if self.collation == "padded":
-            return self.dataset["train"].shuffle(generator=self.n_rng)
+            return self.dataset["train"].shuffle(generator=self.np_rng)
         elif self.collation == "packed":
             return ds.IterableDataset.from_generator(
                 lambda: self.chunk_iterable(
@@ -107,7 +107,7 @@ class Datasets:
                             itertools.repeat(iter(self.dataset["train"]), n_epochs)
                         )
                     ).shuffle(
-                        generator=self.n_rng, buffer_size=self.shuffle_buffer_size
+                        generator=self.np_rng, buffer_size=self.shuffle_buffer_size
                     )
                 ),
                 features=ds.Features({"input_ids": ds.Sequence(ds.Value("uint8"))}),
