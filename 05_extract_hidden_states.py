@@ -7,6 +7,7 @@ grab the final hidden state (at just under 24h) from each provided sequence
 import os
 import pathlib
 
+import fire as fi
 import numpy as np
 import torch as t
 import torch.distributed as dist
@@ -17,85 +18,96 @@ from transformers import AutoModelForCausalLM
 from logger import get_logger
 from vocabulary import Vocabulary
 
-hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser()
+logger = get_logger()
+logger.info("running {}".format(__file__))
+logger.log_env()
 
-data_version = "day_stays_qc_first_24h"
-model_loc = hm.joinpath(
-    "clif-mdls-archive", "medium-packing-tuning-57164794-run2-ckpt-7000"
-)
-batch_sz = 2**5
 
-if os.getenv("RANK", "0") == "0":
-    logger = get_logger()
-    logger.info("running {}".format(__file__))
-    logger.log_env()
-    logger.info(f"{data_version=}")
-    logger.info(f"{model_loc.stem=}")
-    logger.info(f"{model_loc=}")
-    logger.info(f"{batch_sz=}")
-
-# prepare parallelism
-is_parallel = t.cuda.device_count() > 1
-if is_parallel:
-    dist.init_process_group(backend="nccl")
-    rank = dist.get_rank()
-else:
-    rank = 0
-device = t.device(f"cuda:{rank}")
-t.cuda.set_device(device)
-
-# load and prep data
-splits = ("train", "val", "test")
-data_dirs = dict()
-for s in splits:
-    data_dirs[s] = hm.joinpath("clif-data", f"{data_version}-tokenized", s)
-
-vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
-
-dataset = (
-    load_dataset(
-        "parquet",
-        data_files={
-            s: str(data_dirs[s].joinpath("tokens_timelines.parquet")) for s in splits
-        },
+@logger.log_calls
+def main(
+    hm: os.PathLike = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser(),
+    data_version: str = "day_stays_qc_first_24h",
+    model_loc: os.PathLike = pathlib.Path(
+        "/gpfs/data/bbj-lab/users/burkh4rt/"
+    ).joinpath(
+        "clif-mdls-archive",
+        "llama-57350630-ckpt-6000",
+    ),
+    batch_sz: int = 2**5,
+):
+    hm, model_loc = map(
+        lambda d: pathlib.Path(d).expanduser().resolve(),
+        (hm, model_loc),
     )
-    .map(lambda batch: {"input_ids": batch["padded"]}, batched=True)
-    .with_format("torch")
-)
 
-# load and prep model
-model = AutoModelForCausalLM.from_pretrained(model_loc)  # in eval mode by default
-d = model.config.hidden_size
-model = model.to(device)
-if is_parallel:
-    model = t.nn.parallel.DistributedDataParallel(model, device_ids=[rank])
+    # prepare parallelism
+    is_parallel = t.cuda.device_count() > 1
+    if is_parallel:
+        dist.init_process_group(backend="nccl")
+        rank = dist.get_rank()
+    else:
+        rank = 0
+    device = t.device(f"cuda:{rank}")
+    t.cuda.set_device(device)
 
-# iterate over splits and run inference using model
-features = dict()
+    # load and prep data
+    splits = ("train", "val", "test")
+    data_dirs = dict()
+    for s in splits:
+        data_dirs[s] = hm.joinpath("clif-data", f"{data_version}-tokenized", s)
 
-for s in splits:
-    if rank == 0:
-        print(s)
-    n = dataset[s].num_rows
-    features[s] = np.empty((n, d))
-    for batch_idx in tqdm(t.split(t.arange(n), batch_sz)):
-        batch = dataset[s]["input_ids"][batch_idx].to(device)
-        final_nonpadding_idx = (
-            t.argmax((batch == vocab("PAD")).int(), axis=1, keepdim=True) - 1
+    vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
+
+    dataset = (
+        load_dataset(
+            "parquet",
+            data_files={
+                s: str(data_dirs[s].joinpath("tokens_timelines.parquet"))
+                for s in splits
+            },
         )
-        with t.inference_mode():
-            x = model.forward(input_ids=batch, output_hidden_states=True)
-            ret = t.empty(
-                size=(final_nonpadding_idx.size(dim=0), d),
-                dtype=x.hidden_states[-1].dtype,
-                device=device,
-            )
-            for i, j in enumerate(final_nonpadding_idx):
-                ret[i] = x.hidden_states[-1][i, j, :]
-            features[s][batch_idx] = ret.detach().to("cpu")
-
-# save out results
-for s in splits:
-    np.save(
-        data_dirs[s].joinpath("features-{m}.npy".format(m=model_loc.stem)), features[s]
+        .map(lambda batch: {"input_ids": batch["padded"]}, batched=True)
+        .with_format("torch")
     )
+
+    # load and prep model
+    model = AutoModelForCausalLM.from_pretrained(model_loc)  # in eval mode by default
+    d = model.config.hidden_size
+    model = model.to(device)
+    if is_parallel:
+        model = t.nn.parallel.DistributedDataParallel(model, device_ids=[rank])
+
+    # iterate over splits and run inference using model
+    features = dict()
+
+    for s in splits:
+        if rank == 0:
+            print(s)
+        n = dataset[s].num_rows
+        features[s] = np.empty((n, d))
+        for batch_idx in tqdm(t.split(t.arange(n), batch_sz)):
+            batch = dataset[s]["input_ids"][batch_idx].to(device)
+            final_nonpadding_idx = (
+                t.argmax((batch == vocab("PAD")).int(), axis=1, keepdim=True) - 1
+            )
+            with t.inference_mode():
+                x = model.forward(input_ids=batch, output_hidden_states=True)
+                ret = t.empty(
+                    size=(final_nonpadding_idx.size(dim=0), d),
+                    dtype=x.hidden_states[-1].dtype,
+                    device=device,
+                )
+                for i, j in enumerate(final_nonpadding_idx):
+                    ret[i] = x.hidden_states[-1][i, j, :]
+                features[s][batch_idx] = ret.detach().to("cpu")
+
+    # save out results
+    for s in splits:
+        np.save(
+            data_dirs[s].joinpath("features-{m}.npy".format(m=model_loc.stem)),
+            features[s],
+        )
+
+
+if __name__ == "__main__":
+    fi.Fire(main)

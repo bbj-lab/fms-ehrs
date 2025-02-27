@@ -4,6 +4,7 @@
 learn the tokenizer on the training set and apply it to the validation and test sets
 """
 
+import os
 import pathlib
 
 import fire as fi
@@ -19,7 +20,7 @@ logger.log_env()
 @logger.log_calls
 def main(
     *,
-    data_hm=pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/clif-data"),
+    data_hm: os.PathLike = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/clif-data"),
     data_version: str = "day_stays_qc",
     max_padded_len: int = 1024,
     day_stay_filter: bool = True,

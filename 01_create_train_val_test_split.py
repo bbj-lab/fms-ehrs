@@ -5,6 +5,7 @@ partition patients by order of appearance in the dataset into train-validation-t
 """
 
 import itertools
+import os
 import pathlib
 
 import fire as fi
@@ -20,8 +21,8 @@ logger.log_env()
 @logger.log_calls
 def main(
     *,
-    version_name="raw",
-    hm=pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/"),
+    version_name: str = "raw",
+    hm: os.PathLike = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/"),
     train_frac: float = 0.7,
     val_frac: float = 0.1,
 ):

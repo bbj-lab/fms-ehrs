@@ -5,6 +5,7 @@ load a model and make some plots
 """
 
 import functools
+import os
 import pathlib
 import re
 import typing
@@ -42,15 +43,17 @@ def key_type(word: str) -> str:
 @logger.log_calls
 def main(
     projector_type: typing.Literal["PCA", "TSNE"] = "PCA",
-    train_dir=pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").joinpath(
-        "clif-data", f"day_stays_qc_first_24h-tokenized", "train"
-    ),
-    model_loc=pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").joinpath(
+    train_dir: os.PathLike = pathlib.Path(
+        "/gpfs/data/bbj-lab/users/burkh4rt/"
+    ).joinpath("clif-data", f"day_stays_qc_first_24h-tokenized", "train"),
+    model_loc: os.PathLike = pathlib.Path(
+        "/gpfs/data/bbj-lab/users/burkh4rt/"
+    ).joinpath(
         "clif-mdls-archive",
-        "llama-57218445-run3",
+        "llama-57350630-ckpt-6000",
         # "medium-packing-tuning-57164794-run2-ckpt-7000"
     ),
-    out_dir=pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/"),
+    out_dir: os.PathLike = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/"),
 ):
 
     train_dir, model_loc, out_dir = map(
@@ -74,7 +77,7 @@ def main(
     )
     proj = projector.fit_transform(emb.detach())
     if projector_type == "PCA":
-        logger.log(f"{proj.explained_variance_ratio_=}")
+        logger.info(f"{projector.explained_variance_ratio_=}")
 
     df = (
         pl.from_numpy(data=proj, schema=["dim1", "dim2"])
@@ -113,7 +116,7 @@ def main(
     )
     proj = projector.fit_transform(emb.detach())
     if projector_type == "PCA":
-        logger.log(f"{proj.explained_variance_ratio_=}")
+        logger.info(f"{projector.explained_variance_ratio_=}")
 
     fig = px.scatter(
         pl.from_numpy(data=proj, schema=["dim1", "dim2"]).with_columns(
