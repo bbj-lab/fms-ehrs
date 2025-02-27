@@ -53,7 +53,7 @@ class SlurmLogger(logging.Logger):
             shell=True,
         )
         if get_git.returncode == 0:
-            self.info("commit: {}".format(get_git.stdout.decode().strip().upper()))
+            self.info("commit: {}".format(get_git.stdout.decode().strip()))
 
         get_branch = subprocess.run(
             "git rev-parse --abbrev-ref HEAD",
@@ -62,7 +62,7 @@ class SlurmLogger(logging.Logger):
             shell=True,
         )
         if get_branch.returncode == 0:
-            self.info("branch: {}".format(get_branch.stdout.decode().strip().upper()))
+            self.info("branch: {}".format(get_branch.stdout.decode().strip()))
 
     def log_calls(self, func: callable) -> callable:
 

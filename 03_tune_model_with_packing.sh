@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=tune-clif-mamba
+#SBATCH --job-name=tune-mdl
 #SBATCH --output=./output/%j.stdout
 #SBATCH --chdir=/gpfs/data/bbj-lab/users/burkh4rt/clif-tokenizer
 #SBATCH --partition=sxmq

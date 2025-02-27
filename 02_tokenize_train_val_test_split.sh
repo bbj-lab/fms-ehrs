@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=tokenize-clif-data
+#SBATCH --job-name=tokenize-data
 #SBATCH --output=./output/%j.stdout
 #SBATCH --chdir=/gpfs/data/bbj-lab/users/burkh4rt/clif-tokenizer
 #SBATCH --partition=tier3q
@@ -9,4 +9,6 @@
 
 source ~/.bashrc
 source venv/bin/activate
-python3 02_tokenize_train_val_test_split.py
+python3 02_tokenize_train_val_test_split.py \
+     --data_version day_stays_qc \
+
