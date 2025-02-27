@@ -29,7 +29,7 @@ class ClifTokenizer:
         *,
         data_dir: Pathlike = pathlib.Path("."),
         vocab_path: Pathlike = None,
-        max_seq_length: int = None,
+        max_padded_len: int = None,
         day_stay_filter: bool = False,
         cut_at_24h: bool = False,
     ):
@@ -47,7 +47,7 @@ class ClifTokenizer:
             self.vocab_path = pathlib.Path(vocab_path).expanduser()
             self.vocab = Vocabulary().load(self.vocab_path)
             self.vocab.is_training = False
-        self.max_seq_length = max_seq_length
+        self.max_padded_length = max_padded_len
         self.day_stay_filter = bool(day_stay_filter)
         self.cut_at_24h = bool(cut_at_24h)
 
@@ -230,6 +230,7 @@ class ClifTokenizer:
 
         self.tbl["labs"] = (
             self.tbl["labs"]
+            .filter(~pl.col("lab_category").is_null())
             .select(
                 "hospitalization_id",
                 pl.col("lab_collect_dttm")
@@ -525,22 +526,26 @@ class ClifTokenizer:
         return tt.collect()
 
     def pad_and_truncate(self, tokens_timelines: Frame) -> Frame:
-        if self.max_seq_length is not None:
+        if self.max_padded_length is not None:
             tt = tokens_timelines.lazy().with_columns(
                 seq_len=pl.col("tokens").list.len()
             )
-            tt_under = tt.filter(pl.col("seq_len") <= self.max_seq_length).with_columns(
+            tt_under = tt.filter(
+                pl.col("seq_len") <= self.max_padded_length
+            ).with_columns(
                 padded=pl.concat_list(
                     "tokens",
                     pl.lit(self.vocab("PAD")).repeat_by(
-                        self.max_seq_length - pl.col("seq_len")
+                        self.max_padded_length - pl.col("seq_len")
                     ),
                 )
             )
-            tt_over = tt.filter(pl.col("seq_len") > self.max_seq_length).with_columns(
+            tt_over = tt.filter(
+                pl.col("seq_len") > self.max_padded_length
+            ).with_columns(
                 padded=pl.concat_list(
                     pl.col("tokens").list.slice(
-                        offset=0, length=self.max_seq_length - 1
+                        offset=0, length=self.max_padded_length - 1
                     ),
                     pl.lit(self.vocab("TRUNC")),
                 )
@@ -620,7 +625,7 @@ if __name__ == "__main__":
 
     tkzr = ClifTokenizer(
         data_dir=hm,
-        max_seq_length=1024,
+        max_padded_len=1024,
         day_stay_filter=True,  # cut_at_24h=True
     )
     tokens_timelines = tkzr.get_tokens_timelines()
@@ -637,5 +642,31 @@ if __name__ == "__main__":
     assert len(tkzr.vocab) == len(tkzr2.vocab)
     assert tkzr.vocab.lookup == tkzr2.vocab.lookup
 
-    tt = ClifTokenizer(data_dir=hm).get_tokens_timelines()
-    x = tt.with_columns(tt=pl.struct("tokens", "times")).select("tt").head(1).item()
+    # vented_ex = (
+    #     tokens_timelines.filter(
+    #         pl.col("tokens").list.contains(tkzr.vocab("high flow nc"))
+    #     )
+    #     .select("tokens")
+    #     .head(1)
+    #     .item()
+    #     .to_numpy()
+    # )
+    # with open(
+    #     pathlib.Path(__file__).parent.joinpath(
+    #         "img", "example_timeline_with_ventilation.txt"
+    #     ),
+    #     "w",
+    # ) as f:
+    #     for t in vented_ex:
+    #         f.write(str(tkzr.vocab.reverse[t]) + "\n")
+    #
+    # tkzr.load_tables()
+    # print(
+    #     tkzr.tbl["hospitalization"]
+    #     .filter(pl.col("hospitalization_id") == "27304928")
+    #     .collect()
+    # )
+    #
+    # for k, v in tkzr.tbl.items():
+    #     if k not in ("hospitalization", "patient"):
+    #         print(v.filter(pl.col("hospitalization_id") == "27304928").collect())
