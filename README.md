@@ -2,8 +2,8 @@
 
 This workflow tokenizes CLIF data
 (https://clif-consortium.github.io/website/data-dictionary.html) into
-`hospitalization_id`-level timelines and trains a small instance of Mamba on the
-resulting data.
+`hospitalization_id`-level timelines and trains a small instance of Mamba on
+the resulting data.
 
 The conversion script for
 [MIMIC-IV-3.1](https://physionet.org/content/mimiciv/3.1/) data creates 9 of
@@ -30,7 +30,6 @@ rsync -avht \
       --exclude "output/" \
       --exclude "wandb/" \
       --exclude "results/" \
-      --delete \
       ~/Documents/chicago/clif-tokenizer \
       randi:/gpfs/data/bbj-lab/users/burkh4rt
 ```
@@ -53,6 +52,7 @@ Format:
 ```
 isort *.py
 black *.py
+shfmt -w -i 4 *.sh
 prettier --write --print-width 81 --prose-wrap always *.md
 ```
 

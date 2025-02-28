@@ -25,14 +25,14 @@ class Datasets:
     def __init__(
         self,
         data_version: str,
-        hm: Pathlike,
+        data_dir: Pathlike,
         collation: typing.Literal["padded", "packed"] = "packed",
         *,
         max_seq_length: int = 1024,
         shuffle_buffer_size: int = 1024,
     ):
         self.data_version = data_version
-        self.hm = pathlib.Path(hm)
+        self.data_dir = pathlib.Path(data_dir)
         self.collation = collation
         self.max_seq_length = max_seq_length
         self.shuffle_buffer_size = shuffle_buffer_size
@@ -40,7 +40,7 @@ class Datasets:
         self.np_rng = np.random.default_rng(42)
         self.splits = ("train", "val", "test")
         self.data_dirs = {
-            s: self.hm.joinpath("clif-data", f"{self.data_version}-tokenized", s)
+            s: self.data_dir.joinpath(f"{self.data_version}-tokenized", s)
             for s in self.splits
         }
         self.vocab = Vocabulary().load(self.data_dirs["train"].joinpath("vocab.gzip"))

@@ -89,11 +89,3 @@ def get_logger() -> SlurmLogger:
 if __name__ == "__main__":
     logger = get_logger()
     logger.log_env()
-
-    a = 3
-
-    @logger.log_calls
-    def foo(a, x=3, **kargs):
-        pass
-
-    foo(a, b=4)
