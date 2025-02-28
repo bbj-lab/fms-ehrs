@@ -4,16 +4,19 @@
 determine some outcomes of interest for each hospitalization
 """
 
+import os
 import pathlib
 
+import fire as fi
 import polars as pl
 
+from logger import get_logger
 from vocabulary import Vocabulary
 
-ref_version = "day_stays_qc"
-data_version = f"{ref_version}_first_24h"
+logger = get_logger()
+logger.info("running {}".format(__file__))
+logger.log_env()
 
-hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser()
 
 @logger.log_calls
 def main(
@@ -54,26 +57,20 @@ def main(
                 "long_length_of_stay",
             )
         )
-        .with_columns(
-            long_length_of_stay=pl.col("length_of_stay") > 24 * 7  # 7 days in hours
+        (
+            pl.scan_parquet(data_dirs[s].joinpath("tokens_timelines.parquet"))
+            # .select("hospitalization_id")
+            .join(
+                outcomes,
+                how="left",
+                on="hospitalization_id",
+                validate="1:1",
+                maintain_order="left",
+            )
+            .collect()
+            .write_parquet(data_dirs[s].joinpath("tokens_timelines_outcomes.parquet"))
         )
-        .select(
-            "hospitalization_id",
-            "length_of_stay",
-            "same_admission_death",
-            "long_length_of_stay",
-        )
-    )
-    (
-        pl.scan_parquet(data_dirs[s].joinpath("tokens_timelines.parquet"))
-        .select("hospitalization_id")
-        .join(
-            outcomes,
-            how="left",
-            on="hospitalization_id",
-            validate="1:1",
-            maintain_order="left",
-        )
-        .collect()
-        .write_parquet(data_dirs[s].joinpath("outcomes.parquet"))
-    )
+
+
+if __name__ == "__main__":
+    fi.Fire(main)

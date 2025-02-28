@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 
 """
-load a Mamba and play with it
+load a model and make some plots
 """
 
+import functools
+import os
 import pathlib
 import re
+import typing
 
+import fire as fi
 import plotly.express as px
 import plotly.graph_objects as go
 import polars as pl
@@ -18,19 +22,12 @@ from transformers import AutoModelForCausalLM
 from logger import get_logger
 from vocabulary import Vocabulary
 
-projector_type = "PCA"
-data_version = "day_stays_qc_first_24h"
-
-hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser()
-
-train_dir = hm.joinpath("clif-data", f"{data_version}-tokenized", "train")
-vocab = Vocabulary().load(train_dir.joinpath("vocab.gzip"))
-model_loc = hm.joinpath(
-    "clif-mdls-archive", "medium-packing-tuning-57164794-run2-ckpt-7000"
-)
-model = AutoModelForCausalLM.from_pretrained(model_loc)
+logger = get_logger()
+logger.info("running {}".format(__file__))
+logger.log_env()
 
 
+@functools.cache
 def key_type(word: str) -> str:
     if word is None:
         return "OTHER"
@@ -56,7 +53,6 @@ def main(
         lambda d: pathlib.Path(d).expanduser().resolve(),
         (data_dir, model_loc, out_dir),
     )
-)
 
     train_dir = data_dir.joinpath("train")
 
@@ -143,17 +139,5 @@ def main(
     fig.write_html(out_dir.joinpath("embedding_q-{m}.html".format(m=model_loc.stem)))
 
 
-"""
-return basic parameters from searches
-"""
-
-# keys = ("hidden_size", "n_layer", "num_hidden_layers", "state_size", "vocab_size")
-# for s in ("small-lr-search", "smaller-lr-search", "smallest-lr-search"):
-#     print(s.ljust(79, "="))
-#     m = next(iter(hm.joinpath("clif-mdls", s).glob("**/checkpoint-*")))
-#     model = AutoModelForCausalLM.from_pretrained(m)
-#     conf = model.config.to_dict()
-#     for k in keys:
-#         print("{}: {}".format(k, conf[k]))
-#
-# vocab.print_aux()
+if __name__ == "__main__":
+    fi.Fire(main)
