@@ -27,7 +27,6 @@ def main(
     train_frac: float = 0.7,
     val_frac: float = 0.1,
 ):
-
     data_dir_in, data_dir_out = map(
         lambda d: pathlib.Path(d).expanduser().resolve(),
         (data_dir_in, data_dir_out),
