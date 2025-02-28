@@ -19,8 +19,8 @@ from sklearn.manifold import TSNE
 from torch import arange as t_arange
 from transformers import AutoModelForCausalLM
 
-from vocabulary import Vocabulary
 from logger import get_logger
+from vocabulary import Vocabulary
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
@@ -42,24 +42,19 @@ def key_type(word: str) -> str:
 
 @logger.log_calls
 def main(
+    *,
     projector_type: typing.Literal["PCA", "TSNE"] = "PCA",
-    train_dir: os.PathLike = pathlib.Path(
-        "/gpfs/data/bbj-lab/users/burkh4rt/"
-    ).joinpath("clif-data", f"day_stays_qc_first_24h-tokenized", "train"),
-    model_loc: os.PathLike = pathlib.Path(
-        "/gpfs/data/bbj-lab/users/burkh4rt/"
-    ).joinpath(
-        "clif-mdls-archive",
-        "llama-57350630-ckpt-6000",
-        # "medium-packing-tuning-57164794-run2-ckpt-7000"
-    ),
-    out_dir: os.PathLike = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/"),
+    data_dir: os.PathLike = "../clif-data/day_stays_qc_first_24h-tokenized",
+    model_loc: os.PathLike = "../clif-mdls-archive/llama-57350630-ckpt-6000",
+    out_dir: os.PathLike = "../",
 ):
 
-    train_dir, model_loc, out_dir = map(
+    data_dir, model_loc, out_dir = map(
         lambda d: pathlib.Path(d).expanduser().resolve(),
-        (train_dir, model_loc, out_dir),
+        (data_dir, model_loc, out_dir),
     )
+
+    train_dir = data_dir.joinpath("train")
 
     vocab = Vocabulary().load(train_dir.joinpath("vocab.gzip"))
     model = AutoModelForCausalLM.from_pretrained(model_loc)

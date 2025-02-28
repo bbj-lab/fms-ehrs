@@ -33,26 +33,30 @@ def main(
     per_device_train_batch_size: int = 16,
     per_device_eval_batch_size: int = 16,
     gradient_accumulation_steps=3,
-    hm: os.PathLike = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/")
-    .expanduser()
-    .absolute(),
+    data_dir: os.PathLike = "../clif-data",
+    model_dir: os.PathLike = "../clif-mdls",
     collation: typing.Literal["padded", "packed"] = "packed",
     jid: str = os.getenv("SLURM_JOB_ID", ""),
     wandb_project: str = "clif_mimic_packing",
 ):
 
     os.environ["HF_HOME"] = "/gpfs/data/bbj-lab/cache/huggingface/"
-    os.environ["WANDB_CACHE_DIR"] = "/scratch/burkh4rt/"
-    os.environ["WANDB_DIR"] = "/scratch/burkh4rt/"
+    os.environ["WANDB_CACHE_DIR"] = "/scratch/{}/".format(os.getenv("USER"))
+    os.environ["WANDB_DIR"] = "/scratch/{}/".format(os.getenv("USER"))
     os.environ["WANDB_PROJECT"] = wandb_project
     os.environ["WANDB_RUN_NAME"] = "{m}-{j}".format(m=model_version, j=jid)
 
-    output_dir = hm.joinpath("clif-mdls", "{m}-{j}".format(m=model_version, j=jid))
+    data_dir, model_dir = map(
+        lambda d: pathlib.Path(d).expanduser().resolve(),
+        (data_dir, model_dir),
+    )
+
+    output_dir = model_dir.joinpath("{m}-{j}".format(m=model_version, j=jid))
     output_dir.mkdir(exist_ok=True, parents=True)
 
     dataset = Datasets(
         data_version=data_version,
-        hm=hm,
+        data_dir=data_dir,
         collation=collation,
         max_seq_length=max_seq_length,
     )

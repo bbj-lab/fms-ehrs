@@ -25,7 +25,8 @@ logger.log_env()
 
 @logger.log_calls
 def main(
-    hm: os.PathLike = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/").expanduser(),
+    *,
+    hm: os.PathLike = "../",
     data_version: str = "day_stays_qc_first_24h",
     model_loc: os.PathLike = pathlib.Path(
         "/gpfs/data/bbj-lab/users/burkh4rt/"

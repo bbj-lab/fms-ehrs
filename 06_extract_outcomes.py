@@ -20,20 +20,21 @@ logger.log_env()
 
 @logger.log_calls
 def main(
+    *,
     ref_version: str = "day_stays_qc",
     data_version: str = f"day_stays_qc_first_24h",
-    hm: os.PathLike = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/"),
+    data_dir: os.PathLike = "../clif-data/",
 ):
 
-    hm = pathlib.Path(hm).expanduser().resolve()
+    data_dir = pathlib.Path(data_dir).expanduser().resolve()
 
     # load and prep data
     splits = ("train", "val", "test")
     data_dirs = dict()
     ref_dirs = dict()
     for s in splits:
-        data_dirs[s] = hm.joinpath("clif-data", f"{data_version}-tokenized", s)
-        ref_dirs[s] = hm.joinpath("clif-data", f"{ref_version}-tokenized", s)
+        data_dirs[s] = data_dir.joinpath(f"{data_version}-tokenized", s)
+        ref_dirs[s] = data_dir.joinpath(f"{ref_version}-tokenized", s)
 
     vocab = Vocabulary().load(ref_dirs["train"].joinpath("vocab.gzip"))
 
