@@ -45,6 +45,7 @@ executing==2.2.0
 fastapi==0.115.8
 fastjsonschema==2.21.1
 filelock==3.17.0
+fire==0.7.0
 fqdn==1.5.1
 frozenlist==1.5.0
 fsspec==2024.9.0
@@ -206,6 +207,7 @@ starlette==0.45.3
 sympy==1.13.1
 tenacity==9.0.0
 tensorboardX==2.6.2.2
+termcolor==2.5.0
 terminado==0.18.1
 threadpoolctl==3.5.0
 tiktoken==0.7.0

@@ -4,6 +4,8 @@
 """
 
 import datetime
+import functools
+import inspect
 import logging
 import os
 import subprocess
@@ -22,12 +24,13 @@ class SlurmLogger(logging.Logger):
         ch = logging.StreamHandler()
         ch.setLevel(logging.INFO)
         ch.setFormatter(formatter)
-        self.addHandler(ch)
+        if os.getenv("RANK", "0") == "0":
+            self.addHandler(ch)
         self.propagate = False
 
     def log_env(self):
-
-        self.info("running Python {}".format(sys.version))
+        self.info("from {}".format(os.getcwd()))
+        self.info("with Python {}".format(sys.version))
         self.info("on {}".format(os.uname().nodename))
         self.info("tz-info: {}".format(datetime.datetime.now().astimezone().tzinfo))
         if slurm_job_id := os.getenv("SLURM_JOB_ID", ""):
@@ -50,7 +53,7 @@ class SlurmLogger(logging.Logger):
             shell=True,
         )
         if get_git.returncode == 0:
-            self.info("commit: {}".format(get_git.stdout.decode().strip().upper()))
+            self.info("commit: {}".format(get_git.stdout.decode().strip()))
 
         get_branch = subprocess.run(
             "git rev-parse --abbrev-ref HEAD",
@@ -59,7 +62,22 @@ class SlurmLogger(logging.Logger):
             shell=True,
         )
         if get_branch.returncode == 0:
-            self.info("branch: {}".format(get_branch.stdout.decode().strip().upper()))
+            self.info("branch: {}".format(get_branch.stdout.decode().strip()))
+
+    def log_calls(self, func: callable) -> callable:
+
+        @functools.wraps(func)
+        def log_io(*args, **kwargs):
+            func_args = inspect.signature(func).bind_partial(*args, **kwargs)
+            func_args.apply_defaults()
+            self.info(f"{func.__name__} called with---")
+            for k, v in func_args.arguments.items():
+                self.info(f"{k}: {v}")
+            y = func(*args, **kwargs)
+            self.info(f"---{func.__name__}")
+            return y
+
+        return log_io
 
 
 def get_logger() -> SlurmLogger:
