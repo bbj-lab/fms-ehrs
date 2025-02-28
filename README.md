@@ -53,6 +53,7 @@ Format:
 ```
 isort *.py
 black *.py
+shfmt -w -i 4 *.sh
 prettier --write --print-width 81 --prose-wrap always *.md
 ```
 

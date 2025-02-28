@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-train a small model with a packing strategy
+tune a small model with a packing strategy
 """
 
 import os
@@ -30,9 +30,8 @@ def main(
     model_version: str = "llama1b",
     model_name: str = "meta-llama/Llama-3.2-1B",
     per_device_train_batch_size: int = 4,
-    hm: os.PathLike = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/")
-    .expanduser()
-    .absolute(),
+    data_dir: os.PathLike = "../clif-data",
+    model_dir: os.PathLike = "../clif-mdls",
     collation: typing.Literal["padded", "packed"] = "packed",
     jid: str = os.getenv("SLURM_JOB_ID", ""),
     wandb_project: str = "clif_mimic_packing",
@@ -43,12 +42,17 @@ def main(
     os.environ["WANDB_PROJECT"] = wandb_project
     os.environ["WANDB_RUN_NAME"] = "{m}-{j}".format(m=model_version, j=jid)
 
-    output_dir = hm.joinpath("clif-mdls", "{m}-{j}".format(m=model_version, j=jid))
+    data_dir, model_dir = map(
+        lambda d: pathlib.Path(d).expanduser().resolve(),
+        (data_dir, model_dir),
+    )
+
+    output_dir = model_dir.joinpath("{m}-{j}".format(m=model_version, j=jid))
     output_dir.mkdir(exist_ok=True, parents=True)
 
     dataset = Datasets(
         data_version=data_version,
-        hm=hm,
+        data_dir=data_dir,
         collation=collation,
         max_seq_length=max_seq_length,
     )
