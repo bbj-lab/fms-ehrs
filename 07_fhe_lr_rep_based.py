@@ -21,10 +21,11 @@ from concrete.ml.deployment import FHEModelClient, FHEModelDev, FHEModelServer
 from concrete import fhe
 
 
-n_epochs = 10
+n_epochs = 10_000
 n_train = 289667
 batch_size = 8
 max_iter = 20
+eval_size = 10 * batch_size
 
 """
 load data
@@ -204,7 +205,7 @@ def server_run(
 
 for epoch in tqdm(range(n_epochs), desc="training epochs", position=0):
 
-    perm = np.random.permutation(feats["train"].shape[0])
+    perm = np.random.permutation(feats["train"].shape[0])[:eval_size]
     x = feats["train"][perm, ::]
     y = mort["train"][perm]
 
