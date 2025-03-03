@@ -2,8 +2,8 @@
 
 #SBATCH --job-name=partition-data
 #SBATCH --output=./output/%j.stdout
-#SBATCH --partition=tier2q
-#SBATCH --mem=100GB
+#SBATCH --partition=tier3q
+#SBATCH --mem=1TB
 #SBATCH --time=1:00:00
 
 hm="/gpfs/data/bbj-lab/users/$(whoami)"

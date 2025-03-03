@@ -4,7 +4,7 @@
 #SBATCH --output=./output/%j.stdout
 #SBATCH --partition=sxmq
 #SBATCH --gres=gpu:8
-#SBATCH --time=1-00:00:00
+#SBATCH --time=10-00:00:00
 
 hm="/gpfs/data/bbj-lab/users/$(whoami)"
 cd "${hm}/clif-tokenizer" || exit
