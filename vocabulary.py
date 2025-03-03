@@ -47,7 +47,7 @@ class Vocabulary:
                         word, type(word)
                     )
                 )
-                return None
+                return self.lookup[None] if None in self.lookup else None
 
     def set_aux(self, word: Hashable, aux_data):
         if self._is_training:

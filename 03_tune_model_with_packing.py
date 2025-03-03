@@ -27,7 +27,7 @@ def main(
     n_epochs: int = 5,
     max_seq_length: int = 1024,
     data_version: str = "day_stays_qc",
-    model_version: str = "llama1b",
+    model_version: str = "llama1b-smaller",
     model_name: str = "meta-llama/Llama-3.2-1B",
     per_device_train_batch_size: int = 4,
     data_dir: os.PathLike = "../clif-data",
@@ -35,6 +35,9 @@ def main(
     collation: typing.Literal["padded", "packed"] = "packed",
     jid: str = os.getenv("SLURM_JOB_ID", ""),
     wandb_project: str = "clif_mimic_packing",
+    num_attention_heads: int = 16,
+    num_hidden_layers: int = 8,
+    num_key_value_heads: int = 4,
 ):
 
     os.environ["HF_HOME"] = "/gpfs/data/bbj-lab/cache/huggingface/"
@@ -65,6 +68,9 @@ def main(
             bos_token_id=dataset.vocab("TL_START"),
             eos_token_id=dataset.vocab("TL_END"),
             pad_token_id=dataset.vocab("PAD"),
+            num_attention_heads=num_attention_heads,  # default for 3.2-1B is 32
+            num_hidden_layers=num_hidden_layers,  # default is 16
+            num_key_value_heads=num_key_value_heads,  # default is 8,
         )
         return AutoModelForCausalLM.from_config(config)
 
