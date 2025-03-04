@@ -40,9 +40,6 @@ def main(
     wandb_project: str = "clif_mimic_packing",
 ):
 
-    os.environ["HF_HOME"] = "/gpfs/data/bbj-lab/cache/huggingface/"
-    os.environ["WANDB_CACHE_DIR"] = "/scratch/{}/".format(os.getenv("USER"))
-    os.environ["WANDB_DIR"] = "/scratch/{}/".format(os.getenv("USER"))
     os.environ["WANDB_PROJECT"] = wandb_project
     os.environ["WANDB_RUN_NAME"] = "{m}-{j}".format(m=model_version, j=jid)
 

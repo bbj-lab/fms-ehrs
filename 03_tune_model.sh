@@ -1,25 +1,21 @@
 #!/bin/bash
 
-#SBATCH --job-name=train-mdl
+#SBATCH --job-name=tune-mdl
 #SBATCH --output=./output/%j.stdout
-#SBATCH --partition=gpuq
+#SBATCH --partition=sxmq
 #SBATCH --gres=gpu:8
-#SBATCH --time=24:00:00
+#SBATCH --time=1-00:00:00
 
 hm="/gpfs/data/bbj-lab/users/$(whoami)"
 cd "${hm}/clif-tokenizer" || exit
 source ~/.bashrc
 source venv/bin/activate
 torchrun --nproc_per_node=8 \
-    --master_port=29501 \
-    03_train_model_with_packing.py \
-    --n_epochs 10 \
+    03_tune_model.py \
+    --n_epochs 3 \
     --data_dir "${hm}/clif-data" \
     --data_version day_stays_qc \
+    --collation packed \
     --model_dir "${hm}/clif-mdls" \
     --model_version llama1b \
-    --model_name "meta-llama/Llama-3.2-1B" \
-    --per_device_train_batch_size 4 \
-    --per_device_eval_batch_size 4 \
-    --gradient_accumulation_steps 3 \
-    --learning_rate 0.0003
+    --model_name "meta-llama/Llama-3.2-1B"
