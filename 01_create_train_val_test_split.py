@@ -32,9 +32,6 @@ def main(
         (data_dir_in, data_dir_out),
     )
 
-    if train_frac + val_frac > 1:
-        raise f"check {train_frac=} and {val_frac=}"
-
     # make output sub-directories
     splits = ("train", "val", "test")
     dirs_out = dict()
@@ -57,6 +54,11 @@ def main(
     n_train = int(train_frac * n_total)
     n_val = int(val_frac * n_total)
     n_test = n_total - (n_train + n_val)
+
+    logger.info(f"Partition: {n_train=}, {n_val=}, {n_test=}")
+
+    if n_test < 0:
+        raise f"check {train_frac=} and {val_frac=}"
 
     p_ids = dict()
     p_ids["train"] = patient_ids.head(n_train)

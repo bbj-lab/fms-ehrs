@@ -26,19 +26,14 @@ logger.log_env()
 @logger.log_calls
 def main(
     *,
-    hm: os.PathLike = "../",
+    data_dir: os.PathLike = "../clif-data",
     data_version: str = "day_stays_qc_first_24h",
-    model_loc: os.PathLike = pathlib.Path(
-        "/gpfs/data/bbj-lab/users/burkh4rt/"
-    ).joinpath(
-        "clif-mdls-archive",
-        "llama-57350630-ckpt-6000",
-    ),
+    model_loc: os.PathLike = "../clif-mdls-archive/llama-57350630-ckpt-6000",
     batch_sz: int = 2**5,
 ):
-    hm, model_loc = map(
+    data_dir, model_loc = map(
         lambda d: pathlib.Path(d).expanduser().resolve(),
-        (hm, model_loc),
+        (data_dir, model_loc),
     )
 
     # prepare parallelism
@@ -55,7 +50,7 @@ def main(
     splits = ("train", "val", "test")
     data_dirs = dict()
     for s in splits:
-        data_dirs[s] = hm.joinpath("clif-data", f"{data_version}-tokenized", s)
+        data_dirs[s] = data_dir.joinpath(f"{data_version}-tokenized", s)
 
     vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
 

@@ -2,8 +2,7 @@
 
 This workflow tokenizes CLIF data
 (https://clif-consortium.github.io/website/data-dictionary.html) into
-`hospitalization_id`-level timelines and trains a small instance of Mamba on
-the resulting data.
+`hospitalization_id`-level timelines and trains some small LLM's/FM's on the result.
 
 The conversion script for
 [MIMIC-IV-3.1](https://physionet.org/content/mimiciv/3.1/) data creates 9 of
@@ -58,9 +57,9 @@ prettier --write --print-width 81 --prose-wrap always *.md
 
 Run on randi:
 ```
-systemd-run --scope --user tmux new -s t3q
-srun -p tier3q \
-  --mem=1TB \
+systemd-run --scope --user tmux new -s t2q
+srun -p tier2q \
+  --mem=100GB \
   --time=8:00:00 \
   --job-name=adhoc \
   --pty bash -i
