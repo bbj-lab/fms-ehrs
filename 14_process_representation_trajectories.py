@@ -8,6 +8,7 @@ import os
 import pathlib
 
 import fire as fi
+from joblib import Parallel, delayed
 import numpy as np
 import pandas as pd
 import polars as pl
@@ -15,6 +16,7 @@ import statsmodels.formula.api as smf
 import tqdm
 
 from logger import get_logger
+from vocabulary import Vocabulary
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
@@ -40,26 +42,25 @@ def main(
         key=lambda s: int(s.stem.split("batch")[-1]),
     )
 
-    get_jumps = lambda x: np.linalg.norm(
-        np.diff(x, axis=1), axis=-1
-    )  # x will have shape n_obs × tl_len × d_rep
+    get_jumps_from_shard = lambda f: np.linalg.norm(
+        np.diff(np.load(f), axis=1), axis=-1
+    )  # np.load(f) will have shape n_obs × tl_len × d_rep
 
-    traj_lens = []
-    max_jumps = []
-    avg_jumps = []
+    jumps = np.concatenate(
+        Parallel(n_jobs=-1, verbose=True)(
+            delayed(get_jumps_from_shard)(f)
+            for f in tqdm.tqdm(featfiles, desc="shards")
+        )
+    )  # shape n_obs × tl_len-1
 
-    for f in tqdm.tqdm(featfiles, desc="shards"):
-        j = get_jumps(
-            np.load(f).astype(np.float64)
-        )  # rounding is ok but overflow is not
-        traj_lens.append(np.nansum(j, axis=-1))
-        max_jumps.append(np.nanmax(j, axis=-1))
-        avg_jumps.append(np.nanmean(j, axis=-1))
+    """
+    are trajectory statistics predictive of outcomes?
+    """
 
-    traj_len = np.concatenate(traj_lens)
-    max_jump = np.concatenate(max_jumps)
-    avg_jump = np.concatenate(
-        avg_jumps
+    traj_len = np.nansum(jumps.astype(np.float64), axis=-1)  # prevent overflow
+    max_jump = np.nanmax(jumps, axis=-1)
+    avg_jump = np.nanmean(
+        jumps.astype(np.float64), axis=-1
     )  # not necessarily linear in trajectory length because of nan padding
 
     mort = (
@@ -101,6 +102,43 @@ def main(
 
     lr_llos = smf.logit("llos ~ 1 + traj_len + max_jump + avg_jump", data=df).fit()
     logger.info(lr_llos.summary())
+
+    """
+    what do large jumps look like, tokenwise?
+    """
+
+    vocab = Vocabulary().load(
+        data_dir.joinpath(f"{data_version}-tokenized", "train", "vocab.gzip")
+    )
+
+    k = 25
+    w_sz = 5
+    top_k_flat_idx = np.argsort(np.nan_to_num(jumps.flatten()))[::-1][:k]
+    top_k_idx = np.array(np.unravel_index(top_k_flat_idx, jumps.shape)).T
+
+    raw_padded_timelines = np.array(
+        pl.scan_parquet(
+            data_dir.joinpath(
+                f"{data_version}-tokenized", "test", "tokens_timelines.parquet"
+            )
+        )
+        .select("padded")
+        .collect()
+        .to_series()
+        .to_list()
+    )
+
+    m = raw_padded_timelines.shape[-1]
+
+    for i0, i1 in top_k_idx:
+        ints = raw_padded_timelines[i0, max(0, i1 - w_sz) : min(m - 1, i1 + w_sz)]
+        tkns = "->".join(vocab.reverse[i] for i in ints)
+        hit = vocab.reverse[raw_padded_timelines[i0, i1 + 1]]
+        logger.info(
+            ("MORT " if mort[i0] else "")
+            + ("LLOS " if llos[i0] else "")
+            + f"{hit=} in {tkns}"
+        )
 
 
 if __name__ == "__main__":
