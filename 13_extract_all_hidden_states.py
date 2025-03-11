@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 
 """
-grab the final hidden state (at just under 24h) from each provided sequence
+grab all hidden states (at just under 24h) from each provided sequence;
+Cf. 05_extract_hidden_states.py
 """
 
 import os
@@ -28,9 +29,12 @@ def main(
     *,
     data_dir: os.PathLike = "../clif-data",
     data_version: str = "day_stays_qc_first_24h",
-    model_loc: os.PathLike = "../clif-mdls-archive/llama-57350630-ckpt-6000",
-    batch_sz: int = 2**5,
+    model_loc: os.PathLike = "../clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630",
+    small_batch_sz: int = 2**4,
+    big_batch_sz: int = 2**12,
+    test_only: bool = True,
 ):
+
     data_dir, model_loc = map(
         lambda d: pathlib.Path(d).expanduser().resolve(),
         (data_dir, model_loc),
@@ -53,6 +57,7 @@ def main(
         data_dirs[s] = data_dir.joinpath(f"{data_version}-tokenized", s)
 
     vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
+    splits = ("test",) if test_only else splits
 
     dataset = (
         load_dataset(
@@ -74,36 +79,34 @@ def main(
         model = t.nn.parallel.DistributedDataParallel(model, device_ids=[rank])
 
     # iterate over splits and run inference using model
-    stop_tokens = t.tensor([vocab("PAD"), vocab("TRUNC"), vocab("TL_END")]).to(device)
+    stop_tokens = t.tensor([vocab("PAD"), vocab("TRUNC")]).to(device)
     features = dict()
 
     for s in splits:
-        if rank == 0:
-            print(s)
         n = dataset[s].num_rows
-        features[s] = np.empty((n, d))
-        for batch_idx in tqdm(t.split(t.arange(n), batch_sz)):
-            batch = dataset[s]["input_ids"][batch_idx].to(device)
-            final_nonpadding_idx = (
-                t.argmax(t.isin(batch, stop_tokens).int(), axis=1, keepdim=True) - 1
-            )
-            with t.inference_mode():
-                x = model.forward(input_ids=batch, output_hidden_states=True)
-                ret = t.empty(
-                    size=(final_nonpadding_idx.size(dim=0), d),
-                    dtype=x.hidden_states[-1].dtype,
-                    device=device,
+        tl_len = dataset[s].select(range(1))["input_ids"].shape[-1]
+        for batch_num, big_batch in tqdm(enumerate(t.split(t.arange(n), big_batch_sz))):
+            features[s] = np.empty((big_batch.size(0), tl_len, d), dtype=np.float16)
+            for small_batch in t.split(big_batch, small_batch_sz):
+                batch = dataset[s]["input_ids"][small_batch].to(device)
+                final_nonpadding_idx = t.argmax(
+                    t.isin(batch, stop_tokens).int(), axis=1, keepdim=True
                 )
-                for i, j in enumerate(final_nonpadding_idx):
-                    ret[i] = x.hidden_states[-1][i, j, :]
-                features[s][batch_idx] = ret.detach().to("cpu")
-
-    # save out results
-    for s in splits:
-        np.save(
-            data_dirs[s].joinpath("features-{m}.npy".format(m=model_loc.stem)),
-            features[s],
-        )
+                with t.inference_mode():
+                    x = model.forward(input_ids=batch, output_hidden_states=True)
+                feats = x.hidden_states[-1].to("cpu").numpy().astype(np.float16)
+                for i, j in enumerate(final_nonpadding_idx.cpu().numpy().ravel()):
+                    if j != 0:
+                        feats[i, j:] = np.nan
+                features[s][small_batch - batch_num * big_batch_sz] = feats
+            np.save(
+                data_dirs[s].joinpath(
+                    "all-features-{m}-batch{n}.npy".format(
+                        m=model_loc.stem, n=batch_num
+                    )
+                ),
+                features[s],
+            )
 
 
 if __name__ == "__main__":
