@@ -74,6 +74,7 @@ def main(
         model = t.nn.parallel.DistributedDataParallel(model, device_ids=[rank])
 
     # iterate over splits and run inference using model
+    stop_tokens = t.tensor([vocab("PAD"), vocab("TRUNC"), vocab("TL_END")]).to(device)
     features = dict()
 
     for s in splits:
@@ -84,7 +85,7 @@ def main(
         for batch_idx in tqdm(t.split(t.arange(n), batch_sz)):
             batch = dataset[s]["input_ids"][batch_idx].to(device)
             final_nonpadding_idx = (
-                t.argmax((batch == vocab("PAD")).int(), axis=1, keepdim=True) - 1
+                t.argmax(t.isin(batch, stop_tokens).int(), axis=1, keepdim=True) - 1
             )
             with t.inference_mode():
                 x = model.forward(input_ids=batch, output_hidden_states=True)

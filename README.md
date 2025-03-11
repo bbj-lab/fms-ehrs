@@ -2,7 +2,8 @@
 
 This workflow tokenizes CLIF data
 (https://clif-consortium.github.io/website/data-dictionary.html) into
-`hospitalization_id`-level timelines and trains some small LLM's/FM's on the result.
+`hospitalization_id`-level timelines and trains some small LLM's/FM's on the
+result.
 
 The conversion script for
 [MIMIC-IV-3.1](https://physionet.org/content/mimiciv/3.1/) data creates 9 of
