@@ -22,6 +22,7 @@ def main(
     *,
     data_dir: os.PathLike = "../clif-data/",
     data_version: str = "day_stays_qc",
+    vocab_path: os.PathLike = None,
     max_padded_len: int = 1024,
     day_stay_filter: bool = True,
     include_24h_cut: bool = True,
@@ -43,9 +44,15 @@ def main(
         tkzr = ClifTokenizer(
             data_dir=dirs_in["train"],
             vocab_path=(
-                data_dir.joinpath(f"{data_version}-tokenized", "train", "vocab.gzip")
-                if cut_at_24h
-                else None
+                pathlib.Path(vocab_path).expanduser().resolve()
+                if vocab_path is not None
+                else (
+                    data_dir.joinpath(
+                        f"{data_version}-tokenized", "train", "vocab.gzip"
+                    )
+                    if cut_at_24h
+                    else None
+                )
             ),
             max_padded_len=max_padded_len,
             day_stay_filter=day_stay_filter,
@@ -63,7 +70,9 @@ def main(
             tkzr = ClifTokenizer(
                 data_dir=dirs_in[s],
                 vocab_path=(
-                    data_dir.joinpath(
+                    pathlib.Path(vocab_path).expanduser().resolve()
+                    if vocab_path is not None
+                    else data_dir.joinpath(
                         f"{data_version}-tokenized", "train", "vocab.gzip"
                     )
                 ),
