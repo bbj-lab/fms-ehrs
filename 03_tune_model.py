@@ -35,7 +35,9 @@ def main(
     collation: typing.Literal["padded", "packed"] = "packed",
     jid: str = os.getenv("SLURM_JOB_ID", ""),
     wandb_project: str = "clif_mimic_packing",
+    **kwargs,
 ):
+    """pass additional model configuration parameters with kwargs"""
 
     os.environ["HF_HOME"] = "/gpfs/data/bbj-lab/cache/huggingface/"
     os.environ["WANDB_CACHE_DIR"] = "/scratch/burkh4rt/"
@@ -65,6 +67,7 @@ def main(
             bos_token_id=dataset.vocab("TL_START"),
             eos_token_id=dataset.vocab("TL_END"),
             pad_token_id=dataset.vocab("PAD"),
+            **kwargs,
         )
         return AutoModelForCausalLM.from_config(config)
 

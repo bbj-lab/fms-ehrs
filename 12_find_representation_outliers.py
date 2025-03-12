@@ -25,7 +25,9 @@ logger.log_env()
 
 data_dir: os.PathLike = "../clif-data"
 data_version: str = "day_stays_qc_first_24h"
-model_loc: os.PathLike = "../clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630"
+model_loc: os.PathLike = (
+    "../clif-mdls-archive/medium-packing-tuning-57164794-run2-ckpt-7000"
+)
 out_dir: os.PathLike = "../"
 
 
@@ -101,11 +103,15 @@ for outcome in ("mortality", "long_los"):
 
         xtab_in = xtab.row(by_predicate=~pl.col("outlier_24h"), named=True)
         in_outcome_rate = xtab_in["true"] / (xtab_in["true"] + xtab_in["false"])
-        logger.info("inlier mortality rate: {:.2f}%".format(100 * in_outcome_rate))
+        logger.info(
+            "inlier {o} rate: {r:.2f}%".format(o=outcome, r=100 * in_outcome_rate)
+        )
 
         xtab_out = xtab.row(by_predicate=pl.col("outlier_24h"), named=True)
         out_outcome_rate = xtab_out["true"] / (xtab_out["true"] + xtab_out["false"])
-        logger.info("outlier mortality rate: {:.2f}%".format(100 * out_outcome_rate))
+        logger.info(
+            "outlier {o} rate: {r:.2f}%".format(o=outcome, r=100 * out_outcome_rate)
+        )
 
         logger.info("risk factor: {:.2f}".format(out_outcome_rate / in_outcome_rate))
 
