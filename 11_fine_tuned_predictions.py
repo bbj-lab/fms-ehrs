@@ -42,7 +42,10 @@ def main(
     def rt_padding_to_left(t_rt):
         tk: int = vocab("PAD")
         i = t.argmax((t_rt == tk).int()).item()
-        return t.concat([t.full((t_rt.shape[0] - i,), tk), t_rt[:i]])
+        if i > 0:
+            return t.concat([t.full((t_rt.shape[0] - i,), tk), t_rt[:i]])
+        else:
+            return t_rt
 
     dataset = (
         ds.load_dataset(

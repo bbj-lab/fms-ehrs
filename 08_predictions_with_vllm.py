@@ -52,9 +52,10 @@ def main(
         data_dirs["train"].joinpath("vocab.gzip")
     )
 
-    def rt_padding_to_left(t_rt, tk: int = vocab("PAD")):
+    def rt_padding_to_left(self, t_rt):
+        tk: int = self.vocab("PAD")
         i = t.argmax((t_rt == tk).int()).item()
-        return t.concat([t.full((t_rt.shape[0] - i,), tk), t_rt[:i]])
+        return t.concat([t.full((t_rt.shape[0] - i,), tk), t_rt[:i]]) if i > 0 else t_rt
 
     s = "test"
     dataset = (
