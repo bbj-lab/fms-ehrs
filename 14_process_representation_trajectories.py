@@ -39,10 +39,11 @@ def main(
 
     if load_jumps is not None:
         jumps = np.load(
-            pathlib.Path(load_jumps)
-            .expanduser()
-            .resolve()
-            .joinpath("all-jumps-{m}.npy".format(m=model_loc.stem))
+            data_dir.joinpath(
+                f"{data_version}-tokenized",
+                "test",
+                "all-jumps-{m}.npy".format(m=model_loc.stem),
+            )
         )
 
     else:
@@ -156,10 +157,11 @@ def main(
         tkns = "->".join(vocab.reverse[i] for i in ints)
         hit = vocab.reverse[raw_padded_timelines[i0, i1 + 1]]
         logger.info(
-            ("MORT " if mort[i0] else "")
+            f"{i0=}, {i1=} "
             + ("LLOS " if llos[i0] else "")
-            + f"{hit=} in {tkns}"
+            + ("MORT " if mort[i0] else "")
         )
+        logger.info(f"{hit=} in {tkns}")
 
 
 if __name__ == "__main__":
