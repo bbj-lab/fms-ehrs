@@ -28,6 +28,8 @@ def main(
     data_dir: os.PathLike = "../clif-data",
     data_version: str = "day_stays_qc_first_24h",
     model_loc: os.PathLike = "../clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630",
+    save_jumps: bool = False,
+    load_jumps: os.PathLike = None,
 ):
 
     data_dir, model_loc = map(
@@ -35,23 +37,42 @@ def main(
         (data_dir, model_loc),
     )
 
-    featfiles = sorted(
-        data_dir.joinpath(f"{data_version}-tokenized", "test").glob(
-            "all-features-{m}-batch*.npy".format(m=model_loc.stem)
-        ),
-        key=lambda s: int(s.stem.split("batch")[-1]),
-    )
-
-    get_jumps_from_shard = lambda f: np.linalg.norm(
-        np.diff(np.load(f), axis=1), axis=-1
-    )  # np.load(f) will have shape n_obs × tl_len × d_rep
-
-    jumps = np.concatenate(
-        Parallel(n_jobs=-1, verbose=True)(
-            delayed(get_jumps_from_shard)(f)
-            for f in tqdm.tqdm(featfiles, desc="shards")
+    if load_jumps is not None:
+        jumps = np.load(
+            pathlib.Path(load_jumps)
+            .expanduser()
+            .resolve()
+            .joinpath("all-jumps-{m}.npy".format(m=model_loc.stem))
         )
-    )  # shape n_obs × tl_len-1
+
+    else:
+        featfiles = sorted(
+            data_dir.joinpath(f"{data_version}-tokenized", "test").glob(
+                "all-features-{m}-batch*.npy".format(m=model_loc.stem)
+            ),
+            key=lambda s: int(s.stem.split("batch")[-1]),
+        )
+
+        get_jumps_from_shard = lambda f: np.linalg.norm(
+            np.diff(np.load(f), axis=1), axis=-1
+        )  # np.load(f) will have shape n_obs × tl_len × d_rep
+
+        jumps = np.concatenate(
+            Parallel(n_jobs=-1, verbose=True)(
+                delayed(get_jumps_from_shard)(f)
+                for f in tqdm.tqdm(featfiles, desc="shards")
+            )
+        )  # shape n_obs × tl_len-1
+
+    if save_jumps:
+        np.save(
+            data_dir.joinpath(
+                f"{data_version}-tokenized",
+                "test",
+                "all-jumps-{m}.npy".format(m=model_loc.stem),
+            ),
+            jumps,
+        )
 
     """
     are trajectory statistics predictive of outcomes?

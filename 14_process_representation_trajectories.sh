@@ -13,4 +13,5 @@ source venv/bin/activate
 python3 14_process_representation_trajectories.py \
     --data_dir "${hm}/clif-data" \
     --data_version day_stays_qc_first_24h \
-    --model_loc "${hm}/clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630"
+    --model_loc "${hm}/clif-mdls-archive/medium-packing-tuning-57164794-run2-ckpt-7000" \
+    --save_jumps true
