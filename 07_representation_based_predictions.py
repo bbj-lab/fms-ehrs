@@ -5,8 +5,10 @@ make some simple predictions outcomes ~ features
 break down performance by ICU admission type
 """
 
+import os
 import pathlib
 
+import fire as fi
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
@@ -18,32 +20,39 @@ pd.options.display.max_columns = None
 pd.options.display.width = 250
 pd.options.display.max_colwidth = 100
 
-hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/clif-data")
+from logger import get_logger
 
-data_version = "day_stays_qc_first_24h"
-for model_version in (
-    "small-packed",
-    "smallest-lr-search",
-    "smaller-lr-search",
-    "small-lr-search",
+logger = get_logger()
+logger.info("running {}".format(__file__))
+logger.log_env()
+
+
+@logger.log_calls
+def main(
+    data_dir: os.PathLike = "../clif-data",
+    data_version: str = "day_stays_qc_first_24h",
+    model_loc: os.PathLike = "../clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630",
+    fast: bool = True,
 ):
-    print(model_version.upper().ljust(79, "="))
 
-    # set the following flag to "False" for better performance
-    fast = False
+    data_dir, model_loc = map(
+        lambda d: pathlib.Path(d).expanduser().resolve(),
+        (data_dir, model_loc),
+    )
 
     splits = ("train", "val", "test")
     data_dirs = dict()
     for s in splits:
-        data_dirs[s] = hm.joinpath(f"{data_version}-tokenized", s)
+        data_dirs[s] = data_dir.joinpath(f"{data_version}-tokenized", s)
 
     """ classifier for admission mortality
     """
-    print("admission mortality".upper().ljust(79, "-"))
+    logger.info("admission mortality".upper().ljust(79, "-"))
+
     data = dict()
     for s in ("train", "val"):
         feats = np.load(
-            data_dirs[s].joinpath("features-{m}.npy".format(m=model_version))
+            data_dirs[s].joinpath("features-{m}.npy".format(m=model_loc.stem))
         )
         mort = (
             pl.scan_parquet(data_dirs[s].joinpath("outcomes.parquet"))
@@ -58,11 +67,11 @@ for model_version in (
         {"metric": "auc", "objective": "binary", "force_col_wise": True}
         | ({} if fast else {"learning_rate": 0.05}),
         data["train"],
-        20 if fast else 1000,
+        10 if fast else 1000,
         valid_sets=[data["val"]],
     )
     mort_pred = bst.predict(
-        np.load(data_dirs["test"].joinpath("features-{m}.npy".format(m=model_version)))
+        np.load(data_dirs["test"].joinpath("features-{m}.npy".format(m=model_loc.stem)))
     )
     mort_true = (
         pl.scan_parquet(data_dirs["test"].joinpath("outcomes.parquet"))
@@ -72,7 +81,7 @@ for model_version in (
         .to_numpy()
     )
 
-    print(
+    logger.info(
         "roc_auc: {:.3f}".format(
             skl_mets.roc_auc_score(y_true=mort_true, y_score=mort_pred)
         )
@@ -84,7 +93,7 @@ for model_version in (
         "precision",
         "recall",
     ):
-        print(
+        logger.info(
             "{}: {:.3f}".format(
                 met,
                 getattr(skl_mets, f"{met}_score")(
@@ -93,90 +102,14 @@ for model_version in (
             )
         )
 
-    """ breakdown by ICU / non-ICU & ICU type
-    """
-
-    test_ids = pl.scan_parquet(
-        data_dirs["test"].joinpath("tokens_timelines.parquet")
-    ).select("hospitalization_id")
-    icu_ids = pl.scan_csv(hm.parent.joinpath("mimic_icu_types.csv.gz")).cast(
-        {"hadm_id": pl.String}
-    )
-    test_icu = test_ids.join(
-        icu_ids,
-        how="left",
-        left_on="hospitalization_id",
-        right_on="hadm_id",
-        maintain_order="left",  # neat polars feature
-    )
-
-    icu_mask = (
-        test_icu.select(~pl.col("careunit").is_null()).collect().to_numpy().ravel()
-    )
-
-    print(
-        "ICU roc_auc: {:.3f}".format(
-            skl_mets.roc_auc_score(
-                y_true=mort_true[icu_mask], y_score=mort_pred[icu_mask]
-            )
-        )
-    )
-
-    print(
-        "No ICU roc_auc: {:.3f}".format(
-            skl_mets.roc_auc_score(
-                y_true=mort_true[~icu_mask], y_score=mort_pred[~icu_mask]
-            )
-        )
-    )
-
-    icu_types = (
-        test_icu.select("careunit").drop_nulls().unique().collect().to_numpy().ravel()
-    )
-    results = pd.DataFrame(
-        columns=[
-            "count",
-            "roc_auc",
-            "accuracy",
-            "balanced_accuracy",
-            "precision",
-            "recall",
-        ],
-        index=icu_types,
-    ).rename_axis(index="icu_types")
-
-    for icu_t in icu_types:
-        icu_t_mask = (
-            test_icu.select(pl.col("careunit") == icu_t)
-            .fill_null(False)
-            .collect()
-            .to_numpy()
-            .ravel()
-        )
-        results.loc[icu_t, "count"] = icu_t_mask.sum()
-        results.loc[icu_t, "roc_auc"] = skl_mets.roc_auc_score(
-            y_true=mort_true[icu_t_mask], y_score=mort_pred[icu_t_mask]
-        )
-        for met in (
-            "accuracy",
-            "balanced_accuracy",
-            "precision",
-            "recall",
-        ):
-            results.loc[icu_t, met] = getattr(skl_mets, f"{met}_score")(
-                y_true=mort_true[icu_t_mask], y_pred=np.round(mort_pred[icu_t_mask])
-            )
-
-    print(results.astype({"count": "int"}).sort_values("count", ascending=False))
-
     """ classifier for long length of stay
     """
-    print("long length of stay".upper().ljust(79, "-"))
+    logger.info("long length of stay".upper().ljust(79, "-"))
 
     data = dict()
     for s in ("train", "val"):
         feats = np.load(
-            data_dirs[s].joinpath("features-{m}.npy".format(m=model_version))
+            data_dirs[s].joinpath("features-{m}.npy".format(m=model_loc.stem))
         )
         llos = (
             pl.scan_parquet(data_dirs[s].joinpath("outcomes.parquet"))
@@ -192,11 +125,11 @@ for model_version in (
         {"metric": "auc", "objective": "binary", "force_col_wise": True}
         | ({} if fast else {"learning_rate": 0.05}),
         data["train"],
-        20 if fast else 1000,
+        10 if fast else 1000,
         valid_sets=[data["val"]],
     )
     llos_pred = bst.predict(
-        np.load(data_dirs["test"].joinpath("features-{m}.npy".format(m=model_version)))
+        np.load(data_dirs["test"].joinpath("features-{m}.npy".format(m=model_loc.stem)))
     )
     llos_true = (
         pl.scan_parquet(data_dirs["test"].joinpath("outcomes.parquet"))
@@ -206,7 +139,7 @@ for model_version in (
         .to_numpy()
     )
 
-    print(
+    logger.info(
         "roc_auc: {:.3f}".format(
             skl_mets.roc_auc_score(y_true=llos_true, y_score=llos_pred)
         )
@@ -218,7 +151,7 @@ for model_version in (
         "precision",
         "recall",
     ):
-        print(
+        logger.info(
             "{}: {:.3f}".format(
                 met,
                 getattr(skl_mets, f"{met}_score")(
@@ -227,57 +160,13 @@ for model_version in (
             )
         )
 
-    """ breakdown by ICU / non-ICU & ICU type
-    """
-
-    print(
-        "ICU roc_auc: {:.3f}".format(
-            skl_mets.roc_auc_score(
-                y_true=llos_true[icu_mask], y_score=llos_pred[icu_mask]
-            )
-        )
+    np.save(
+        data_dirs["test"].joinpath(
+            "feat-based-mort-llos-preds-{m}.npy".format(m=model_loc.stem)
+        ),
+        np.column_stack([mort_pred, llos_pred]),
     )
 
-    print(
-        "No ICU roc_auc: {:.3f}".format(
-            skl_mets.roc_auc_score(
-                y_true=llos_true[~icu_mask], y_score=llos_pred[~icu_mask]
-            )
-        )
-    )
 
-    results_lloc = pd.DataFrame(
-        columns=[
-            "count",
-            "roc_auc",
-            "accuracy",
-            "balanced_accuracy",
-            "precision",
-            "recall",
-        ],
-        index=icu_types,
-    ).rename_axis(index="icu_types")
-
-    for icu_t in icu_types:
-        icu_t_mask = (
-            test_icu.select(pl.col("careunit") == icu_t)
-            .fill_null(False)
-            .collect()
-            .to_numpy()
-            .ravel()
-        )
-        results_lloc.loc[icu_t, "count"] = icu_t_mask.sum()
-        results_lloc.loc[icu_t, "roc_auc"] = skl_mets.roc_auc_score(
-            y_true=llos_true[icu_t_mask], y_score=llos_pred[icu_t_mask]
-        )
-        for met in (
-            "accuracy",
-            "balanced_accuracy",
-            "precision",
-            "recall",
-        ):
-            results_lloc.loc[icu_t, met] = getattr(skl_mets, f"{met}_score")(
-                y_true=llos_true[icu_t_mask], y_pred=np.round(llos_pred[icu_t_mask])
-            )
-
-    print(results_lloc.astype({"count": "int"}).sort_values("count", ascending=False))
+if __name__ == "__main__":
+    fi.Fire(main)

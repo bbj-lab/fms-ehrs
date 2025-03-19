@@ -12,11 +12,11 @@ import pathlib
 import pickle
 
 import fire as fi
-import torch as t
 from datasets import load_dataset
 from vllm import LLM, SamplingParams
 
 from logger import get_logger
+from util import rt_padding_to_left
 from vocabulary import Vocabulary
 
 # suppress tons of: WARNING XX-XX XX:XX:XX preprocess.py:58]
@@ -52,11 +52,6 @@ def main(
         data_dirs["train"].joinpath("vocab.gzip")
     )
 
-    def rt_padding_to_left(t_rt):
-        tk: int = vocab("PAD")
-        i = t.argmax((t_rt == tk).int()).item()
-        return t.concat([t.full((t_rt.shape[0] - i,), tk), t_rt[:i]]) if i > 0 else t_rt
-
     s = "test"
     dataset = (
         load_dataset(
@@ -75,7 +70,7 @@ def main(
         )
         .with_format("torch")
         .map(
-            lambda x: {"input_ids": rt_padding_to_left(x["padded"])},
+            lambda x: {"input_ids": rt_padding_to_left(x["padded"], vocab("PAD"))},
             remove_columns=["padded"],
         )
     )
