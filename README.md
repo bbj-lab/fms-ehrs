@@ -58,9 +58,9 @@ prettier --write --print-width 81 --prose-wrap always *.md
 
 Run on randi:
 ```
-systemd-run --scope --user tmux new -s t2q
-srun -p tier2q \
-  --mem=100GB \
+systemd-run --scope --user tmux new -s t3q
+srun -p tier3q \
+  --mem=1TB \
   --time=8:00:00 \
   --job-name=adhoc \
   --pty bash -i
@@ -72,7 +72,7 @@ Troubleshoot:
 systemd-run --scope --user tmux new -s gpuq
 srun -p gpuq \
   --gres=gpu:1 \
-  --time=1:00:00 \
+  --time=8:00:00 \
   --job-name=adhoc \
   --pty bash -i
 ```
@@ -85,5 +85,8 @@ rsync -avht \
     randi:${hm}/clif-data/first-24h-tokenized \
     ~/Documents/chicago/clif-tokenizer/results
 ```
+
+jid=sbatch --parsable 02_tokenize_train_val_test_split.sh
+cat output/${jid}.stdout
 
 -->

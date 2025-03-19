@@ -14,6 +14,7 @@ import numpy as np
 import polars as pl
 import torch as t
 
+from util import rt_padding_to_left
 from vocabulary import Vocabulary
 
 Frame: typing.TypeAlias = pl.DataFrame | pl.LazyFrame
@@ -91,11 +92,6 @@ class Datasets:
                     yield {"input_ids": ret.to(t.uint8)}
                     ret = t.Tensor(size=(0,))
 
-    def rt_padding_to_left(self, t_rt):
-        tk: int = self.vocab("PAD")
-        i = t.argmax((t_rt == tk).int()).item()
-        return t.concat([t.full((t_rt.shape[0] - i,), tk), t_rt[:i]]) if i > 0 else t_rt
-
     def get_train_dataset(self, n_epochs: int = 10):
         if self.collation == "padded":
             return self.dataset["train"].shuffle(generator=self.np_rng)
@@ -138,6 +134,6 @@ class Datasets:
 
     def get_test_set_for_predictions(self):
         return self.dataset["test"].map(
-            lambda x: {"input_ids": self.rt_padding_to_left(x["padded"])},
+            lambda x: {"input_ids": rt_padding_to_left(x["padded"], self.vocab("PAD"))},
             remove_columns=["padded"],
         )
