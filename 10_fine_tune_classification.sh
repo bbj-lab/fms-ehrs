@@ -10,7 +10,7 @@ source preamble.sh
 
 torchrun --nproc_per_node=8 \
     "${name}.py" \
-    --model_dir "${hm}/clif-mdls-archive/mdl-day_stays_qc-57350630" \
+    --model_dir "${hm}/clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630" \
     --data_dir "${hm}/clif-data/day_stays_qc_first_24h-tokenized" \
     --out_dir "${hm}/clif-mdls" \
     --n_epochs 5 \
