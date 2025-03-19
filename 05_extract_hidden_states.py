@@ -98,12 +98,10 @@ def main(
                     ret[i] = x.hidden_states[-1][i, j, :]
                 features[s][batch_idx] = ret.detach().to("cpu")
 
-    # save out results
-    for s in splits:
         np.save(
             data_dirs[s].joinpath("features-{m}.npy".format(m=model_loc.stem)),
             features[s],
-        )
+        )  # save out result
 
 
 if __name__ == "__main__":
