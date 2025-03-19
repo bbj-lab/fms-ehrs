@@ -17,7 +17,7 @@ torchrun --nproc_per_node=8 \
     --data_version day_stays_qc \
     --collation packed \
     --model_dir "${hm}/clif-mdls" \
-    --model_version llama1b \
+    --model_version mamba130m \
     --model_name "state-spaces/mamba-130m-hf" \
     --per_device_train_batch_size 4 \
     --per_device_eval_batch_size 4 \

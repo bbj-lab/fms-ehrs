@@ -55,6 +55,7 @@ def main(
     n_val = int(val_frac * n_total)
     n_test = n_total - (n_train + n_val)
 
+    logger.info(f"Patients {n_total=}")
     logger.info(f"Partition: {n_train=}, {n_val=}, {n_test=}")
 
     if n_test < 0:
@@ -89,8 +90,8 @@ def main(
 
     assert (
         sum(list(map(lambda x: x.n_unique(), h_ids.values())))
-        == hospitalization_ids.n_unique()
-    )
+        <= hospitalization_ids.n_unique()
+    ) # some hospitalization id's may correspond to patients <18 y.o.
 
     # generate sub-tables
     for s in splits:

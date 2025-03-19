@@ -77,26 +77,32 @@ class ClifTokenizer:
         """
         v = x.select("value").to_numpy().ravel()
         c = x.select("category").row(0)[0]
-        if not self.vocab.has_aux(f"{label}_{c}"):
+        if not self.vocab.has_aux(f"{label}_{c}") and self.vocab.is_training:
             self.vocab.set_aux(
                 f"{label}_{c}", np.nanquantile(v, np.arange(0.1, 1.0, 0.1))
             )
         return (
             x.with_columns(
-                token=pl.lit(self.vocab(f"{label}_{c}")),
+                token=pl.lit(self.vocab(f"{label}_{c}")).cast(pl.Int64),
                 token_quantile=pl.lit(
-                    pl.Series(
-                        np.where(
-                            np.isfinite(v),
-                            np.digitize(v, bins=self.vocab.get_aux(f"{label}_{c}")),
-                            self.vocab("nan"),
+                    (
+                        pl.Series(
+                            np.where(
+                                np.isfinite(v),
+                                np.digitize(v, bins=self.vocab.get_aux(f"{label}_{c}")),
+                                self.vocab("nan"),
+                            )
                         )
+                        if self.vocab.has_aux(f"{label}_{c}")
+                        else self.vocab(None)
                     ),
-                ),
+                ).cast(pl.Int64),
             )
             .drop_nulls("token")
             .with_columns(
-                tokens=pl.concat_list("token", "token_quantile"),
+                tokens=pl.concat_list("token", "token_quantile").cast(
+                    pl.List(pl.Int64)
+                ),
                 times=pl.concat_list("event_time", "event_time"),
             )
         )
@@ -179,18 +185,22 @@ class ClifTokenizer:
         # tokenize age_at_admission here
         c = "age_at_admission"
         v = self.tbl["hospitalization"].select("age_at_admission").to_numpy().ravel()
-        if not self.vocab.has_aux(c):
+        if not self.vocab.has_aux(c) and self.vocab.is_training:
             self.vocab.set_aux(c, np.nanquantile(v, np.arange(0.1, 1.0, 0.1)))
         self.tbl["hospitalization"] = (
             self.tbl["hospitalization"]
             .with_columns(
                 age_at_admission=pl.lit(
-                    pl.Series(
-                        np.where(
-                            np.isfinite(v),
-                            np.digitize(v, bins=self.vocab.get_aux(c)),
-                            self.vocab("nan"),
+                    (
+                        pl.Series(
+                            np.where(
+                                np.isfinite(v),
+                                np.digitize(v, bins=self.vocab.get_aux(c)),
+                                self.vocab("nan"),
+                            )
                         )
+                        if self.vocab.has_aux(c)
+                        else self.vocab(None)
                     ),
                 )
             )
@@ -253,7 +263,10 @@ class ClifTokenizer:
                 pl.col("recorded_dttm")
                 .cast(pl.Datetime(time_unit="ms"))
                 .alias("event_time"),
-                pl.col("vital_category").str.to_lowercase().alias("category"),
+                pl.col("vital_category")
+                .cast(pl.String)
+                .str.to_lowercase()
+                .alias("category"),
                 pl.col("vital_value").alias("value"),
             )
             .collect()
@@ -580,11 +593,6 @@ def summarize(tokenizer: ClifTokenizer, tokens_timelines: Frame):
             )
         )
 
-    # for s in range(3):
-    #     print("Example timeline".ljust(79, "="))
-    #     for t in tokens_timelines.sample(1, seed=s).select("tokens").item():
-    #         print(tokenizer.vocab.reverse[t])
-
     print(
         "Summary stats of timeline duration: \n {}".format(
             tokens_timelines.select(
@@ -641,32 +649,3 @@ if __name__ == "__main__":
     tokens_timelines2 = tkzr2.get_tokens_timelines()
     assert len(tkzr.vocab) == len(tkzr2.vocab)
     assert tkzr.vocab.lookup == tkzr2.vocab.lookup
-
-    # vented_ex = (
-    #     tokens_timelines.filter(
-    #         pl.col("tokens").list.contains(tkzr.vocab("high flow nc"))
-    #     )
-    #     .select("tokens")
-    #     .head(1)
-    #     .item()
-    #     .to_numpy()
-    # )
-    # with open(
-    #     pathlib.Path(__file__).parent.joinpath(
-    #         "img", "example_timeline_with_ventilation.txt"
-    #     ),
-    #     "w",
-    # ) as f:
-    #     for t in vented_ex:
-    #         f.write(str(tkzr.vocab.reverse[t]) + "\n")
-    #
-    # tkzr.load_tables()
-    # print(
-    #     tkzr.tbl["hospitalization"]
-    #     .filter(pl.col("hospitalization_id") == "27304928")
-    #     .collect()
-    # )
-    #
-    # for k, v in tkzr.tbl.items():
-    #     if k not in ("hospitalization", "patient"):
-    #         print(v.filter(pl.col("hospitalization_id") == "27304928").collect())
