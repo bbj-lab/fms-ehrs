@@ -12,7 +12,6 @@ import fire as fi
 import numpy as np
 import scipy as sp
 import sklearn.metrics as skl_mets
-import torch as t
 from transformers import (
     AutoModelForSequenceClassification,
     EarlyStoppingCallback,
@@ -21,6 +20,7 @@ from transformers import (
 )
 
 from logger import get_logger
+from util import rt_padding_to_left
 from vocabulary import Vocabulary
 
 logger = get_logger()
@@ -66,11 +66,6 @@ def main(
 
     vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
 
-    def rt_padding_to_left(t_rt):
-        tk: int = vocab("PAD")
-        i = t.argmax((t_rt == tk).int()).item()
-        return t.concat([t.full((t_rt.shape[0] - i,), tk), t_rt[:i]]) if i > 0 else t_rt
-
     dataset = (
         ds.load_dataset(
             "parquet",
@@ -83,7 +78,7 @@ def main(
         .with_format("torch")
         .map(
             lambda x: {
-                "input_ids": rt_padding_to_left(x["padded"]),
+                "input_ids": rt_padding_to_left(x["padded"], vocab("PAD")),
                 "label": x["same_admission_death"],
             },
             remove_columns=["padded", "same_admission_death"],

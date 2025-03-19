@@ -10,4 +10,4 @@ hm="/gpfs/data/bbj-lab/users/$(whoami)"
 cd "${hm}/clif-tokenizer" || exit
 source ~/.bashrc
 source venv/bin/activate
-python3 "$(basename "$0" .sh).py"
+python3 15_sft_predictions_over_time.py

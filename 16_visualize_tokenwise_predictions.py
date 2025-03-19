@@ -13,6 +13,7 @@ import plotly.graph_objects as go
 
 from logger import get_logger
 from vocabulary import Vocabulary
+from util import mvg_avg as ma
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
@@ -33,15 +34,6 @@ splits = ("train", "val", "test")
 data_dirs = {s: data_dir.joinpath(s) for s in splits}
 
 vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
-
-
-def ma(x: np.array, w: int = 4) -> np.array:
-    """
-    moving average for flat array `x` with window size `w`;
-    returns array of same length as x
-    """
-    x_aug = np.concatenate(([x[0]] * (w - 1), x))
-    return np.lib.stride_tricks.sliding_window_view(x_aug, w).mean(axis=-1)
 
 
 # open and unpack data
