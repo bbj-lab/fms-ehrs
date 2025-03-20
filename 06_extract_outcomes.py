@@ -59,7 +59,6 @@ def main(
         )
         (
             pl.scan_parquet(data_dirs[s].joinpath("tokens_timelines.parquet"))
-            # .select("hospitalization_id")
             .join(
                 outcomes,
                 how="left",
