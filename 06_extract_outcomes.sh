@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=extract-outcomes
-#SBATCH --output=./output/%j.stdout
+#SBATCH --output=./output/%j-%x.stdout
 #SBATCH --partition=tier2q
 #SBATCH --mem=100GB
 #SBATCH --time=1:00:00

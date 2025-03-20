@@ -82,6 +82,13 @@ def main(
             )
         )
 
+    np.save(
+        data_dirs["test"].joinpath(
+            "sft-mortality-preds-{m}.npy".format(m=model_dir.stem)
+        ),
+        mort_probs,
+    )
+
 
 if __name__ == "__main__":
     fi.Fire(main)

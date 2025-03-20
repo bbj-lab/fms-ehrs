@@ -1,15 +1,19 @@
 #!/bin/bash
 
 #SBATCH --job-name=eval-ft-mdl
-#SBATCH --output=./output/%j.stdout
+#SBATCH --output=./output/%j-%x.stdout
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:1
-#SBATCH --time=5:00:00
+#SBATCH --time=24:00:00
 
-hm="/gpfs/data/bbj-lab/users/$(whoami)"
-cd "${hm}/clif-tokenizer" || exit
-source ~/.bashrc
-source venv/bin/activate
-python3 11_fine_tuned_predictions.py \
-    --data_dir "${hm}/clif-data/day_stays_qc_first_24h-tokenized" \
-    --model_dir "${hm}/clif-mdls-archive/mdl-llama1b-sft-57451707-clsfr"
+source preamble.sh
+
+#echo "fine-tuned mimic preds..."
+#python3 "${name}.py" \
+#    --data_dir "${hm}/clif-data/day_stays_qc_first_24h-tokenized" \
+#    --model_dir "${hm}/clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630-57723914-clsfr"
+
+echo "fine-tuned chicago preds..."
+python3 "${name}.py" \
+    --data_dir "/scratch/burkh4rt/clif-data/day_stays_qc_first_24h-tokenized" \
+    --model_dir "${hm}/clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630-57723914-clsfr"
