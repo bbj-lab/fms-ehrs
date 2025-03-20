@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=all-states
-#SBATCH --output=./output/%j.stdout
+#SBATCH --output=./output/%j-%x.stdout
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:1
 #SBATCH --time=24:00:00
