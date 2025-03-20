@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=tokenize-data
-#SBATCH --output=./output/%j.stdout
+#SBATCH --output=./output/%j-%x.stdout
 #SBATCH --partition=tier3q
 #SBATCH --mem=1TB
 #SBATCH --time=1:00:00

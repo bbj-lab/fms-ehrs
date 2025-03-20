@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=sft
-#SBATCH --output=./output/%j.stdout
+#SBATCH --output=./output/%j-%x.stdout
 #SBATCH --partition=sxmq
 #SBATCH --gres=gpu:8
 #SBATCH --time=1-00:00:00
