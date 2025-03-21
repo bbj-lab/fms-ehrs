@@ -6,16 +6,16 @@ fine-tune a pretrained model for sequence classification
 
 import os
 import pathlib
+import typing
 
 import datasets as ds
 import fire as fi
 import numpy as np
-import sklearn.metrics as skl_mets
 import torch as t
 from transformers import AutoModelForSequenceClassification, Trainer
 
 from logger import get_logger
-from util import rt_padding_to_left
+from util import rt_padding_to_left, log_classification_metrics
 from vocabulary import Vocabulary
 
 logger = get_logger()
@@ -27,6 +27,9 @@ logger.log_env()
 def main(
     model_dir: os.PathLike = "../clif-mdls-archive/mdl-llama1b-sft-57451707-clsfr",
     data_dir: os.PathLike = "../clif-data/day_stays_qc_first_24h-tokenized",
+    outcome: typing.Literal[
+        "same_admission_death", "long_length_of_stay"
+    ] = "same_admission_death",
 ):
 
     model_dir, data_dir = map(
@@ -47,48 +50,34 @@ def main(
                 s: str(data_dirs[s].joinpath("tokens_timelines_outcomes.parquet"))
                 for s in ("test",)
             },
-            columns=["padded", "same_admission_death"],
+            columns=["padded", outcome],
         )
         .with_format("torch")
         .map(
             lambda x: {
                 "input_ids": rt_padding_to_left(x["padded"], vocab("PAD")),
-                "label": x["same_admission_death"],
+                "label": x[outcome],
             },
-            remove_columns=["padded", "same_admission_death"],
+            remove_columns=["padded", outcome],
         )
     )
 
-    mort_true = dataset["test"]["label"].numpy()
+    y_true = dataset["test"]["label"].numpy()
 
     model = AutoModelForSequenceClassification.from_pretrained(model_dir)
     trainer = Trainer(model=model)
     preds = trainer.predict(dataset["test"])
     logits = preds.predictions
-    mort_probs = t.nn.functional.softmax(t.tensor(logits), dim=-1).numpy()[:, 1]
+    y_score = t.nn.functional.softmax(t.tensor(logits), dim=-1).numpy()[:, 1]
 
     np.save(
         data_dirs["test"].joinpath(
-            "sft-mortality-preds-{m}.npy".format(m=model_dir.stem)
+            "sft-{o}-preds-{m}.npy".format(o=outcome, m=model_dir.stem)
         ),
-        mort_probs,
+        y_score,
     )
 
-    logger.info(
-        "roc_auc: {:.3f}".format(
-            skl_mets.roc_auc_score(y_true=mort_true, y_score=mort_probs)
-        )
-    )
-
-    for met in ("accuracy", "balanced_accuracy", "precision", "recall", "f1"):
-        logger.info(
-            "{}: {:.3f}".format(
-                met,
-                getattr(skl_mets, f"{met}_score")(
-                    y_true=mort_true, y_pred=np.round(mort_probs)
-                ),
-            )
-        )
+    log_classification_metrics(y_true=y_true, y_score=y_score, logger=logger)
 
 
 if __name__ == "__main__":

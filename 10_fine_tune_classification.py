@@ -6,6 +6,7 @@ fine-tune a pretrained model for sequence classification
 
 import os
 import pathlib
+import typing
 
 import datasets as ds
 import fire as fi
@@ -42,6 +43,10 @@ def main(
     wandb_project: str = "mimic-sft-clsfr",
     metric_for_best_model: str = "eval_auc",
     greater_is_better: bool = True,
+    outcome: typing.Literal[
+        "same_admission_death", "long_length_of_stay"
+    ] = "same_admission_death",
+    unif_rand_trunc: bool = False,
 ):
 
     model_dir, data_dir, out_dir = map(
@@ -59,29 +64,32 @@ def main(
     output_dir.mkdir(exist_ok=True, parents=True)
 
     # load and prep data
-    splits = ("train", "val", "test")
-    np_rng = np.random.default_rng(42)
+    splits = ("train", "val")
     data_dirs = {s: data_dir.joinpath(s) for s in splits}
 
     vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
 
-    dataset = (
-        ds.load_dataset(
-            "parquet",
-            data_files={
-                s: str(data_dirs[s].joinpath("tokens_timelines_outcomes.parquet"))
-                for s in splits
-            },
-            columns=["padded", "same_admission_death"],
-        )
-        .with_format("torch")
-        .map(
-            lambda x: {
-                "input_ids": rt_padding_to_left(x["padded"], vocab("PAD")),
-                "label": x["same_admission_death"],
-            },
-            remove_columns=["padded", "same_admission_death"],
-        )
+    dataset = ds.load_dataset(
+        "parquet",
+        data_files={
+            s: str(data_dirs[s].joinpath("tokens_timelines_outcomes.parquet"))
+            for s in splits
+        },
+        columns=["padded", outcome],
+    ).with_format("torch")
+
+    dataset["train"] = ds.concatenate_datasets([dataset["train"]] * n_epochs).shuffle(
+        generator=np.random.default_rng(42)
+    )
+
+    dataset = dataset.map(
+        lambda x: {
+            "input_ids": rt_padding_to_left(
+                x["padded"], vocab("PAD"), unif_rand_trunc=unif_rand_trunc
+            ),
+            "label": x[outcome],
+        },
+        remove_columns=["padded", outcome],
     )
 
     model = AutoModelForSequenceClassification.from_pretrained(model_dir)
@@ -105,7 +113,7 @@ def main(
         per_device_eval_batch_size=per_device_eval_batch_size,
         gradient_accumulation_steps=gradient_accumulation_steps,  # simulate larger batch sizes
         learning_rate=learning_rate,  # 2e-4 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
-        num_train_epochs=n_epochs,
+        num_train_epochs=1,
         save_total_limit=2,
         metric_for_best_model=metric_for_best_model,
         greater_is_better=greater_is_better,
@@ -117,7 +125,7 @@ def main(
 
     trainer = Trainer(
         model,
-        train_dataset=dataset["train"].shuffle(generator=np_rng),
+        train_dataset=dataset["train"],
         eval_dataset=dataset["val"],
         args=training_args,
         callbacks=[EarlyStoppingCallback(early_stopping_patience=3)],
@@ -127,9 +135,11 @@ def main(
     trainer.save_model(
         str(
             output_dir.joinpath(
-                "mdl-{m}-{j}-clsfr".format(
+                "mdl-{m}-{j}-clsfr-{o}{u}".format(
                     m=model_dir.stem,
                     j=jid,
+                    o=outcome,
+                    u="-urt" if unif_rand_trunc else "",
                 )
             )
         )
