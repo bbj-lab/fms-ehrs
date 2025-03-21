@@ -66,7 +66,13 @@ def main(
     preds = trainer.predict(dataset["test"])
     logits = preds.predictions
     mort_probs = t.nn.functional.softmax(t.tensor(logits), dim=-1).numpy()[:, 1]
-    mort_preds = np.argmax(mort_probs, axis=1)
+
+    np.save(
+        data_dirs["test"].joinpath(
+            "sft-mortality-preds-{m}.npy".format(m=model_dir.stem)
+        ),
+        mort_probs,
+    )
 
     logger.info(
         "roc_auc: {:.3f}".format(
@@ -78,16 +84,11 @@ def main(
         logger.info(
             "{}: {:.3f}".format(
                 met,
-                getattr(skl_mets, f"{met}_score")(y_true=mort_true, y_pred=mort_preds),
+                getattr(skl_mets, f"{met}_score")(
+                    y_true=mort_true, y_pred=np.round(mort_probs)
+                ),
             )
         )
-
-    np.save(
-        data_dirs["test"].joinpath(
-            "sft-mortality-preds-{m}.npy".format(m=model_dir.stem)
-        ),
-        mort_probs,
-    )
 
 
 if __name__ == "__main__":

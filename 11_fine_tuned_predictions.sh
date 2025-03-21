@@ -5,15 +5,16 @@
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:1
 #SBATCH --time=24:00:00
+#SBATCH --array=0-1
 
 source preamble.sh
 
-#echo "fine-tuned mimic preds..."
-#python3 "${name}.py" \
-#    --data_dir "${hm}/clif-data/day_stays_qc_first_24h-tokenized" \
-#    --model_dir "${hm}/clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630-57723914-clsfr"
+case "${SLURM_ARRAY_TASK_ID}" in
+    0) data_dir="${hm}/clif-data/day_stays_qc_first_24h-tokenized" ;;
+    1) data_dir="/scratch/burkh4rt/clif-data/day_stays_qc_first_24h-tokenized" ;;
+    *) echo "Invalid SLURM_ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}" ;;
+esac
 
-echo "fine-tuned chicago preds..."
 python3 "${name}.py" \
-    --data_dir "/scratch/burkh4rt/clif-data/day_stays_qc_first_24h-tokenized" \
+    --data_dir "${data_dir}" \
     --model_dir "${hm}/clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630-57723914-clsfr"
