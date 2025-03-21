@@ -17,4 +17,5 @@ esac
 
 python3 "${name}.py" \
     --data_dir "${data_dir}" \
-    --model_dir "${hm}/clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630-57723914-clsfr"
+    --model_dir "${hm}/clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630-57723914-clsfr" \
+    --outcome long_length_of_stay
