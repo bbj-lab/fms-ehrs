@@ -32,6 +32,7 @@ class ClifTokenizer:
         max_padded_len: int = None,
         day_stay_filter: bool = False,
         cut_at_24h: bool = False,
+        valid_admission_window: tuple[str, str] = None,
     ):
         """
         if no vocabulary is provided, we are in training mode; otherwise, the
@@ -50,6 +51,7 @@ class ClifTokenizer:
         self.max_padded_length = max_padded_len
         self.day_stay_filter = bool(day_stay_filter)
         self.cut_at_24h = bool(cut_at_24h)
+        self.valid_admission_window = valid_admission_window
 
     def load_tables(self):
         """lazy-load all parquet tables from the directory `self.data_dir`"""
@@ -161,6 +163,14 @@ class ClifTokenizer:
                 pl.col("age_at_admission").first(),
                 pl.col("admission_type_name").str.to_lowercase().first(),
                 pl.col("discharge_category").str.to_lowercase().first(),
+            )
+            .filter(
+                pl.col("event_start").is_between(
+                    pl.lit(self.valid_admission_window[0]).cast(pl.Date),
+                    pl.lit(self.valid_admission_window[1]).cast(pl.Date),
+                )
+                if self.valid_admission_window is not None
+                else True
             )
             .with_columns(
                 pl.col("admission_type_name").map_elements(
@@ -635,6 +645,7 @@ if __name__ == "__main__":
         data_dir=hm,
         max_padded_len=1024,
         day_stay_filter=True,  # cut_at_24h=True
+        valid_admission_window=("2110-01-01", "2111-12-31"),
     )
     tokens_timelines = tkzr.get_tokens_timelines()
 

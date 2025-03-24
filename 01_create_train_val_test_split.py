@@ -21,11 +21,12 @@ logger.log_env()
 @logger.log_calls
 def main(
     *,
-    version_name: str = "raw",
+    data_version_out: str = "raw",
     data_dir_in: os.PathLike = "../CLIF-MIMIC/output/rclif-2.1/",
     data_dir_out: os.PathLike = "../clif-data/",
     train_frac: float = 0.7,
     val_frac: float = 0.1,
+    valid_admission_window: tuple[str, str] = None,
 ):
     data_dir_in, data_dir_out = map(
         lambda d: pathlib.Path(d).expanduser().resolve(),
@@ -36,14 +37,26 @@ def main(
     splits = ("train", "val", "test")
     dirs_out = dict()
     for s in splits:
-        dirs_out[s] = data_dir_out.joinpath(version_name, s)
+        dirs_out[s] = data_dir_out.joinpath(data_version_out, s)
         dirs_out[s].mkdir(exist_ok=True, parents=True)
+
+    hosp_prepoc = (
+        pl.scan_parquet(data_dir_in.joinpath("clif_hospitalization.parquet"))
+        .filter(pl.col("age_at_admission") >= 18)
+        .cast({"admission_dttm": pl.Datetime(time_unit="ms")})
+        .filter(
+            pl.col("admission_dttm").is_between(
+                pl.lit(valid_admission_window[0]).cast(pl.Date),
+                pl.lit(valid_admission_window[1]).cast(pl.Date),
+            )
+            if valid_admission_window is not None
+            else True
+        )
+    )
 
     # partition patient ids
     patient_ids = (
-        pl.scan_parquet(data_dir_in.joinpath("clif_hospitalization.parquet"))
-        .filter(pl.col("age_at_admission") >= 18)
-        .group_by("patient_id")
+        hosp_prepoc.group_by("patient_id")
         .agg(pl.col("admission_dttm").min().alias("first_admission"))
         .sort("first_admission")
         .select("patient_id")
@@ -73,10 +86,7 @@ def main(
 
     # partition hospitalization ids according to the patient split
     hospitalization_ids = (
-        pl.scan_parquet(data_dir_in.joinpath("clif_hospitalization.parquet"))
-        .select("patient_id", "hospitalization_id")
-        .unique()
-        .collect()
+        hosp_prepoc.select("patient_id", "hospitalization_id").unique().collect()
     )
 
     h_ids = dict()
@@ -88,10 +98,14 @@ def main(
     for s0, s1 in itertools.combinations(splits, 2):
         assert h_ids[s0].join(h_ids[s1], on="hospitalization_id").n_unique() == 0
 
-    assert (
-        sum(list(map(lambda x: x.n_unique(), h_ids.values())))
-        <= hospitalization_ids.n_unique()
-    ) # some hospitalization id's may correspond to patients <18 y.o.
+    n_total = sum(list(map(lambda x: x.n_unique(), h_ids.values())))
+    assert n_total <= hospitalization_ids.n_unique()
+
+    logger.info(f"Hospitalizations {n_total=}")
+    logger.info(
+        f"Partition: {h_ids['train'].n_unique()=}, "
+        f"{h_ids['val'].n_unique()=}, {h_ids['test'].n_unique()=}"
+    )
 
     # generate sub-tables
     for s in splits:
