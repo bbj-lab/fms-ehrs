@@ -56,6 +56,8 @@ def main(
 
         get_jumps_from_shard = lambda f: np.linalg.norm(
             np.diff(np.load(f), axis=1), axis=-1
+        ).astype(
+            np.float16
         )  # np.load(f) will have shape n_obs × tl_len × d_rep
 
         jumps = np.concatenate(
