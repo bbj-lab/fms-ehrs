@@ -21,22 +21,24 @@ logger.log_env()
 def main(
     *,
     data_dir: os.PathLike = "../clif-data/",
-    data_version: str = "day_stays_qc",
+    data_version_in: str = "raw",
+    data_version_out: str = "day_stays_qc",
     vocab_path: os.PathLike = None,
     max_padded_len: int = 1024,
     day_stay_filter: bool = True,
     include_24h_cut: bool = True,
+    valid_admission_window: tuple[str, str] = None,
 ):
     data_dir = pathlib.Path(data_dir).expanduser().resolve()
     splits = ("train", "val", "test")
 
     for cut_at_24h in (False, True) if include_24h_cut else (False,):
-        v = data_version + ("_first_24h" if cut_at_24h else "")
+        v = data_version_out + ("_first_24h" if cut_at_24h else "")
 
         dirs_in = dict()
         dirs_out = dict()
         for s in splits:
-            dirs_in[s] = data_dir.joinpath("raw", s)
+            dirs_in[s] = data_dir.joinpath(data_version_in, s)
             dirs_out[s] = data_dir.joinpath(f"{v}-tokenized", s)
             dirs_out[s].mkdir(exist_ok=True, parents=True)
 
@@ -48,7 +50,7 @@ def main(
                 if vocab_path is not None
                 else (
                     data_dir.joinpath(
-                        f"{data_version}-tokenized", "train", "vocab.gzip"
+                        f"{data_version_out}-tokenized", "train", "vocab.gzip"
                     )
                     if cut_at_24h
                     else None
@@ -57,6 +59,7 @@ def main(
             max_padded_len=max_padded_len,
             day_stay_filter=day_stay_filter,
             cut_at_24h=cut_at_24h,
+            valid_admission_window=valid_admission_window,
         )
         tokens_timelines = tkzr.get_tokens_timelines()
         tokens_timelines = tkzr.pad_and_truncate(tokens_timelines)
@@ -73,7 +76,7 @@ def main(
                     pathlib.Path(vocab_path).expanduser().resolve()
                     if vocab_path is not None
                     else data_dir.joinpath(
-                        f"{data_version}-tokenized", "train", "vocab.gzip"
+                        f"{data_version_out}-tokenized", "train", "vocab.gzip"
                     )
                 ),
                 max_padded_len=max_padded_len,
