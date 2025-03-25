@@ -10,7 +10,7 @@ import pathlib
 import fire as fi
 
 from logger import get_logger
-from tokenizer import ClifTokenizer
+from tokenizer import ClifTokenizer, summarize
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
@@ -33,6 +33,7 @@ def main(
     splits = ("train", "val", "test")
 
     for cut_at_24h in (False, True) if include_24h_cut else (False,):
+        logger.info(f"{cut_at_24h=}...")
         v = data_version_out + ("_first_24h" if cut_at_24h else "")
 
         dirs_in = dict()
@@ -62,6 +63,8 @@ def main(
             valid_admission_window=valid_admission_window,
         )
         tokens_timelines = tkzr.get_tokens_timelines()
+        logger.info("train...")
+        summarize(tkzr, tokens_timelines, logger=logger)
         tokens_timelines = tkzr.pad_and_truncate(tokens_timelines)
         tokens_timelines.write_parquet(
             dirs_out["train"].joinpath("tokens_timelines.parquet")
@@ -84,6 +87,8 @@ def main(
                 cut_at_24h=cut_at_24h,
             )
             tokens_timelines = tkzr.get_tokens_timelines()
+            logger.info(f"{s}...")
+            summarize(tkzr, tokens_timelines, logger=logger)
             tokens_timelines = tkzr.pad_and_truncate(tokens_timelines)
             tokens_timelines.write_parquet(
                 dirs_out[s].joinpath("tokens_timelines.parquet")
