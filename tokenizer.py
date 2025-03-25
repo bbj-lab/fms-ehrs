@@ -5,6 +5,7 @@ provides a simple tokenizing interface to take tabular CLIF data and convert
 it to tokenized timelines at the hospitalization_id level
 """
 
+import logging
 import os
 import pathlib
 import typing
@@ -42,7 +43,7 @@ class ClifTokenizer:
         self.tbl = dict()
         if vocab_path is None:
             self.vocab_path = None
-            self.vocab = Vocabulary(tuple(map(lambda i: f"Q{i}", range(10))))
+            self.vocab = Vocabulary(tuple(map(lambda i: f"Q{i}", range(10))) + (None,))
             self.vocab.is_training = True
         else:
             self.vocab_path = pathlib.Path(vocab_path).expanduser()
@@ -581,20 +582,24 @@ class ClifTokenizer:
         self.vocab.print_aux()
 
 
-def summarize(tokenizer: ClifTokenizer, tokens_timelines: Frame):
+def summarize(
+    tokenizer: ClifTokenizer, tokens_timelines: Frame, logger: logging.Logger = None
+):
     """provide posthoc summary statistics"""
 
-    print("Timelines generated: {}".format(tokens_timelines.shape[0]))
-    print("Vocabulary size: {}".format(len(tokenizer.vocab)))
+    post = logger.info if logger is not None else print
 
-    print(
+    post("Timelines generated: {}".format(tokens_timelines.shape[0]))
+    post("Vocabulary size: {}".format(len(tokenizer.vocab)))
+
+    post(
         "Summary stats of timeline lengths: \n {}".format(
             tokens_timelines.select(pl.col("tokens").list.len()).describe()
         )
     )
 
     for s in range(3):
-        print(
+        post(
             "Example timeline: \n {}".format(
                 [
                     tokenizer.vocab.reverse[t]
@@ -603,7 +608,7 @@ def summarize(tokenizer: ClifTokenizer, tokens_timelines: Frame):
             )
         )
 
-    print(
+    post(
         "Summary stats of timeline duration: \n {}".format(
             tokens_timelines.select(
                 pl.col("times").list.min().alias("start_time"),
@@ -615,7 +620,7 @@ def summarize(tokenizer: ClifTokenizer, tokens_timelines: Frame):
     )
 
     with pl.Config(tbl_rows=len(tokenizer.vocab)):
-        print(
+        post(
             "Top 20 tokens by usage: \n {}".format(
                 tokens_timelines.select("tokens")
                 .explode("tokens")
