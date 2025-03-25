@@ -17,22 +17,30 @@ def mvg_avg(x: np.array, w: int = 4) -> np.array:
     moving average for flat array `x` with window size `w`;
     returns array of same length as x
     """
+    assert w >= 1
     x_aug = np.concatenate(([x[0]] * (w - 1), x))
     return np.lib.stride_tricks.sliding_window_view(x_aug, w).mean(axis=-1)
 
 
-def rt_padding_to_left(t_rt_pdd: t.Tensor, pd_tk: int) -> t.Tensor:
+def rt_padding_to_left(
+    t_rt_pdd: t.Tensor, pd_tk: int, unif_rand_trunc: bool = False
+) -> t.Tensor:
     """
     take a tensor `t_rt_pdd` padded on the right with padding token `pd_tk` and
-    move that padding to the left
+    move that padding to the left; if `unif_rand_trunc`, truncate sequence
+    uniformly at random
     """
     i = t.argmax(
         (t_rt_pdd == pd_tk).int()
     ).item()  # either the index of the first padding token or 0
+    if unif_rand_trunc and i > 0:
+        i = t.randint(
+            low=1, high=i, size=(1,)
+        ).item()  # new cutpoint chosen uniformly at random from seq length
     return (
         t.concat([t.full((t_rt_pdd.shape[0] - i,), pd_tk), t_rt_pdd[:i]])
         if i > 0
-        else t_rt_pdd
+        else t_rt_pdd  # if no padding was present
     )
 
 

@@ -5,6 +5,7 @@ provides a simple tokenizing interface to take tabular CLIF data and convert
 it to tokenized timelines at the hospitalization_id level
 """
 
+import logging
 import os
 import pathlib
 import typing
@@ -32,6 +33,7 @@ class ClifTokenizer:
         max_padded_len: int = None,
         day_stay_filter: bool = False,
         cut_at_24h: bool = False,
+        valid_admission_window: tuple[str, str] = None,
     ):
         """
         if no vocabulary is provided, we are in training mode; otherwise, the
@@ -41,7 +43,7 @@ class ClifTokenizer:
         self.tbl = dict()
         if vocab_path is None:
             self.vocab_path = None
-            self.vocab = Vocabulary(tuple(map(lambda i: f"Q{i}", range(10))))
+            self.vocab = Vocabulary(tuple(map(lambda i: f"Q{i}", range(10))) + (None,))
             self.vocab.is_training = True
         else:
             self.vocab_path = pathlib.Path(vocab_path).expanduser()
@@ -50,6 +52,7 @@ class ClifTokenizer:
         self.max_padded_length = max_padded_len
         self.day_stay_filter = bool(day_stay_filter)
         self.cut_at_24h = bool(cut_at_24h)
+        self.valid_admission_window = valid_admission_window
 
     def load_tables(self):
         """lazy-load all parquet tables from the directory `self.data_dir`"""
@@ -161,6 +164,14 @@ class ClifTokenizer:
                 pl.col("age_at_admission").first(),
                 pl.col("admission_type_name").str.to_lowercase().first(),
                 pl.col("discharge_category").str.to_lowercase().first(),
+            )
+            .filter(
+                pl.col("event_start").is_between(
+                    pl.lit(self.valid_admission_window[0]).cast(pl.Date),
+                    pl.lit(self.valid_admission_window[1]).cast(pl.Date),
+                )
+                if self.valid_admission_window is not None
+                else True
             )
             .with_columns(
                 pl.col("admission_type_name").map_elements(
@@ -571,20 +582,24 @@ class ClifTokenizer:
         self.vocab.print_aux()
 
 
-def summarize(tokenizer: ClifTokenizer, tokens_timelines: Frame):
+def summarize(
+    tokenizer: ClifTokenizer, tokens_timelines: Frame, logger: logging.Logger = None
+):
     """provide posthoc summary statistics"""
 
-    print("Timelines generated: {}".format(tokens_timelines.shape[0]))
-    print("Vocabulary size: {}".format(len(tokenizer.vocab)))
+    post = logger.info if logger is not None else print
 
-    print(
+    post("Timelines generated: {}".format(tokens_timelines.shape[0]))
+    post("Vocabulary size: {}".format(len(tokenizer.vocab)))
+
+    post(
         "Summary stats of timeline lengths: \n {}".format(
             tokens_timelines.select(pl.col("tokens").list.len()).describe()
         )
     )
 
     for s in range(3):
-        print(
+        post(
             "Example timeline: \n {}".format(
                 [
                     tokenizer.vocab.reverse[t]
@@ -593,7 +608,7 @@ def summarize(tokenizer: ClifTokenizer, tokens_timelines: Frame):
             )
         )
 
-    print(
+    post(
         "Summary stats of timeline duration: \n {}".format(
             tokens_timelines.select(
                 pl.col("times").list.min().alias("start_time"),
@@ -605,7 +620,7 @@ def summarize(tokenizer: ClifTokenizer, tokens_timelines: Frame):
     )
 
     with pl.Config(tbl_rows=len(tokenizer.vocab)):
-        print(
+        post(
             "Top 20 tokens by usage: \n {}".format(
                 tokens_timelines.select("tokens")
                 .explode("tokens")
@@ -635,6 +650,7 @@ if __name__ == "__main__":
         data_dir=hm,
         max_padded_len=1024,
         day_stay_filter=True,  # cut_at_24h=True
+        valid_admission_window=("2110-01-01", "2111-12-31"),
     )
     tokens_timelines = tkzr.get_tokens_timelines()
 
