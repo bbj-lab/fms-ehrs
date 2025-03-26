@@ -12,6 +12,7 @@ source ~/.bashrc
 source venv/bin/activate
 python3 04_examine_model.py \
     --projector_type PCA \
-    --data_dir "${hm}/clif-data/day_stays_qc_first_24h-tokenized/" \
-    --model_loc "${hm}/clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630" \
+    --data_dir "${hm}/clif-data" \
+    --data_version QC_day_stays \
+    --model_loc "${hm}/clif-mdls-archive/mdl-QC_day_stays-llama1b-57895023" \
     --out_dir "${hm}"

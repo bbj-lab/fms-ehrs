@@ -31,8 +31,9 @@ logger.log_env()
 
 @logger.log_calls
 def main(
-    model_dir: os.PathLike = "../clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630",
-    data_dir: os.PathLike = "../clif-data/day_stays_qc_first_24h-tokenized",
+    model_loc: os.PathLike = "../clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630",
+    data_dir: os.PathLike = "../clif-data",
+    data_version: str = "day_stays_qc_first_24h",
     out_dir: os.PathLike = "../clif-mdls",
     n_epochs: int = 5,
     learning_rate: float = 2e-5,
@@ -49,23 +50,20 @@ def main(
     unif_rand_trunc: bool = False,
 ):
 
-    model_dir, data_dir, out_dir = map(
+    model_loc, data_dir, out_dir = map(
         lambda d: pathlib.Path(d).expanduser().resolve(),
-        (model_dir, data_dir, out_dir),
+        (model_loc, data_dir, out_dir),
     )
 
-    os.environ["HF_HOME"] = "/gpfs/data/bbj-lab/cache/huggingface/"
-    os.environ["WANDB_CACHE_DIR"] = "/scratch/burkh4rt/"
-    os.environ["WANDB_DIR"] = "/scratch/burkh4rt/"
     os.environ["WANDB_PROJECT"] = wandb_project
-    os.environ["WANDB_RUN_NAME"] = "{m}-{j}".format(m=model_dir.stem, j=jid)
+    os.environ["WANDB_RUN_NAME"] = "{m}-{j}".format(m=model_loc.stem, j=jid)
 
-    output_dir = out_dir.joinpath("{m}-{j}".format(m=model_dir.stem, j=jid))
+    output_dir = out_dir.joinpath("{m}-{j}".format(m=model_loc.stem, j=jid))
     output_dir.mkdir(exist_ok=True, parents=True)
 
     # load and prep data
     splits = ("train", "val")
-    data_dirs = {s: data_dir.joinpath(s) for s in splits}
+    data_dirs = {s: data_dir.joinpath(f"{data_version}-tokenized", s) for s in splits}
 
     vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
 
@@ -92,7 +90,7 @@ def main(
         remove_columns=["padded", outcome],
     )
 
-    model = AutoModelForSequenceClassification.from_pretrained(model_dir)
+    model = AutoModelForSequenceClassification.from_pretrained(model_loc)
 
     def compute_metrics(eval_preds):
         logits, labels = eval_preds
@@ -107,7 +105,7 @@ def main(
     # train model
     training_args = TrainingArguments(
         report_to="wandb",
-        run_name="{m}-{j}".format(m=model_dir.stem, j=jid),
+        run_name="{m}-{j}".format(m=model_loc.stem, j=jid),
         output_dir=str(output_dir),
         per_device_train_batch_size=per_device_train_batch_size,
         per_device_eval_batch_size=per_device_eval_batch_size,
@@ -136,7 +134,7 @@ def main(
         str(
             output_dir.joinpath(
                 "mdl-{m}-{j}-clsfr-{o}{u}".format(
-                    m=model_dir.stem,
+                    m=model_loc.stem,
                     j=jid,
                     o=outcome,
                     u="-urt" if unif_rand_trunc else "",

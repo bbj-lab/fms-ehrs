@@ -44,7 +44,8 @@ def key_type(word: str) -> str:
 def main(
     *,
     projector_type: typing.Literal["PCA", "TSNE"] = "PCA",
-    data_dir: os.PathLike = "../clif-data/day_stays_qc_first_24h-tokenized",
+    data_dir: os.PathLike = "../clif-data",
+    data_version: str = "day_stays_qc_first_24h",
     model_loc: os.PathLike = "../clif-mdls-archive/llama-57350630-ckpt-6000",
     out_dir: os.PathLike = "../",
 ):
@@ -54,7 +55,7 @@ def main(
         (data_dir, model_loc, out_dir),
     )
 
-    train_dir = data_dir.joinpath("train")
+    train_dir = data_dir.joinpath(f"{data_version}-tokenized", "train")
 
     vocab = Vocabulary().load(train_dir.joinpath("vocab.gzip"))
     model = AutoModelForCausalLM.from_pretrained(model_loc)

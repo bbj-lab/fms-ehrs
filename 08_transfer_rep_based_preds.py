@@ -14,7 +14,7 @@ import numpy as np
 import polars as pl
 
 from logger import get_logger
-from util import set_pd_options, log_classification_metrics
+from util import log_classification_metrics, set_pd_options
 
 set_pd_options()
 
