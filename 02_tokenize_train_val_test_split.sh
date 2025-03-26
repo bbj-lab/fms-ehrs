@@ -8,7 +8,7 @@
 
 source preamble.sh
 
-# process MIMIC data
+echo "Processing MIMIC data..."
 python3 "${name}.py" \
     --data_dir "${hm}/clif-data/" \
     --data_version_in QC \
@@ -17,12 +17,12 @@ python3 "${name}.py" \
     --day_stay_filter true \
     --include_24h_cut true
 
-# use vocab from MIMIC & process UChicago data
+echo "Using vocab from MIMIC to process UChicago data..."
 python3 "${name}.py" \
     --data_dir "/scratch/$(whoami)/clif-data" \
     --data_version_in QC \
     --data_version_out QC_day_stays \
-    --vocab_path "${hm}/clif-data/QC_day_stays/train/vocab.gzip" \
+    --vocab_path "${hm}/clif-data/QC_day_stays-tokenized/train/vocab.gzip" \
     --max_padded_len 1024 \
     --day_stay_filter true \
     --include_24h_cut true \

@@ -8,8 +8,8 @@ import logging
 
 import numpy as np
 import pandas as pd
-import torch as t
 import sklearn.metrics as skl_mets
+import torch as t
 
 
 def mvg_avg(x: np.array, w: int = 4) -> np.array:

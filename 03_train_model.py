@@ -42,8 +42,6 @@ def main(
 ):
     """pass additional model configuration parameters with kwargs"""
 
-    os.environ["HF_HOME"] = "/gpfs/data/bbj-lab/cache/huggingface/"
-    os.environ["WANDB_CACHE_DIR"] = "/scratch/burkh4rt/"
     os.environ["WANDB_PROJECT"] = wandb_project
     os.environ["WANDB_RUN_NAME"] = "{m}-{j}".format(m=model_version, j=jid)
 
