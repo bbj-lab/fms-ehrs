@@ -15,7 +15,7 @@ import torch as t
 from transformers import AutoModelForSequenceClassification, Trainer
 
 from logger import get_logger
-from util import rt_padding_to_left, log_classification_metrics
+from util import log_classification_metrics, rt_padding_to_left
 from vocabulary import Vocabulary
 
 logger = get_logger()
@@ -25,21 +25,22 @@ logger.log_env()
 
 @logger.log_calls
 def main(
-    model_dir: os.PathLike = "../clif-mdls-archive/mdl-llama1b-sft-57451707-clsfr",
-    data_dir: os.PathLike = "../clif-data/day_stays_qc_first_24h-tokenized",
+    model_loc: os.PathLike = "../clif-mdls-archive/mdl-llama1b-sft-57451707-clsfr",
+    data_dir: os.PathLike = "../clif-data",
+    data_version: str = "day_stays_qc_first_24h",
     outcome: typing.Literal[
         "same_admission_death", "long_length_of_stay"
     ] = "same_admission_death",
 ):
 
-    model_dir, data_dir = map(
+    model_loc, data_dir = map(
         lambda d: pathlib.Path(d).expanduser().resolve(),
-        (model_dir, data_dir),
+        (model_loc, data_dir),
     )
 
     # load and prep data
     splits = ("train", "val", "test")
-    data_dirs = {s: data_dir.joinpath(s) for s in splits}
+    data_dirs = {s: data_dir.joinpath(f"{data_version}-tokenized", s) for s in splits}
 
     vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
 
@@ -64,7 +65,7 @@ def main(
 
     y_true = dataset["test"]["label"].numpy()
 
-    model = AutoModelForSequenceClassification.from_pretrained(model_dir)
+    model = AutoModelForSequenceClassification.from_pretrained(model_loc)
     trainer = Trainer(model=model)
     preds = trainer.predict(dataset["test"])
     logits = preds.predictions
@@ -72,7 +73,7 @@ def main(
 
     np.save(
         data_dirs["test"].joinpath(
-            "sft-{o}-preds-{m}.npy".format(o=outcome, m=model_dir.stem)
+            "sft-{o}-preds-{m}.npy".format(o=outcome, m=model_loc.stem)
         ),
         y_score,
     )

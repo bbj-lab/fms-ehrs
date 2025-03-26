@@ -8,7 +8,7 @@
 #SBATCH --array=0-1
 
 source preamble.sh
-urt=false
+urt=true
 
 case "${SLURM_ARRAY_TASK_ID}" in
     0)
@@ -24,7 +24,7 @@ case "${SLURM_ARRAY_TASK_ID}" in
         ;;
 esac
 
-if ( (urt)); then
+if ((urt)); then
     wandb_project+="-urt"
 fi
 

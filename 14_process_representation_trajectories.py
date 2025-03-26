@@ -8,12 +8,12 @@ import os
 import pathlib
 
 import fire as fi
-from joblib import Parallel, delayed
 import numpy as np
 import pandas as pd
 import polars as pl
 import statsmodels.formula.api as smf
 import tqdm
+from joblib import Parallel, delayed
 
 from logger import get_logger
 from vocabulary import Vocabulary
