@@ -114,8 +114,7 @@ class ClifTokenizer:
         """handle tables that can mostly be described in terms of categories and
         values"""
         return pl.concat(
-            self.process_single_category(x, label)
-            for k, x in df.partition_by("category", as_dict=True).items()
+            self.process_single_category(x, label) for x in df.partition_by("category")
         )
 
     def process_tables(self):
