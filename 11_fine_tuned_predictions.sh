@@ -8,12 +8,18 @@
 
 source preamble.sh
 
-#echo "fine-tuned mimic preds..."
-#python3 "${name}.py" \
-#    --data_dir "${hm}/clif-data/day_stays_qc_first_24h-tokenized" \
-#    --model_dir "${hm}/clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630-57723914-clsfr"
+echo "SLURM_ARRAY_JOB_ID=${SLURM_ARRAY_JOB_ID}"
+echo "SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
+
+case "${SLURM_ARRAY_TASK_ID}" in
+    0) data_dir="${hm}/clif-data" ;;
+    1) data_dir="/scratch/burkh4rt/clif-data" ;;
+    *) echo "Invalid SLURM_ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}" ;;
+esac
 
 echo "fine-tuned chicago preds..."
 python3 "${name}.py" \
-    --data_dir "/scratch/burkh4rt/clif-data/day_stays_qc_first_24h-tokenized" \
-    --model_dir "${hm}/clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630-57723914-clsfr"
+    --data_dir "$data_dir" \
+    --data_version QC_day_stays_first_24h \
+    --model_loc "${hm}/clif-mdls-archive/mdl-mdl-day_stays_qc-llama1b-57350630-57748149-clsfr-long_length_of_stay" \
+    --outcome long_length_of_stay

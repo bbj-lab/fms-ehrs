@@ -59,10 +59,9 @@ def main(
     output_dir.mkdir(exist_ok=True, parents=True)
 
     # load and prep data
-    splits = ("train", "val", "test")
+    splits = ("train", "val")
+    data_dirs = {s: data_dir.joinpath(f"{data_version}-tokenized", s) for s in splits}
     np_rng = np.random.default_rng(42)
-    data_dirs = {s: data_dir.joinpath(s) for s in splits}
-
     vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
 
     dataset = (
@@ -77,10 +76,12 @@ def main(
         .with_format("torch")
         .map(
             lambda x: {
-                "input_ids": rt_padding_to_left(x["padded"], vocab("PAD")),
-                "label": x["same_admission_death"],
+                "input_ids": rt_padding_to_left(
+                    x["padded"], vocab("PAD"), unif_rand_trunc=unif_rand_trunc
+                ),
+                "label": x[outcome],
             },
-            remove_columns=["padded", "same_admission_death"],
+            remove_columns=["padded", outcome],
         )
     )
 

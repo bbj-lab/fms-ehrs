@@ -8,9 +8,22 @@
 
 source preamble.sh
 
-torchrun --nproc_per_node=8 "${name}.py" \
-    --data_dir "/scratch/$(whoami)/clif-data" \
-    --data_version day_stays_qc_first_24h \
-    --model_loc "${hm}/clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630" \
+echo "SLURM_ARRAY_JOB_ID=${SLURM_ARRAY_JOB_ID}"
+echo "SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
+
+case "${SLURM_ARRAY_TASK_ID}" in
+    0) data_dir="${hm}/clif-data" ;;
+    1) data_dir="/scratch/burkh4rt/clif-data" ;;
+    *) echo "Invalid SLURM_ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}" ;;
+esac
+
+torchrun --nproc_per_node=4 \
+    --rdzv_backend c10d \
+    --rdzv-id "$SLURM_ARRAY_TASK_ID" \
+    --rdzv-endpoint=localhost:0 \
+    "${name}.py" \
+    --data_dir "$data_dir" \
+    --data_version QC_day_stays_first_24h \
+    --model_loc "${hm}/clif-mdls-archive/llama1b-57928921-run1" \
     --small_batch_sz $((2 ** 4)) \
     --big_batch_sz $((2 ** 12))
