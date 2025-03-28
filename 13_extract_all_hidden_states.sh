@@ -3,8 +3,9 @@
 #SBATCH --job-name=all-states
 #SBATCH --output=./output/%j-%x.stdout
 #SBATCH --partition=gpuq
-#SBATCH --gres=gpu:8
+#SBATCH --gres=gpu:4
 #SBATCH --time=24:00:00
+#SBATCH --array=0-1
 
 source preamble.sh
 
