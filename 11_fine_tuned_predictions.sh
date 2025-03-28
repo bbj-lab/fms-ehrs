@@ -5,6 +5,7 @@
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:1
 #SBATCH --time=24:00:00
+#SBATCH --array=0-1
 
 source preamble.sh
 
@@ -17,7 +18,6 @@ case "${SLURM_ARRAY_TASK_ID}" in
     *) echo "Invalid SLURM_ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}" ;;
 esac
 
-echo "fine-tuned chicago preds..."
 python3 "${name}.py" \
     --data_dir "$data_dir" \
     --data_version QC_day_stays_first_24h \

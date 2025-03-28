@@ -63,8 +63,8 @@ pd.read_csv(mimic_orig.joinpath("hosp/labevents.csv.gz")).merge(
 import pathlib
 
 import polars as pl
-from tokenizer import ClifTokenizer, summarize
 
+from tokenizer import ClifTokenizer, summarize
 
 versions = ("day_stays_qc", "QC_day_stays")
 

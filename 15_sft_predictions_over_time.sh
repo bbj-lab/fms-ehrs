@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=all-states
+#SBATCH --job-name=sft-over-time
 #SBATCH --output=./output/%j-%x.stdout
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:1

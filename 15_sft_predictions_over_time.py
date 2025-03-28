@@ -4,7 +4,7 @@
 examine how probabilistic predictions of outcomes evolve as timelines progress
 """
 
-import os
+import argparse
 import pathlib
 import pickle
 
@@ -20,19 +20,31 @@ logger = get_logger()
 logger.info("running {}".format(__file__))
 logger.log_env()
 
-
-model_dir: os.PathLike = "../clif-mdls-archive/mdl-llama1b-sft-57451707-clsfr"
-data_dir: os.PathLike = "../clif-data/day_stays_qc_first_24h-tokenized"
-
-model_dir, data_dir = map(
-    lambda d: pathlib.Path(d).expanduser().resolve(),
-    (model_dir, data_dir),
+parser = argparse.ArgumentParser(
+    description="Iteratively make predictions as tokens are added to a sequence."
 )
+parser.add_argument("--data_dir", type=pathlib.Path, default="../clif-data")
+parser.add_argument("--data_version", type=str, default="day_stays_qc_first_24h")
+parser.add_argument(
+    "--model_loc",
+    type=pathlib.Path,
+    default="../clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630",
+)
+args, unknowns = parser.parse_known_args()
+
+for k, v in vars(args).items():
+    logger.info(f"{k}: {v}")
+
+model_loc, data_dir = map(
+    lambda d: pathlib.Path(d).expanduser().resolve(),
+    (args.model_loc, args.data_dir),
+)
+data_version = args.data_version
 
 # load and prep data
 rng = np.random.default_rng(42)
 splits = ("train", "val", "test")
-data_dirs = {s: data_dir.joinpath(s) for s in splits}
+data_dirs = {s: data_dir.joinpath(f"{data_version}-tokenized", s) for s in splits}
 
 vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
 
@@ -58,7 +70,7 @@ dataset = (
 device = t.device(f"cuda:0")
 
 tk: int = vocab("PAD")
-model = AutoModelForSequenceClassification.from_pretrained(model_dir)
+model = AutoModelForSequenceClassification.from_pretrained(model_loc)
 trainer = Trainer(model=model)
 
 
@@ -86,7 +98,7 @@ mort_preds = {i: process_idx(i) for i in mort_samp}
 live_preds = {i: process_idx(i) for i in live_samp}
 
 with open(
-    data_dirs["test"].joinpath("sft_preds_tokenwise-" + model_dir.stem + "-lite.pkl"),
+    data_dirs["test"].joinpath("sft_preds_tokenwise-" + model_loc.stem + "-lite.pkl"),
     "wb",
 ) as fp:
     pickle.dump({"mort_preds": mort_preds, "live_preds": live_preds}, fp)
