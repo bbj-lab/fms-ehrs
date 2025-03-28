@@ -71,6 +71,7 @@ for v in versions:
 
 preds = collections.defaultdict(dict)
 true = collections.defaultdict(dict)
+icus = collections.defaultdict(dict)
 
 for outcome in ("same_admission_death", "long_length_of_stay"):
     logger.info(outcome.replace("_", " ").upper().ljust(79, "-"))
@@ -114,6 +115,15 @@ for outcome in ("same_admission_death", "long_length_of_stay"):
             .collect()
             .to_numpy()
         )
+        icus = (
+            pl.scan_parquet(
+                data_dirs[v]["test"].joinpath("tokens_timelines_outcomes.parquet")
+            )
+            .select("icu_stay")
+            .collect()
+            .to_numpy()
+        )
+
         logger.info("overall performance".upper().ljust(49, "-"))
         log_classification_metrics(
             y_true=true[outcome][v], y_score=preds[outcome][v], logger=logger
@@ -128,6 +138,18 @@ for outcome in ("same_admission_death", "long_length_of_stay"):
         log_classification_metrics(
             y_true=true[outcome][v][~outliers[v]["test"]],
             y_score=preds[outcome][v][~outliers[v]["test"]],
+            logger=logger,
+        )
+        logger.info("for icu".upper().ljust(49, "-"))
+        log_classification_metrics(
+            y_true=true[outcome][v][icus],
+            y_score=preds[outcome][v][icus],
+            logger=logger,
+        )
+        logger.info("for non-icu".upper().ljust(49, "-"))
+        log_classification_metrics(
+            y_true=true[outcome][v][~icus],
+            y_score=preds[outcome][v][~icus],
             logger=logger,
         )
 

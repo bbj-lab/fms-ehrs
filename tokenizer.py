@@ -22,7 +22,8 @@ Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
 class ClifTokenizer:
     """
     tokenizes a directory containing a set of parquet files corresponding to
-    the CLIF-2.0 standard
+    the CLIF-2.0 standard; note that the `cut_at_24h` flag implements a very
+    conservative cut and typically removes some timelines
     """
 
     def __init__(
@@ -189,6 +190,7 @@ class ClifTokenizer:
                 "admission_type_name",
                 "discharge_category",
             )
+            .sort(by="hospitalization_id")
             .collect()
         )
 
@@ -535,6 +537,7 @@ class ClifTokenizer:
                 times=pl.concat_list("adm_times", "times", "dis_times"),
             )
             .select("hospitalization_id", "tokens", "times")
+            .sort(by="hospitalization_id")
         )
 
         if self.day_stay_filter:
@@ -582,7 +585,10 @@ class ClifTokenizer:
 
 
 def summarize(
-    tokenizer: ClifTokenizer, tokens_timelines: Frame, logger: logging.Logger = None
+    tokenizer: ClifTokenizer,
+    tokens_timelines: Frame,
+    k: int = 20,
+    logger: logging.Logger = None,
 ):
     """provide posthoc summary statistics"""
 
@@ -620,8 +626,9 @@ def summarize(
 
     with pl.Config(tbl_rows=len(tokenizer.vocab)):
         post(
-            "Top 20 tokens by usage: \n {}".format(
-                tokens_timelines.select("tokens")
+            "Top {k} tokens by usage: \n {out}".format(
+                k=k,
+                out=tokens_timelines.select("tokens")
                 .explode("tokens")
                 .rename({"tokens": "token"})
                 .join(tokenizer.vocab.get_frame(), on="token")
@@ -629,7 +636,7 @@ def summarize(
                 .to_series()
                 .value_counts()
                 .sort("count", descending=True)
-                .head(20)
+                .head(k),
             )
         )
 

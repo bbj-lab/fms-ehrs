@@ -5,10 +5,9 @@
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:8
 #SBATCH --time=1-00:00:00
-#SBATCH --array=0-1
+#SBATCH --array=0
 
 source preamble.sh
-urt=true
 
 case "${SLURM_ARRAY_TASK_ID}" in
     0)
@@ -24,21 +23,19 @@ case "${SLURM_ARRAY_TASK_ID}" in
         ;;
 esac
 
-if ((urt)); then
-    wandb_project+="-urt"
-fi
+# urt=False
+#  wandb_project+="-urt"
 
 torchrun --nproc_per_node=8 \
     "${name}.py" \
-    --model_loc "${hm}/clif-mdls-archive/mdl-QC_day_stays-llama1b-57895023" \
+    --model_loc "${hm}/clif-mdls-archive/llama1b-57928921-run1" \
     --data_dir "${hm}/clif-data" \
     --data_version QC_day_stays_first_24h \
     --out_dir "${hm}/clif-mdls" \
-    --n_epochs 5 \
-    --learning_rate 0.00002 \
+    --n_epochs 10 \
+    --learning_rate 0.00004 \
     --per_device_train_batch_size 4 \
     --per_device_eval_batch_size 4 \
     --gradient_accumulation_steps 2 \
     --outcome "$outcome" \
-    --wandb_project "$wandb_project" \
-    --unif_rand_trunc "$urt"
+    --wandb_project "$wandb_project"
