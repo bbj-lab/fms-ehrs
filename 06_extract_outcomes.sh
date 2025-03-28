@@ -13,12 +13,19 @@ echo "SLURM_ARRAY_JOB_ID=${SLURM_ARRAY_JOB_ID}"
 echo "SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
 
 case "${SLURM_ARRAY_TASK_ID}" in
-    0) data_dir="${hm}/clif-data" ;;
-    1) data_dir="/scratch/$(whoami)/clif-data" ;;
+    0)
+        data_dir="${hm}/clif-data"
+        icu_ids_loc="${hm}/mimiciv-3.1-icu-hids.parquet"
+        ;;
+    1)
+        data_dir="/scratch/$(whoami)/clif-data"
+        icu_ids_loc="${hm}/ucmc-icu-hids.parquet"
+        ;;
     *) echo "Invalid SLURM_ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}" ;;
 esac
 
 python3 "${name}.py" \
     --data_dir "$data_dir" \
     --ref_version QC_day_stays \
-    --data_version QC_day_stays_first_24h
+    --data_version QC_day_stays_first_24h \
+    --icu_ids_loc "$icu_ids_loc"

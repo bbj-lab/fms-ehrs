@@ -24,9 +24,12 @@ def main(
     ref_version: str = "day_stays_qc",
     data_version: str = f"day_stays_qc_first_24h",
     data_dir: os.PathLike = "../clif-data/",
+    icu_ids_loc: os.PathLike = "../mimiciv-3.1-icu-hids.parquet",
 ):
-
-    data_dir = pathlib.Path(data_dir).expanduser().resolve()
+    data_dir, icu_ids_loc = map(
+        lambda d: pathlib.Path(d).expanduser().resolve(),
+        (data_dir, icu_ids_loc),
+    )
 
     # load and prep data
     splits = ("train", "val", "test")
@@ -37,6 +40,7 @@ def main(
         ref_dirs[s] = data_dir.joinpath(f"{ref_version}-tokenized", s)
 
     vocab = Vocabulary().load(ref_dirs["train"].joinpath("vocab.gzip"))
+    icu_stays = pl.scan_parquet(icu_ids_loc).with_columns(icu_stay=pl.lit(True))
 
     for s in splits:
         outcomes = (
@@ -56,6 +60,14 @@ def main(
                 "same_admission_death",
                 "long_length_of_stay",
             )
+            .join(
+                icu_stays,
+                how="left",
+                on="hospitalization_id",
+                validate="1:1",
+                maintain_order="left",
+            )
+            .with_columns(pl.col("icu_stay").fill_null(False))
         )
         (
             pl.scan_parquet(data_dirs[s].joinpath("tokens_timelines.parquet"))
