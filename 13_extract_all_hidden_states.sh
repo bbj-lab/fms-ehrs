@@ -24,7 +24,7 @@ torchrun --nproc_per_node=4 \
     --rdzv-endpoint=localhost:0 \
     "${name}.py" \
     --data_dir "$data_dir" \
-    --data_version QC_day_stays \
-    --model_loc "${hm}/clif-mdls-archive/mdl-QC_day_stays-llama1b-57895023" \
+    --data_version QC_day_stays_first_24h \
+    --model_loc "${hm}/clif-mdls-archive/llama1b-57928921-run1" \
     --small_batch_sz $((2 ** 4)) \
     --big_batch_sz $((2 ** 12))

@@ -9,13 +9,13 @@
 source preamble.sh
 
 echo "Processing MIMIC data..."
-python3 "${name}.py" \
+python3 "02_tokenize_train_val_test_split.py" \
     --data_dir "${hm}/clif-data/" \
     --data_version_in QC \
     --data_version_out QC_day_stays \
     --max_padded_len 1024 \
-    --day_stay_filter true \
-    --include_24h_cut true
+    --day_stay_filter True \
+    --include_24h_cut True
 
 echo "Using vocab from MIMIC to process UChicago data..."
 python3 "${name}.py" \
@@ -24,6 +24,6 @@ python3 "${name}.py" \
     --data_version_out QC_day_stays \
     --vocab_path "${hm}/clif-data/QC_day_stays-tokenized/train/vocab.gzip" \
     --max_padded_len 1024 \
-    --day_stay_filter true \
-    --include_24h_cut true \
+    --day_stay_filter True \
+    --include_24h_cut True \
     --valid_admission_window "('2020-03-01','2022-03-01')"

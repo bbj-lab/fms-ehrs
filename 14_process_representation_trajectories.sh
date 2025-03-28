@@ -23,4 +23,4 @@ python3 "${name}.py" \
     --data_dir "${hm}/clif-data" \
     --data_version day_stays_qc_first_24h \
     --model_loc "${hm}/clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630" \
-    --save_jumps true
+    --save_jumps True

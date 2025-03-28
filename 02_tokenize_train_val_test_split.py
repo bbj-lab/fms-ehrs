@@ -85,6 +85,7 @@ def main(
                 max_padded_len=max_padded_len,
                 day_stay_filter=day_stay_filter,
                 cut_at_24h=cut_at_24h,
+                valid_admission_window=valid_admission_window,
             )
             tokens_timelines = tkzr.get_tokens_timelines()
             logger.info(f"{s}...")
