@@ -74,7 +74,7 @@ def main(
                 s: str(data_dirs[s].joinpath("tokens_timelines_outcomes.parquet"))
                 for s in splits
             },
-            columns=["padded", "same_admission_death"],
+            columns=["padded", outcome],
         )
         .with_format("torch")
         .map(

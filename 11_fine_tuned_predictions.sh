@@ -21,5 +21,5 @@ esac
 python3 "${name}.py" \
     --data_dir "$data_dir" \
     --data_version QC_day_stays_first_24h \
-    --model_loc "${hm}/clif-mdls-archive/mdl-mdl-day_stays_qc-llama1b-57350630-57748149-clsfr-long_length_of_stay" \
-    --outcome long_length_of_stay
+    --model_loc "${hm}/clif-mdls-archive/mdl-llama1b-57928921-run1-58115722-clsfr-same_admission_death" \
+    --outcome same_admission_death
