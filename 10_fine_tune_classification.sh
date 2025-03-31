@@ -5,7 +5,7 @@
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:8
 #SBATCH --time=1-00:00:00
-#SBATCH --array=0
+#SBATCH --array=0-1
 
 source preamble.sh
 
@@ -23,8 +23,7 @@ case "${SLURM_ARRAY_TASK_ID}" in
         ;;
 esac
 
-# urt=False
-#  wandb_project+="-urt"
+wandb_project+="-urt"
 
 torchrun --nproc_per_node=8 \
     "${name}.py" \
@@ -33,9 +32,10 @@ torchrun --nproc_per_node=8 \
     --data_version QC_day_stays_first_24h \
     --out_dir "${hm}/clif-mdls" \
     --n_epochs 10 \
-    --learning_rate 0.00004 \
+    --learning_rate 0.00002 \
     --per_device_train_batch_size 4 \
     --per_device_eval_batch_size 4 \
     --gradient_accumulation_steps 2 \
     --outcome "$outcome" \
-    --wandb_project "$wandb_project"
+    --wandb_project "$wandb_project" \
+    --unif_rand_trunc True

@@ -46,26 +46,35 @@ def main(
     projector_type: typing.Literal["PCA", "TSNE"] = "PCA",
     data_dir: os.PathLike = "../clif-data",
     data_version: str = "day_stays_qc_first_24h",
-    model_loc: os.PathLike = "../clif-mdls-archive/llama-57350630-ckpt-6000",
+    ref_mdl_loc: os.PathLike = "../clif-mdls-archive/llama-57350630-ckpt-6000",
+    addl_mdls_loc: str = None,
     out_dir: os.PathLike = "../",
 ):
 
-    data_dir, model_loc, out_dir = map(
+    data_dir, ref_mdl_loc, out_dir = map(
         lambda d: pathlib.Path(d).expanduser().resolve(),
-        (data_dir, model_loc, out_dir),
+        (data_dir, ref_mdl_loc, out_dir),
+    )
+
+    addl_mdls_loc = (
+        [pathlib.Path(d).expanduser().resolve() for d in addl_mdls_loc.split(",")]
+        if addl_mdls_loc is not None
+        else None
     )
 
     train_dir = data_dir.joinpath(f"{data_version}-tokenized", "train")
 
     vocab = Vocabulary().load(train_dir.joinpath("vocab.gzip"))
-    model = AutoModelForCausalLM.from_pretrained(model_loc)
+    ref_mdl = AutoModelForCausalLM.from_pretrained(ref_mdl_loc)
+
+    addl_mdls = [AutoModelForCausalLM.from_pretrained(d) for d in addl_mdls_loc]
 
     """
     dimensionality reduction on token embeddings
     """
 
     # size: vocab x emb_dim
-    emb = model.get_input_embeddings()(t_arange(len(vocab)))
+    emb = ref_mdl.get_input_embeddings()(t_arange(len(vocab)))
     projector = (
         PCA(n_components=2, random_state=42)
         if projector_type == "PCA"
@@ -97,14 +106,43 @@ def main(
         hover_name="token",
     )
 
-    fig.write_html(out_dir.joinpath("embedding_vis-{m}.html".format(m=model_loc.stem)))
+    for i, m in enumerate(addl_mdls):
+        addl_emb = m.get_input_embeddings()(t_arange(len(vocab)))
+        addl_proj = projector.transform(addl_emb.detach())
+        addl_df = (
+            pl.from_numpy(data=addl_proj, schema=["dim1", "dim2"])
+            .with_columns(token=pl.Series(vocab.lookup.keys()))
+            .with_columns(
+                type=pl.col("token").map_elements(
+                    key_type,
+                    return_dtype=pl.String,
+                    skip_nulls=False,
+                )
+            )
+        )
+
+        addl_fig = go.Scatter(
+            x=addl_df["dim1"],
+            y=addl_df["dim2"],
+            mode="markers",
+            marker=dict(size=4, color=("black", "grey")[i], symbol=("x", "cross")[i]),
+            text=addl_df["type"],
+            hoverinfo="text",
+            name=addl_mdls_loc[i].stem.split("-")[-1],
+        )
+
+        fig.add_trace(addl_fig)
+
+    fig.write_html(
+        out_dir.joinpath("embedding_vis-{m}.html".format(m=ref_mdl_loc.stem))
+    )
 
     """
     quantile embeddings only
     """
 
     # size: vocab x emb_dim
-    emb = model.get_input_embeddings()(t_arange(10))
+    emb = ref_mdl.get_input_embeddings()(t_arange(10))
     projector = (
         PCA(n_components=2, random_state=42)
         if projector_type == "PCA"
@@ -137,7 +175,34 @@ def main(
         )
     )
 
-    fig.write_html(out_dir.joinpath("embedding_q-{m}.html".format(m=model_loc.stem)))
+    for i, m in enumerate(addl_mdls):
+        addl_emb = m.get_input_embeddings()(t_arange(10))
+        addl_proj = projector.transform(addl_emb.detach())
+        addl_df = (
+            pl.from_numpy(data=addl_proj, schema=["dim1", "dim2"])
+            .with_columns(token=pl.Series(list(vocab.lookup.keys())[:10]))
+            .with_columns(
+                type=pl.col("token").map_elements(
+                    key_type,
+                    return_dtype=pl.String,
+                    skip_nulls=False,
+                )
+            )
+        )
+
+        addl_fig = go.Scatter(
+            x=addl_df["dim1"],
+            y=addl_df["dim2"],
+            mode="markers",
+            marker=dict(size=4, color=("black", "grey")[i], symbol=("x", "cross")[i]),
+            text=addl_df["type"],
+            hoverinfo="text",
+            name=addl_mdls_loc[i].stem.split("-")[-1],
+        )
+
+        fig.add_trace(addl_fig)
+
+    fig.write_html(out_dir.joinpath("embedding_q-{m}.html".format(m=ref_mdl_loc.stem)))
 
 
 if __name__ == "__main__":

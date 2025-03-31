@@ -18,6 +18,9 @@ case "${SLURM_ARRAY_TASK_ID}" in
     *) echo "Invalid SLURM_ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}" ;;
 esac
 
+# "${hm}/clif-mdls-archive/mdl-llama1b-57928921-run1-58115722-clsfr-same_admission_death"
+# "${hm}/clif-mdls-archive/mdl-llama1b-57928921-run1-58134628-clsfr-long_length_of_stay"
+
 torchrun --nproc_per_node=4 \
     --rdzv_backend c10d \
     --rdzv-id "$SLURM_ARRAY_TASK_ID" \
@@ -25,5 +28,5 @@ torchrun --nproc_per_node=4 \
     "${name}.py" \
     --data_dir "$data_dir" \
     --data_version QC_day_stays_first_24h \
-    --model_loc "${hm}/clif-mdls-archive/llama1b-57928921-run1" \
+    --model_loc "${hm}/clif-mdls-archive/mdl-llama1b-57928921-run1-58134628-clsfr-long_length_of_stay" \
     --batch_sz $((2 ** 5))
