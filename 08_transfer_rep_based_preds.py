@@ -12,6 +12,7 @@ import pathlib
 import lightgbm as lgb
 import numpy as np
 import polars as pl
+import sklearn as skl
 
 from logger import get_logger
 from util import log_classification_metrics, set_pd_options
@@ -35,6 +36,11 @@ parser.add_argument(
     type=pathlib.Path,
     default="../clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630",
 )
+parser.add_argument(
+    "--classifier",
+    choices=["light_gbm", "logistic_regression_cv", "logistic_regression"],
+    default="logistic_regression",
+)
 parser.add_argument("--fast", type=bool, default=False)
 args, unknowns = parser.parse_known_args()
 
@@ -50,8 +56,13 @@ fast = bool(args.fast)
 
 splits = ("train", "val", "test")
 versions = ("orig", "new")
+outcomes = ("same_admission_death", "long_length_of_stay")
 data_dirs = collections.defaultdict(dict)
 outliers = collections.defaultdict(dict)
+icus = collections.defaultdict(dict)
+features = collections.defaultdict(dict)
+labels = collections.defaultdict(lambda: collections.defaultdict(dict))
+
 for v in versions:
     for s in splits:
         data_dirs[v][s] = (data_dir_orig if v == "orig" else data_dir_new).joinpath(
@@ -65,91 +76,114 @@ for v in versions:
             )  # "Returns -1 for outliers and 1 for inliers"
             == -1
         )
+        features[v][s] = np.load(
+            data_dirs[v][s].joinpath("features-{m}.npy".format(m=model_loc.stem))
+        )
+        for outcome in outcomes:
+            labels[outcome][v][s] = (
+                pl.scan_parquet(
+                    data_dirs[v][s].joinpath("tokens_timelines_outcomes.parquet")
+                )
+                .select(outcome)
+                .collect()
+                .to_numpy()
+                .ravel()
+            )
+        icus[v][s] = (
+            pl.scan_parquet(
+                data_dirs[v][s].joinpath("tokens_timelines_outcomes.parquet")
+            )
+            .select("icu_stay")
+            .collect()
+            .to_numpy()
+            .ravel()
+        )
 
 """ classification outcomes
 """
 
 preds = collections.defaultdict(dict)
-true = collections.defaultdict(dict)
-icus = collections.defaultdict(dict)
 
-for outcome in ("same_admission_death", "long_length_of_stay"):
+for outcome in outcomes:
     logger.info(outcome.replace("_", " ").upper().ljust(79, "-"))
-    data = dict()
-    for s in ("train", "val"):
-        feats = np.load(
-            data_dirs["orig"][s].joinpath("features-{m}.npy".format(m=model_loc.stem))
-        )
-        label = (
-            pl.scan_parquet(
-                data_dirs["orig"][s].joinpath("tokens_timelines_outcomes.parquet")
+
+    match args.classifier:
+        case "light_gbm":
+            estimator = lgb.LGBMClassifier(
+                metric="auc",
+                force_col_wise=True,
+                learning_rate=0.05 if not fast else 0.1,
+                n_estimators=1000 if not fast else 100,
             )
-            .select(outcome)
-            .collect()
-            .to_numpy()
-            .ravel()
-        )
-        data[s] = lgb.Dataset(feats, label=label)
-    bst = lgb.train(
-        {"metric": "auc", "objective": "binary", "force_col_wise": True}
-        | ({} if fast else {"learning_rate": 0.05}),
-        data["train"],
-        10 if fast else 1000,
-        valid_sets=[data["val"]],
-    )
+            estimator.fit(
+                X=features["orig"]["train"],
+                y=labels[outcome]["orig"]["train"],
+                eval_set=(features["orig"]["val"], labels[outcome]["orig"]["val"]),
+            )
+
+        case "logistic_regression_cv":
+            estimator = skl.pipeline.make_pipeline(
+                skl.preprocessing.StandardScaler(),
+                skl.linear_model.LogisticRegressionCV(
+                    max_iter=10_000 if not fast else 100,
+                    n_jobs=-1,
+                    refit=True,
+                    random_state=42,
+                    solver="newton-cholesky" if not fast else "lbfgs",
+                ),
+            )
+            estimator.fit(
+                X=features["orig"]["train"], y=labels[outcome]["orig"]["train"]
+            )
+
+        case "logistic_regression":
+            estimator = skl.pipeline.make_pipeline(
+                skl.preprocessing.StandardScaler(),
+                skl.linear_model.LogisticRegression(
+                    max_iter=10_000 if not fast else 100,
+                    n_jobs=-1,
+                    random_state=42,
+                    solver="newton-cholesky" if not fast else "lbfgs",
+                ),
+            )
+            estimator.fit(
+                X=features["orig"]["train"], y=labels[outcome]["orig"]["train"]
+            )
+
+        case _:
+            raise NotImplementedError(
+                f"Classifier {args.classifier} is not yet supported."
+            )
+
     for v in versions:
         logger.info(v.upper())
-        preds[outcome][v] = bst.predict(
-            np.load(
-                data_dirs[v]["test"].joinpath(
-                    "features-{m}.npy".format(m=model_loc.stem)
-                )
-            )
-        )
-        true[outcome][v] = (
-            pl.scan_parquet(
-                data_dirs[v]["test"].joinpath("tokens_timelines_outcomes.parquet")
-            )
-            .select(outcome)
-            .cast(pl.Int64)
-            .collect()
-            .to_numpy()
-        )
-        icus = (
-            pl.scan_parquet(
-                data_dirs[v]["test"].joinpath("tokens_timelines_outcomes.parquet")
-            )
-            .select("icu_stay")
-            .collect()
-            .to_numpy()
-        )
-
+        preds[outcome][v] = estimator.predict_proba(features[v]["test"])[:, 1]
+        y_true = labels[outcome][v]["test"]
+        y_score = preds[outcome][v]
         logger.info("overall performance".upper().ljust(49, "-"))
-        log_classification_metrics(
-            y_true=true[outcome][v], y_score=preds[outcome][v], logger=logger
-        )
+        log_classification_metrics(y_true=y_true, y_score=y_score, logger=logger)
         logger.info("on outliers".upper().ljust(49, "-"))
         log_classification_metrics(
-            y_true=true[outcome][v][outliers[v]["test"]],
-            y_score=preds[outcome][v][outliers[v]["test"]],
+            y_true=y_true[outliers[v]["test"]],
+            y_score=y_score[outliers[v]["test"]],
             logger=logger,
         )
         logger.info("on inliers".upper().ljust(49, "-"))
         log_classification_metrics(
-            y_true=true[outcome][v][~outliers[v]["test"]],
-            y_score=preds[outcome][v][~outliers[v]["test"]],
+            y_true=y_true[~outliers[v]["test"]],
+            y_score=y_score[~outliers[v]["test"]],
             logger=logger,
         )
         logger.info("for icu".upper().ljust(49, "-"))
         log_classification_metrics(
-            y_true=true[outcome][v][icus],
-            y_score=preds[outcome][v][icus],
+            y_true=y_true[icus[v]["test"]],
+            y_score=y_score[icus[v]["test"]],
             logger=logger,
         )
         logger.info("for non-icu".upper().ljust(49, "-"))
         log_classification_metrics(
-            y_true=true[outcome][v][~icus],
-            y_score=preds[outcome][v][~icus],
+            y_true=y_true[~icus[v]["test"]],
+            y_score=y_score[~icus[v]["test"]],
             logger=logger,
         )
 
