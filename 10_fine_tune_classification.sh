@@ -5,7 +5,7 @@
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:8
 #SBATCH --time=1-00:00:00
-#SBATCH --array=0-1
+#SBATCH --array=2-3
 
 source preamble.sh
 
@@ -17,6 +17,14 @@ case "${SLURM_ARRAY_TASK_ID}" in
     1)
         outcome=long_length_of_stay
         wandb_project=mimic-sft-clsfr-llos
+        ;;
+    2)
+        outcome=icu_admission
+        wandb_project=mimic-sft-clsfr-icua
+        ;;
+    3)
+        outcome=imv_event
+        wandb_project=mimic-sft-clsfr-imve
         ;;
     *)
         echo "Invalid SLURM_ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}"

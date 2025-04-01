@@ -80,20 +80,11 @@ for v in versions:
         .to_numpy()
         .ravel()
     )
-    try:
-        sft_pred[v] = np.load(
-            data_dir[v].joinpath(
-                "sft-{o}-preds-{m}.npy".format(o=outcome, m=model_sft_loc.stem)
-            ),
-        )
-    except FileNotFoundError:
-        # check previous naming convention
-        assert outcome == "same_admission_death"
-        sft_pred[v] = np.load(
-            data_dir[v].joinpath(
-                "sft-{o}-preds-{m}.npy".format(o=outcome, m=model_outlier_loc.stem)
-            ),
-        )
+    sft_pred[v] = np.load(
+        data_dir[v].joinpath(
+            "sft-{o}-preds-{m}.npy".format(o=outcome, m=model_sft_loc.stem)
+        ),
+    )
 
     logger.info("For all...")
     log_classification_metrics(y_true=label[v], y_score=sft_pred[v], logger=logger)
