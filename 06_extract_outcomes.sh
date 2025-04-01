@@ -3,7 +3,7 @@
 #SBATCH --job-name=extract-outcomes
 #SBATCH --output=./output/%j-%x.stdout
 #SBATCH --partition=tier2q
-#SBATCH --mem=100GB
+#SBATCH --mem=25GB
 #SBATCH --time=1:00:00
 #SBATCH --array=0-1
 
@@ -27,5 +27,9 @@ esac
 python3 "${name}.py" \
     --data_dir "$data_dir" \
     --ref_version QC_day_stays \
-    --data_version QC_day_stays_first_24h \
-    --icu_ids_loc "$icu_ids_loc"
+    --data_version QC_day_stays_first_24h
+
+python3 "06_extract_outcomes.py" \
+    --data_dir "$data_dir" \
+    --ref_version QC_day_stays \
+    --data_version QC_day_stays_first_24h

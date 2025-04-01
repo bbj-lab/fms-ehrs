@@ -45,7 +45,7 @@ def main(
     metric_for_best_model: str = "eval_auc",
     greater_is_better: bool = True,
     outcome: typing.Literal[
-        "same_admission_death", "long_length_of_stay"
+        "same_admission_death", "long_length_of_stay", "icu_admission", "imv_event"
     ] = "same_admission_death",
     unif_rand_trunc: bool = False,
 ):
@@ -107,8 +107,8 @@ def main(
         output_dir=str(output_dir),
         per_device_train_batch_size=per_device_train_batch_size,
         per_device_eval_batch_size=per_device_eval_batch_size,
-        gradient_accumulation_steps=gradient_accumulation_steps,  # simulate larger batch sizes
-        learning_rate=learning_rate,  # 2e-4 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
+        gradient_accumulation_steps=gradient_accumulation_steps,
+        learning_rate=learning_rate,
         num_train_epochs=n_epochs,
         save_total_limit=2,
         metric_for_best_model=metric_for_best_model,

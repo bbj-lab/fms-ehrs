@@ -29,7 +29,7 @@ def main(
     data_dir: os.PathLike = "../clif-data",
     data_version: str = "day_stays_qc_first_24h",
     outcome: typing.Literal[
-        "same_admission_death", "long_length_of_stay"
+        "same_admission_death", "long_length_of_stay", "icu_admission", "imv_event"
     ] = "same_admission_death",
 ):
 

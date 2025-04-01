@@ -58,7 +58,6 @@ def main(
     )
 
     def model_init(trial=None):
-        # grab a small mamba for training
         config = AutoConfig.from_pretrained(
             model_name,
             vocab_size=len(dataset.vocab),
