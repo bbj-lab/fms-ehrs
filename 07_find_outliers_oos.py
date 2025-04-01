@@ -138,10 +138,19 @@ for s in ("val", "test"):
             ntot=out[s].size,
         )
     )
+
 for s in splits:
     np.save(
         data_dirs[s].joinpath("features-outliers-{m}.npy".format(m=model_loc.stem)),
         out[s],
+    )
+    np.save(
+        data_dirs[s].joinpath(
+            "features-anomaly-score-{m}.npy".format(m=model_loc.stem)
+        ),
+        clf.score_samples(
+            feats[s]
+        ),  # "The anomaly score...  The lower, the more abnormal"
     )
 
 summarize(mort, llos, out)
@@ -197,4 +206,10 @@ for s in splits:
     np.save(
         data_dirs[s].joinpath("features-outliers-{m}.npy".format(m=model_loc.stem)),
         out[s],
+    )
+    np.save(
+        data_dirs[s].joinpath(
+            "features-anomaly-score-{m}.npy".format(m=model_loc.stem)
+        ),
+        clf.score_samples(feats[s]),
     )
