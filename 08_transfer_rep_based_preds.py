@@ -48,11 +48,12 @@ fast = bool(args.fast)
 
 splits = ("train", "val", "test")
 versions = ("orig", "new")
-outcomes = ("same_admission_death", "long_length_of_stay")
+outcomes = ("same_admission_death", "long_length_of_stay", "icu_admission", "imv_event")
+
 data_dirs = collections.defaultdict(dict)
 outliers = collections.defaultdict(dict)
-icus = collections.defaultdict(dict)
 features = collections.defaultdict(dict)
+qualifiers = collections.defaultdict(lambda: collections.defaultdict(dict))
 labels = collections.defaultdict(lambda: collections.defaultdict(dict))
 
 for v in versions:
@@ -81,15 +82,20 @@ for v in versions:
                 .to_numpy()
                 .ravel()
             )
-        icus[v][s] = (
-            pl.scan_parquet(
-                data_dirs[v][s].joinpath("tokens_timelines_outcomes.parquet")
+            qualifiers[outcome][v][s] = (
+                (
+                    ~pl.scan_parquet(
+                        data_dirs[v][s].joinpath("tokens_timelines_outcomes.parquet")
+                    )
+                    .select(outcome + "_24h")
+                    .collect()
+                    .to_numpy()
+                    .ravel()
+                )  # *not* people who have had this outcome in the first 24h
+                if outcome in ("icu_admission", "imv_event")
+                else True * np.ones_like(labels[outcome][v][s])
             )
-            .select("icu_stay")
-            .collect()
-            .to_numpy()
-            .ravel()
-        )
+
 
 """ classification outcomes
 """
@@ -97,20 +103,26 @@ for v in versions:
 preds = collections.defaultdict(dict)
 
 for outcome in outcomes:
+
     logger.info(outcome.replace("_", " ").upper().ljust(79, "-"))
+
+    Xtrain = (features["orig"]["train"])[qualifiers[outcome]["orig"]["train"]]
+    ytrain = (labels[outcome]["orig"]["train"])[qualifiers[outcome]["orig"]["train"]]
+    Xval = (features["orig"]["val"])[qualifiers[outcome]["orig"]["val"]]
+    yval = (labels[outcome]["orig"]["val"])[qualifiers[outcome]["orig"]["val"]]
 
     match args.classifier:
         case "light_gbm":
             estimator = lgb.LGBMClassifier(
                 metric="auc",
-                force_col_wise=True,
-                learning_rate=0.05 if not fast else 0.1,
-                n_estimators=1000 if not fast else 100,
+                # force_col_wise=True,
+                # learning_rate=0.05 if not fast else 0.1,
+                # n_estimators=1000 if not fast else 100,
             )
             estimator.fit(
-                X=features["orig"]["train"],
-                y=labels[outcome]["orig"]["train"],
-                eval_set=(features["orig"]["val"], labels[outcome]["orig"]["val"]),
+                X=Xtrain,
+                y=ytrain,
+                eval_set=(Xval, yval),
             )
 
         case "logistic_regression_cv":
@@ -124,9 +136,7 @@ for outcome in outcomes:
                     solver="newton-cholesky" if not fast else "lbfgs",
                 ),
             )
-            estimator.fit(
-                X=features["orig"]["train"], y=labels[outcome]["orig"]["train"]
-            )
+            estimator.fit(X=Xtrain, y=ytrain)
 
         case "logistic_regression":
             estimator = skl.pipeline.make_pipeline(
@@ -139,52 +149,38 @@ for outcome in outcomes:
                 ),
             )
             estimator.fit(
-                X=features["orig"]["train"], y=labels[outcome]["orig"]["train"]
+                X=np.row_stack((Xtrain, Xval)), y=np.row_stack((ytrain, yval))
             )
 
         case _:
             raise NotImplementedError(
                 f"Classifier {args.classifier} is not yet supported."
             )
-
     for v in versions:
+
         logger.info(v.upper())
-        preds[outcome][v] = estimator.predict_proba(features[v]["test"])[:, 1]
-        y_true = labels[outcome][v]["test"]
+
+        q_test = qualifiers[outcome][v]["test"]
+        preds[outcome][v] = estimator.predict_proba((features[v]["test"])[q_test])[:, 1]
+        y_true = (labels[outcome][v]["test"])[q_test]
         y_score = preds[outcome][v]
+
         logger.info("overall performance".upper().ljust(49, "-"))
+        logger.info(
+            "{n} qualifying ({p:.2f}%)".format(n=q_test.sum(), p=100 * q_test.mean())
+        )
         log_classification_metrics(y_true=y_true, y_score=y_score, logger=logger)
+
+        out_test = (outliers[v]["test"])[q_test]
         logger.info("on outliers".upper().ljust(49, "-"))
         log_classification_metrics(
-            y_true=y_true[outliers[v]["test"]],
-            y_score=y_score[outliers[v]["test"]],
+            y_true=y_true[out_test],
+            y_score=y_score[out_test],
             logger=logger,
         )
         logger.info("on inliers".upper().ljust(49, "-"))
         log_classification_metrics(
-            y_true=y_true[~outliers[v]["test"]],
-            y_score=y_score[~outliers[v]["test"]],
+            y_true=y_true[~out_test],
+            y_score=y_score[~out_test],
             logger=logger,
         )
-        logger.info("for icu".upper().ljust(49, "-"))
-        log_classification_metrics(
-            y_true=y_true[icus[v]["test"]],
-            y_score=y_score[icus[v]["test"]],
-            logger=logger,
-        )
-        logger.info("for non-icu".upper().ljust(49, "-"))
-        log_classification_metrics(
-            y_true=y_true[~icus[v]["test"]],
-            y_score=y_score[~icus[v]["test"]],
-            logger=logger,
-        )
-
-for v in versions:
-    np.save(
-        data_dirs[v]["test"].joinpath(
-            "feat-based-mort-llos-preds-{m}.npy".format(m=model_loc.stem)
-        ),
-        np.column_stack(
-            [preds["same_admission_death"][v], preds["long_length_of_stay"][v]]
-        ),
-    )

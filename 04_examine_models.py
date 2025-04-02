@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-load a model and make some plots
+load models and plot embeddings
 """
 
 import functools
@@ -128,7 +128,11 @@ def main(
             x=addl_df["dim1"],
             y=addl_df["dim2"],
             mode="markers",
-            marker=dict(size=4, color=("black", "grey")[i], symbol=("x", "cross")[i]),
+            marker=dict(
+                size=4,
+                color=("black", "grey")[i % 2],
+                symbol=("x", "cross", "square", "diamond", "circle")[i % 5],
+            ),
             text=addl_df["type"],
             hoverinfo="text",
             name=addl_mdls_loc[i].stem.split("-")[-1],
@@ -197,7 +201,11 @@ def main(
             x=addl_df["dim1"],
             y=addl_df["dim2"],
             mode="markers",
-            marker=dict(size=4, color=("black", "grey")[i], symbol=("x", "cross")[i]),
+            marker=dict(
+                size=4,
+                color=("black", "grey")[i % 2],
+                symbol=("x", "cross", "square", "diamond", "circle")[i % 5],
+            ),
             text=addl_df["type"],
             hoverinfo="text",
             name=addl_mdls_loc[i].stem.split("-")[-1],
