@@ -51,8 +51,14 @@ def main(
                 s: str(data_dirs[s].joinpath("tokens_timelines_outcomes.parquet"))
                 for s in ("test",)
             },
-            columns=["padded", outcome],
         )
+        .map(
+            lambda x: {
+                "same_admission_death_24h": False,
+                "long_length_of_stay_24h": False,
+            }
+        )
+        .select_columns(["padded", outcome, f"{outcome}_24h"])
         .with_format("torch")
         .map(
             lambda x: {
@@ -64,6 +70,9 @@ def main(
     )
 
     y_true = dataset["test"]["label"].numpy()
+    qualifier = ~dataset["test"][
+        f"{outcome}_24h"
+    ].numpy()  # qualifies if event did not occur in first 24h
 
     model = AutoModelForSequenceClassification.from_pretrained(model_loc)
     trainer = Trainer(model=model)
@@ -73,12 +82,14 @@ def main(
 
     np.save(
         data_dirs["test"].joinpath(
-            "sft-{o}-preds-{m}.npy".format(o=outcome, m=model_loc.stem)
+            "sft-{o}-preds-q-{m}.npy".format(o=outcome, m=model_loc.stem)
         ),
-        y_score,
+        np.column_stack((y_score, qualifier)),
     )
 
-    log_classification_metrics(y_true=y_true, y_score=y_score, logger=logger)
+    log_classification_metrics(
+        y_true=y_true[qualifier], y_score=y_score[qualifier], logger=logger
+    )
 
 
 if __name__ == "__main__":
