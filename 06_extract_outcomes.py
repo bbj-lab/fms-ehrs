@@ -22,8 +22,8 @@ logger.log_env()
 def main(
     *,
     ref_version: str = "day_stays_qc",
-    data_version: str = f"day_stays_qc_first_24h",
-    data_dir: os.PathLike = "../clif-data/",
+    data_version: str = f"day_stays_first_24h",
+    data_dir: os.PathLike = None,
 ):
     data_dir = pathlib.Path(data_dir).expanduser().resolve()
 

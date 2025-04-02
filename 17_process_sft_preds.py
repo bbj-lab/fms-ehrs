@@ -18,25 +18,13 @@ logger = get_logger()
 logger.info("running {}".format(__file__))
 logger.log_env()
 
-parser = argparse.ArgumentParser(
-    description="Collect results from fine-tuned predictions by outlier status."
-)
-parser.add_argument("--data_dir_orig", type=pathlib.Path, default="../clif-data")
-parser.add_argument(
-    "--data_dir_new", type=pathlib.Path, default="/scratch/burkh4rt/clif-data"
-)
-parser.add_argument("--data_version", type=str, default="day_stays_qc_first_24h")
-parser.add_argument(
-    "--model_sft_loc",
-    type=pathlib.Path,
-    default="../clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630-57723914-clsfr",
-)
-parser.add_argument(
-    "--model_outlier_loc",
-    type=pathlib.Path,
-    default="../clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630",
-)
-parser.add_argument("--out_dir", type=pathlib.Path, default="../")
+parser = argparse.ArgumentParser()
+parser.add_argument("--data_dir_orig", type=pathlib.Path)
+parser.add_argument("--data_dir_new", type=pathlib.Path)
+parser.add_argument("--data_version", type=str)
+parser.add_argument("--model_sft_loc", type=pathlib.Path)
+parser.add_argument("--model_outlier_loc", type=pathlib.Path)
+parser.add_argument("--out_dir", type=pathlib.Path)
 parser.add_argument(
     "--outcome",
     choices=["same_admission_death", "long_length_of_stay"],

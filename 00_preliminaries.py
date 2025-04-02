@@ -9,7 +9,7 @@ import pathlib
 
 import polars as pl
 
-hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/")
+hm = pathlib.Path("/gpfs/data/bbj-lab/users/{}".format(os.getenv("USER")))
 mimic_hm = hm.joinpath("physionet.org/files/mimiciv/3.1/")
 uchi_hm = pathlib.Path("/scratch", os.getenv("USER"), "CLIF-2.0.0")
 

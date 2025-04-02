@@ -44,11 +44,11 @@ def key_type(word: str) -> str:
 def main(
     *,
     projector_type: typing.Literal["PCA", "TSNE"] = "PCA",
-    data_dir: os.PathLike = "../clif-data",
-    data_version: str = "day_stays_qc_first_24h",
-    ref_mdl_loc: os.PathLike = "../clif-mdls-archive/llama-57350630-ckpt-6000",
+    data_dir: os.PathLike = None,
+    data_version: str = None,
+    ref_mdl_loc: os.PathLike = None,
     addl_mdls_loc: str = None,
-    out_dir: os.PathLike = "../",
+    out_dir: os.PathLike = None,
 ):
 
     data_dir, ref_mdl_loc, out_dir = map(
@@ -57,7 +57,10 @@ def main(
     )
 
     addl_mdls_loc = (
-        [pathlib.Path(d).expanduser().resolve() for d in addl_mdls_loc.split(",")]
+        [
+            pathlib.Path(d.strip()).expanduser().resolve()
+            for d in addl_mdls_loc.split(",")
+        ]
         if addl_mdls_loc is not None
         else None
     )

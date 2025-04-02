@@ -17,20 +17,12 @@ logger = get_logger()
 logger.info("running {}".format(__file__))
 logger.log_env()
 
-parser = argparse.ArgumentParser(
-    description="Determine outliers for both in-sample and out-of-sample datasets."
-)
-parser.add_argument("--data_dir_orig", type=pathlib.Path, default="../clif-data")
-parser.add_argument(
-    "--data_dir_new", type=pathlib.Path, default="/scratch/burkh4rt/clif-data"
-)
-parser.add_argument("--data_version", type=str, default="day_stays_qc_first_24h")
-parser.add_argument(
-    "--model_loc",
-    type=pathlib.Path,
-    default="../clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630",
-)
-parser.add_argument("--out_dir", type=pathlib.Path, default="../")
+parser = argparse.ArgumentParser()
+parser.add_argument("--data_dir_orig", type=pathlib.Path)
+parser.add_argument("--data_dir_new", type=pathlib.Path)
+parser.add_argument("--data_version", type=str)
+parser.add_argument("--model_loc", type=pathlib.Path)
+parser.add_argument("--out_dir", type=pathlib.Path)
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -148,9 +140,10 @@ for s in splits:
         data_dirs[s].joinpath(
             "features-anomaly-score-{m}.npy".format(m=model_loc.stem)
         ),
-        clf.score_samples(
+        -1.0
+        * clf.score_samples(
             feats[s]
-        ),  # "The anomaly score...  The lower, the more abnormal"
+        ),  # "Opposite of the anomaly score defined in the original paper"
     )
 
 summarize(mort, llos, out)
@@ -211,5 +204,5 @@ for s in splits:
         data_dirs[s].joinpath(
             "features-anomaly-score-{m}.npy".format(m=model_loc.stem)
         ),
-        clf.score_samples(feats[s]),
+        -1.0 * clf.score_samples(feats[s]),
     )
