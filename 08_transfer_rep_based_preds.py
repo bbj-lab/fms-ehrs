@@ -23,19 +23,11 @@ logger = get_logger()
 logger.info("running {}".format(__file__))
 logger.log_env()
 
-parser = argparse.ArgumentParser(
-    description="Learn representation-based classifiers and apply them to a new dataset."
-)
-parser.add_argument("--data_dir_orig", type=pathlib.Path, default="../clif-data")
-parser.add_argument(
-    "--data_dir_new", type=pathlib.Path, default="/scratch/burkh4rt/clif-data"
-)
-parser.add_argument("--data_version", type=str, default="day_stays_qc_first_24h")
-parser.add_argument(
-    "--model_loc",
-    type=pathlib.Path,
-    default="../clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630",
-)
+parser = argparse.ArgumentParser()
+parser.add_argument("--data_dir_orig", type=pathlib.Path)
+parser.add_argument("--data_dir_new", type=pathlib.Path)
+parser.add_argument("--data_version", type=str)
+parser.add_argument("--model_loc", type=pathlib.Path)
 parser.add_argument(
     "--classifier",
     choices=["light_gbm", "logistic_regression_cv", "logistic_regression"],

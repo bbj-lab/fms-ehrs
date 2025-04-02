@@ -25,9 +25,9 @@ logger.log_env()
 
 @logger.log_calls
 def main(
-    model_loc: os.PathLike = "../clif-mdls-archive/mdl-llama1b-sft-57451707-clsfr",
-    data_dir: os.PathLike = "../clif-data",
-    data_version: str = "day_stays_qc_first_24h",
+    model_loc: os.PathLike = None,
+    data_dir: os.PathLike = None,
+    data_version: str = "day_stays_first_24h",
     outcome: typing.Literal[
         "same_admission_death", "long_length_of_stay", "icu_admission", "imv_event"
     ] = "same_admission_death",

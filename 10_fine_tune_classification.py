@@ -31,10 +31,10 @@ logger.log_env()
 
 @logger.log_calls
 def main(
-    model_loc: os.PathLike = "../clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630",
-    data_dir: os.PathLike = "../clif-data",
-    data_version: str = "day_stays_qc_first_24h",
-    out_dir: os.PathLike = "../clif-mdls",
+    model_loc: os.PathLike = None,
+    data_dir: os.PathLike = None,
+    data_version: str = "day_stays_first_24h",
+    out_dir: os.PathLike = None,
     n_epochs: int = 5,
     learning_rate: float = 2e-5,
     per_device_train_batch_size: int = 4,
@@ -48,6 +48,7 @@ def main(
         "same_admission_death", "long_length_of_stay", "icu_admission", "imv_event"
     ] = "same_admission_death",
     unif_rand_trunc: bool = False,
+    tune: bool = False,
 ):
 
     model_loc, data_dir, out_dir = map(
@@ -88,7 +89,16 @@ def main(
         )
     )
 
-    model = AutoModelForSequenceClassification.from_pretrained(model_loc)
+    def model_init(trial=None):
+        return AutoModelForSequenceClassification.from_pretrained(model_loc)
+
+    def optuna_hp_space(trial):
+        return {
+            "learning_rate": trial.suggest_float("learning_rate", 5e-6, 5e-5, log=True),
+            "gradient_accumulation_steps": trial.suggest_int(
+                "gradient_accumulation_steps", 1, 3
+            ),
+        }
 
     def compute_metrics(eval_preds):
         logits, labels = eval_preds
@@ -120,26 +130,36 @@ def main(
     )
 
     trainer = Trainer(
-        model,
+        model=model_init(),
+        model_init=model_init if tune else None,
         train_dataset=dataset["train"].shuffle(generator=np_rng),
         eval_dataset=dataset["val"],
         args=training_args,
         callbacks=[EarlyStoppingCallback(early_stopping_patience=3)],
         compute_metrics=compute_metrics,
     )
-    trainer.train()
-    trainer.save_model(
-        str(
-            output_dir.joinpath(
-                "mdl-{m}-{j}-clsfr-{o}{u}".format(
-                    m=model_loc.stem,
-                    j=jid,
-                    o=outcome,
-                    u="-urt" if unif_rand_trunc else "",
+
+    if tune:
+        trainer.hyperparameter_search(
+            direction="minimize",
+            backend="optuna",
+            hp_space=optuna_hp_space,
+            n_trials=50,
+        )
+    else:
+        trainer.train()
+        trainer.save_model(
+            str(
+                output_dir.joinpath(
+                    "mdl-{m}-{j}-clsfr-{o}{u}".format(
+                        m=model_loc.stem,
+                        j=jid,
+                        o=outcome,
+                        u="-urt" if unif_rand_trunc else "",
+                    )
                 )
             )
         )
-    )
 
 
 if __name__ == "__main__":

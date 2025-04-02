@@ -14,7 +14,7 @@ echo "SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
 
 case "${SLURM_ARRAY_TASK_ID}" in
     0) data_dir="${hm}/clif-data" ;;
-    1) data_dir="/scratch/burkh4rt/clif-data" ;;
+    1) data_dir="/scratch/$(whoami)/clif-data" ;;
     *) echo "Invalid SLURM_ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}" ;;
 esac
 
