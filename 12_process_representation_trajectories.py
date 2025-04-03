@@ -97,8 +97,10 @@ def main(
     for outcome in outcomes:
         res[outcome] = (
             pl.scan_parquet(
-                data_dir.joinpath(f"{data_version}-tokenized", "test").joinpath(
-                    "tokens_timelines_outcomes.parquet"
+                data_dir.joinpath(
+                    f"{data_version}-tokenized",
+                    "test",
+                    "tokens_timelines_outcomes.parquet",
                 )
             )
             .select(outcome)
@@ -108,11 +110,20 @@ def main(
             .astype(int)
         )
 
+    anom = np.load(
+        data_dir.joinpath(
+            f"{data_version}-tokenized",
+            "test",
+            "features-anomaly-score-{m}.npy".format(m=model_loc.stem),
+        )
+    )
+
     df = pd.DataFrame.from_dict(
         {
             "traj_len": traj_len,
             "max_jump": max_jump,
             "avg_jump": avg_jump,
+            "anom_scr": anom,
         }
         | res
     )
@@ -121,7 +132,7 @@ def main(
     for outcome in outcomes:
         logger.info(outcome)
         lr[outcome] = smf.logit(
-            f"{outcome} ~ 1 + traj_len + max_jump + avg_jump", data=df
+            f"{outcome} ~ 1 + traj_len + max_jump + anom_scr", data=df
         ).fit()
         logger.info(lr[outcome].summary())
 

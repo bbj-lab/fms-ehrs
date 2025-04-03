@@ -13,6 +13,7 @@ import typing
 import fire as fi
 import plotly.express as px
 import plotly.graph_objects as go
+import plotly.io as pio
 import polars as pl
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
@@ -21,6 +22,8 @@ from transformers import AutoModelForCausalLM
 
 from logger import get_logger
 from vocabulary import Vocabulary
+
+pio.kaleido.scope.mathjax = None
 
 logger = get_logger()
 logger.info("running {}".format(__file__))

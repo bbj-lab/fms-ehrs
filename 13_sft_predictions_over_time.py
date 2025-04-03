@@ -85,8 +85,8 @@ mort_true = dataset["test"]["label"].numpy()
 mort_idx = np.nonzero(mort_true.astype(int).ravel())[0]
 live_idx = np.setdiff1d(np.arange(mort_true.shape[0]), mort_idx)
 
-mort_samp = rng.choice(mort_idx, size=5, replace=False).tolist()
-live_samp = rng.choice(live_idx, size=5, replace=False).tolist()
+mort_samp = rng.choice(mort_idx, size=10, replace=False).tolist()
+live_samp = rng.choice(live_idx, size=10, replace=False).tolist()
 
 mort_preds = {i: process_idx(i) for i in mort_samp}
 live_preds = {i: process_idx(i) for i in live_samp}

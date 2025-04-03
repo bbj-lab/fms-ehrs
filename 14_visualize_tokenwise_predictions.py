@@ -5,16 +5,18 @@ process results from 15_sft_predictions_over_time.py
 """
 
 import argparse
-import os
 import pathlib
 import pickle
 
 import numpy as np
 import plotly.graph_objects as go
+import plotly.io as pio
 
 from logger import get_logger
 from util import mvg_avg as ma
 from vocabulary import Vocabulary
+
+pio.kaleido.scope.mathjax = None
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
@@ -92,6 +94,13 @@ for mavg in (False, True):
     fig.write_html(
         out_dir.joinpath(
             "tokenwise_vis-{m}{s}.html".format(
+                m=model_loc.stem, s="-smooth" if mavg else ""
+            )
+        )
+    )
+    fig.write_image(
+        out_dir.joinpath(
+            "tokenwise_vis-{m}{s}.pdf".format(
                 m=model_loc.stem, s="-smooth" if mavg else ""
             )
         )
