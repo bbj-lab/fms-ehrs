@@ -82,7 +82,7 @@ def main(
 
     np.save(
         data_dirs["test"].joinpath(
-            "sft-{o}-preds-q-{m}.npy".format(o=outcome, m=model_loc.stem)
+            "sft-{o}-preds-{m}.npy".format(o=outcome, m=model_loc.stem)
         ),
         np.column_stack((y_score, qualifier)),
     )

@@ -33,7 +33,6 @@ parser.add_argument(
     choices=["light_gbm", "logistic_regression_cv", "logistic_regression"],
     default="logistic_regression",
 )
-parser.add_argument("--fast", type=bool, default=False)
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -44,7 +43,6 @@ data_dir_orig, data_dir_new, model_loc = map(
     (args.data_dir_orig, args.data_dir_new, args.model_loc),
 )
 data_version = args.data_version
-fast = bool(args.fast)
 
 splits = ("train", "val", "test")
 versions = ("orig", "new")
@@ -113,12 +111,7 @@ for outcome in outcomes:
 
     match args.classifier:
         case "light_gbm":
-            estimator = lgb.LGBMClassifier(
-                metric="auc",
-                # force_col_wise=True,
-                # learning_rate=0.05 if not fast else 0.1,
-                # n_estimators=1000 if not fast else 100,
-            )
+            estimator = lgb.LGBMClassifier(metric="auc")
             estimator.fit(
                 X=Xtrain,
                 y=ytrain,
@@ -129,11 +122,11 @@ for outcome in outcomes:
             estimator = skl.pipeline.make_pipeline(
                 skl.preprocessing.StandardScaler(),
                 skl.linear_model.LogisticRegressionCV(
-                    max_iter=10_000 if not fast else 100,
+                    max_iter=10_000,
                     n_jobs=-1,
                     refit=True,
                     random_state=42,
-                    solver="newton-cholesky" if not fast else "lbfgs",
+                    solver="newton-cholesky"
                 ),
             )
             estimator.fit(X=Xtrain, y=ytrain)
@@ -142,15 +135,13 @@ for outcome in outcomes:
             estimator = skl.pipeline.make_pipeline(
                 skl.preprocessing.StandardScaler(),
                 skl.linear_model.LogisticRegression(
-                    max_iter=10_000 if not fast else 100,
+                    max_iter=10_000,
                     n_jobs=-1,
                     random_state=42,
-                    solver="newton-cholesky" if not fast else "lbfgs",
+                    solver="newton-cholesky"
                 ),
             )
-            estimator.fit(
-                X=np.row_stack((Xtrain, Xval)), y=np.row_stack((ytrain, yval))
-            )
+            estimator.fit(X=Xtrain, y=ytrain)
 
         case _:
             raise NotImplementedError(
