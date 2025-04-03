@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=1TB
 #SBATCH --time=6:00:00
-#SBATCH --array=1
+#SBATCH --array=0-1
 
 source preamble.sh
 
@@ -20,7 +20,8 @@ case "${SLURM_ARRAY_TASK_ID}" in
 esac
 
 python3 "${name}.py" \
-    --data_dir "${hm}/clif-data" \
+    --data_dir "$data_dir" \
     --data_version QC_day_stays_first_24h \
     --model_loc "${hm}/clif-mdls-archive/llama1b-57928921-run1" \
-    --save_jumps True
+    --load_jumps True
+#    --save_jumps True

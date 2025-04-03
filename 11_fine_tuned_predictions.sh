@@ -18,7 +18,8 @@ rem=$((SLURM_ARRAY_TASK_ID % div))
 
 data_dirs=("${hm}/clif-data" "${hm}/clif-data-ucmc")
 outcomes=(same_admission_death long_length_of_stay icu_admission imv_event)
-models=("mdl-llama1b-57928921-run1-58115722-clsfr-same_admission_death"
+models=(
+    "mdl-llama1b-57928921-run1-58115722-clsfr-same_admission_death"
     "mdl-llama1b-57928921-run1-58134628-clsfr-long_length_of_stay"
     "mdl-llama1b-57928921-run1-58165534-clsfr-icu_admission"
     "mdl-llama1b-57928921-run1-58165531-clsfr-imv_event"

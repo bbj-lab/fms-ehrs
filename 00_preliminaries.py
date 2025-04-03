@@ -95,3 +95,21 @@ for v in ("QC_day_stays_first_24h", "QC_day_stays"):
             f"{v}-tokenized", s
         )
         print(pl.read_parquet(tpath.joinpath("tokens_timelines.parquet")))
+
+""" get covid-ish patients
+"""
+
+covid_hids = (
+    pl.read_csv(mimic_hm.joinpath("hosp/patients.csv.gz"))
+    .filter(pl.col("anchor_year_group") == "2020 - 2022")
+    .cast({"subject_id": str})
+    .join(
+        pl.read_csv(mimic_hm.joinpath("hosp/admissions.csv.gz")).cast(
+            {"subject_id": str}
+        ),
+        on="subject_id",
+        how="inner",
+        validate="1:m",
+    )
+    .select(pl.col("hadm_id").cast(str).alias("hospitalization_id"))
+)
