@@ -1,11 +1,10 @@
 #!/bin/bash
 
-#SBATCH --job-name=process-jumps
+#SBATCH --job-name=sft-over-time
 #SBATCH --output=./output/%j-%x.stdout
-#SBATCH --partition=tier3q
-#SBATCH --cpus-per-task=32
-#SBATCH --mem=1TB
-#SBATCH --time=6:00:00
+#SBATCH --partition=gpuq
+#SBATCH --gres=gpu:1
+#SBATCH --time=24:00:00
 #SBATCH --array=0-1
 
 source preamble.sh
@@ -22,6 +21,4 @@ esac
 python3 "${name}.py" \
     --data_dir "$data_dir" \
     --data_version QC_day_stays_first_24h \
-    --model_loc "${hm}/clif-mdls-archive/llama1b-57928921-run1" \
-    --load_jumps True
-#    --save_jumps True
+    --model_loc "${hm}/clif-mdls-archive/mdl-llama1b-57928921-run1-58115722-clsfr-same_admission_death"
