@@ -5,7 +5,7 @@
 #SBATCH --partition=sxmq
 #SBATCH --gres=gpu:1
 #SBATCH --time=24:00:00
-#SBATCH --array=4-7
+#SBATCH --array=0-7
 
 source preamble.sh
 

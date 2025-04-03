@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=1TB
 #SBATCH --time=6:00:00
-#SBATCH --array=0-1
+#SBATCH --array=1
 
 source preamble.sh
 
@@ -15,7 +15,7 @@ echo "SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
 
 case "${SLURM_ARRAY_TASK_ID}" in
     0) data_dir="${hm}/clif-data" ;;
-    1) data_dir="/scratch/burkh4rt/clif-data" ;;
+    1) data_dir="${hm}/clif-data-ucmc" ;;
     *) echo "Invalid SLURM_ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}" ;;
 esac
 
