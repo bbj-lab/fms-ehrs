@@ -20,16 +20,10 @@ logger = get_logger()
 logger.info("running {}".format(__file__))
 logger.log_env()
 
-parser = argparse.ArgumentParser(
-    description="Iteratively make predictions as tokens are added to a sequence."
-)
-parser.add_argument("--data_dir", type=pathlib.Path, default="../clif-data")
-parser.add_argument("--data_version", type=str, default="day_stays_qc_first_24h")
-parser.add_argument(
-    "--model_loc",
-    type=pathlib.Path,
-    default="../clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630",
-)
+parser = argparse.ArgumentParser()
+parser.add_argument("--data_dir", type=pathlib.Path)
+parser.add_argument("--data_version", type=str)
+parser.add_argument("--model_loc", type=pathlib.Path)
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():

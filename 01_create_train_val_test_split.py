@@ -22,8 +22,8 @@ logger.log_env()
 def main(
     *,
     data_version_out: str = "raw",
-    data_dir_in: os.PathLike = "../CLIF-MIMIC/output/rclif-2.1/",
-    data_dir_out: os.PathLike = "../clif-data/",
+    data_dir_in: os.PathLike = None,
+    data_dir_out: os.PathLike = None,
     train_frac: float = 0.7,
     val_frac: float = 0.1,
     valid_admission_window: tuple[str, str] = None,

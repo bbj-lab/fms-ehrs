@@ -27,8 +27,8 @@ logger.log_env()
 def main(
     *,
     data_dir: os.PathLike = "../clif-data",
-    data_version: str = "day_stays_qc_first_24h",
-    model_loc: os.PathLike = "../clif-mdls-archive/llama-57350630-ckpt-6000",
+    data_version: str = "day_stays_first_24h",
+    model_loc: os.PathLike = None,
     batch_sz: int = 2**5,
 ):
     data_dir, model_loc = map(

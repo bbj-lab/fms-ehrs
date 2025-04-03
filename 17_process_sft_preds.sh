@@ -7,10 +7,19 @@
 
 source preamble.sh
 
-python3 "${name}.py" \
-    --data_dir_orig "${hm}/clif-data" \
-    --data_dir_new "/scratch/$(whoami)/clif-data" \
-    --data_version day_stays_qc_first_24h \
-    --model_stf_loc "${hm}/clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630-57723914-clsfr" \
-    --model_outlier_loc "${hm}/clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630" \
-    --outcome same_admission_death
+outcomes=(same_admission_death long_length_of_stay icu_admission imv_event)
+models=("mdl-llama1b-57928921-run1-58115722-clsfr-same_admission_death"
+    "mdl-llama1b-57928921-run1-58134628-clsfr-long_length_of_stay"
+    "mdl-llama1b-57928921-run1-58165534-clsfr-icu_admission"
+    "mdl-llama1b-57928921-run1-58165531-clsfr-imv_event"
+)
+
+for i in {0..3}; do
+    python3 "17_process_sft_preds.py" \
+        --data_dir_orig "${hm}/clif-data" \
+        --data_dir_new "${hm}/clif-data-ucmc" \
+        --data_version QC_day_stays_first_24h \
+        --model_sft_loc "${hm}/clif-mdls-archive/${models[$i]}" \
+        --model_outlier_loc "${hm}/clif-mdls-archive/llama1b-57928921-run1" \
+        --outcome "${outcomes[$i]}"
+done

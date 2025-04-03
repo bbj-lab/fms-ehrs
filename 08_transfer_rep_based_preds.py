@@ -7,11 +7,13 @@ break down performance by ICU admission type
 
 import argparse
 import collections
+import os
 import pathlib
 
 import lightgbm as lgb
 import numpy as np
 import polars as pl
+import sklearn as skl
 
 from logger import get_logger
 from util import log_classification_metrics, set_pd_options
@@ -22,20 +24,17 @@ logger = get_logger()
 logger.info("running {}".format(__file__))
 logger.log_env()
 
-parser = argparse.ArgumentParser(
-    description="Learn representation-based classifiers and apply them to a new dataset."
-)
-parser.add_argument("--data_dir_orig", type=pathlib.Path, default="../clif-data")
+parser = argparse.ArgumentParser()
+parser.add_argument("--data_dir_orig", type=pathlib.Path)
+parser.add_argument("--data_dir_new", type=pathlib.Path)
+parser.add_argument("--data_version", type=str)
+parser.add_argument("--model_loc", type=pathlib.Path)
 parser.add_argument(
-    "--data_dir_new", type=pathlib.Path, default="/scratch/burkh4rt/clif-data"
+    "--classifier",
+    choices=["light_gbm", "logistic_regression_cv", "logistic_regression"],
+    default="logistic_regression",
 )
-parser.add_argument("--data_version", type=str, default="day_stays_qc_first_24h")
-parser.add_argument(
-    "--model_loc",
-    type=pathlib.Path,
-    default="../clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630",
-)
-parser.add_argument("--fast", type=bool, default=False)
+parser.add_argument("--covid_restriction", type=bool, default=False)
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -46,12 +45,38 @@ data_dir_orig, data_dir_new, model_loc = map(
     (args.data_dir_orig, args.data_dir_new, args.model_loc),
 )
 data_version = args.data_version
-fast = bool(args.fast)
+covid_restriction = bool(args.covid_restriction)
 
 splits = ("train", "val", "test")
 versions = ("orig", "new")
+outcomes = ("same_admission_death", "long_length_of_stay", "icu_admission", "imv_event")
+
 data_dirs = collections.defaultdict(dict)
 outliers = collections.defaultdict(dict)
+features = collections.defaultdict(dict)
+qualifiers = collections.defaultdict(lambda: collections.defaultdict(dict))
+labels = collections.defaultdict(lambda: collections.defaultdict(dict))
+
+if covid_restriction:
+    hm = pathlib.Path("/gpfs/data/bbj-lab/users/{}".format(os.getenv("USER")))
+    mimic_hm = hm.joinpath("physionet.org/files/mimiciv/3.1/")
+    mimic_covid_hids = (
+        pl.read_csv(mimic_hm.joinpath("hosp/patients.csv.gz"))
+        .filter(pl.col("anchor_year_group") == "2020 - 2022")
+        .cast({"subject_id": str})
+        .join(
+            pl.read_csv(mimic_hm.joinpath("hosp/admissions.csv.gz")).cast(
+                {"subject_id": str}
+            ),
+            on="subject_id",
+            how="inner",
+            validate="1:m",
+        )
+        .select(pl.col("hadm_id").cast(str).alias("hospitalization_id"))
+        .to_numpy()
+        .ravel()
+    )
+
 for v in versions:
     for s in splits:
         data_dirs[v][s] = (data_dir_orig if v == "orig" else data_dir_new).joinpath(
@@ -65,100 +90,127 @@ for v in versions:
             )  # "Returns -1 for outliers and 1 for inliers"
             == -1
         )
+        features[v][s] = np.load(
+            data_dirs[v][s].joinpath("features-{m}.npy".format(m=model_loc.stem))
+        )
+        if covid_restriction and v == "orig" and s in ("train", "val"):
+            logger.info("Restricting to 2020-2022 MIMIC anchor years...")
+            c_flag = np.isin(
+                pl.scan_parquet(
+                    data_dirs[v][s].joinpath("tokens_timelines_outcomes.parquet")
+                )
+                .select("hospitalization_id")
+                .collect()
+                .to_numpy()
+                .ravel(),
+                mimic_covid_hids,
+            )
+        for outcome in outcomes:
+            labels[outcome][v][s] = (
+                pl.scan_parquet(
+                    data_dirs[v][s].joinpath("tokens_timelines_outcomes.parquet")
+                )
+                .select(outcome)
+                .collect()
+                .to_numpy()
+                .ravel()
+            )
+            qualifiers[outcome][v][s] = (
+                (
+                    ~pl.scan_parquet(
+                        data_dirs[v][s].joinpath("tokens_timelines_outcomes.parquet")
+                    )
+                    .select(outcome + "_24h")
+                    .collect()
+                    .to_numpy()
+                    .ravel()
+                )  # *not* people who have had this outcome in the first 24h
+                if outcome in ("icu_admission", "imv_event")
+                else True * np.ones_like(labels[outcome][v][s])
+            )
+            if covid_restriction and v == "orig" and s in ("train", "val"):
+                qualifiers[outcome][v][s] = np.logical_and(
+                    qualifiers[outcome][v][s], c_flag
+                )
+
 
 """ classification outcomes
 """
 
 preds = collections.defaultdict(dict)
-true = collections.defaultdict(dict)
-icus = collections.defaultdict(dict)
 
-for outcome in ("same_admission_death", "long_length_of_stay"):
+for outcome in outcomes:
+
     logger.info(outcome.replace("_", " ").upper().ljust(79, "-"))
-    data = dict()
-    for s in ("train", "val"):
-        feats = np.load(
-            data_dirs["orig"][s].joinpath("features-{m}.npy".format(m=model_loc.stem))
-        )
-        label = (
-            pl.scan_parquet(
-                data_dirs["orig"][s].joinpath("tokens_timelines_outcomes.parquet")
+
+    Xtrain = (features["orig"]["train"])[qualifiers[outcome]["orig"]["train"]]
+    ytrain = (labels[outcome]["orig"]["train"])[qualifiers[outcome]["orig"]["train"]]
+    Xval = (features["orig"]["val"])[qualifiers[outcome]["orig"]["val"]]
+    yval = (labels[outcome]["orig"]["val"])[qualifiers[outcome]["orig"]["val"]]
+
+    match args.classifier:
+        case "light_gbm":
+            estimator = lgb.LGBMClassifier(metric="auc")
+            estimator.fit(
+                X=Xtrain,
+                y=ytrain,
+                eval_set=(Xval, yval),
             )
-            .select(outcome)
-            .collect()
-            .to_numpy()
-            .ravel()
-        )
-        data[s] = lgb.Dataset(feats, label=label)
-    bst = lgb.train(
-        {"metric": "auc", "objective": "binary", "force_col_wise": True}
-        | ({} if fast else {"learning_rate": 0.05}),
-        data["train"],
-        10 if fast else 1000,
-        valid_sets=[data["val"]],
-    )
+
+        case "logistic_regression_cv":
+            estimator = skl.pipeline.make_pipeline(
+                skl.preprocessing.StandardScaler(),
+                skl.linear_model.LogisticRegressionCV(
+                    max_iter=10_000,
+                    n_jobs=-1,
+                    refit=True,
+                    random_state=42,
+                    solver="newton-cholesky",
+                ),
+            )
+            estimator.fit(X=Xtrain, y=ytrain)
+
+        case "logistic_regression":
+            estimator = skl.pipeline.make_pipeline(
+                skl.preprocessing.StandardScaler(),
+                skl.linear_model.LogisticRegression(
+                    max_iter=10_000,
+                    n_jobs=-1,
+                    random_state=42,
+                    solver="newton-cholesky",
+                ),
+            )
+            estimator.fit(X=Xtrain, y=ytrain)
+
+        case _:
+            raise NotImplementedError(
+                f"Classifier {args.classifier} is not yet supported."
+            )
     for v in versions:
+
         logger.info(v.upper())
-        preds[outcome][v] = bst.predict(
-            np.load(
-                data_dirs[v]["test"].joinpath(
-                    "features-{m}.npy".format(m=model_loc.stem)
-                )
-            )
-        )
-        true[outcome][v] = (
-            pl.scan_parquet(
-                data_dirs[v]["test"].joinpath("tokens_timelines_outcomes.parquet")
-            )
-            .select(outcome)
-            .cast(pl.Int64)
-            .collect()
-            .to_numpy()
-        )
-        icus = (
-            pl.scan_parquet(
-                data_dirs[v]["test"].joinpath("tokens_timelines_outcomes.parquet")
-            )
-            .select("icu_stay")
-            .collect()
-            .to_numpy()
-        )
+
+        q_test = qualifiers[outcome][v]["test"]
+        preds[outcome][v] = estimator.predict_proba((features[v]["test"])[q_test])[:, 1]
+        y_true = (labels[outcome][v]["test"])[q_test]
+        y_score = preds[outcome][v]
 
         logger.info("overall performance".upper().ljust(49, "-"))
-        log_classification_metrics(
-            y_true=true[outcome][v], y_score=preds[outcome][v], logger=logger
+        logger.info(
+            "{n} qualifying ({p:.2f}%)".format(n=q_test.sum(), p=100 * q_test.mean())
         )
+        log_classification_metrics(y_true=y_true, y_score=y_score, logger=logger)
+
+        out_test = (outliers[v]["test"])[q_test]
         logger.info("on outliers".upper().ljust(49, "-"))
         log_classification_metrics(
-            y_true=true[outcome][v][outliers[v]["test"]],
-            y_score=preds[outcome][v][outliers[v]["test"]],
+            y_true=y_true[out_test],
+            y_score=y_score[out_test],
             logger=logger,
         )
         logger.info("on inliers".upper().ljust(49, "-"))
         log_classification_metrics(
-            y_true=true[outcome][v][~outliers[v]["test"]],
-            y_score=preds[outcome][v][~outliers[v]["test"]],
+            y_true=y_true[~out_test],
+            y_score=y_score[~out_test],
             logger=logger,
         )
-        logger.info("for icu".upper().ljust(49, "-"))
-        log_classification_metrics(
-            y_true=true[outcome][v][icus],
-            y_score=preds[outcome][v][icus],
-            logger=logger,
-        )
-        logger.info("for non-icu".upper().ljust(49, "-"))
-        log_classification_metrics(
-            y_true=true[outcome][v][~icus],
-            y_score=preds[outcome][v][~icus],
-            logger=logger,
-        )
-
-for v in versions:
-    np.save(
-        data_dirs[v]["test"].joinpath(
-            "feat-based-mort-llos-preds-{m}.npy".format(m=model_loc.stem)
-        ),
-        np.column_stack(
-            [preds["same_admission_death"][v], preds["long_length_of_stay"][v]]
-        ),
-    )

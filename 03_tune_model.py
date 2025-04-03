@@ -26,15 +26,15 @@ def main(
     *,
     n_epochs: int = 5,
     max_seq_length: int = 1024,
-    data_version: str = "day_stays_qc",
+    data_version: str = "day_stays",
     model_version: str = "llama1b",
     model_name: str = "meta-llama/Llama-3.2-1B",
     per_device_train_batch_size: int = 4,
-    data_dir: os.PathLike = "../clif-data",
-    model_dir: os.PathLike = "../clif-mdls",
+    data_dir: os.PathLike = None,
+    model_dir: os.PathLike = None,
     collation: typing.Literal["padded", "packed"] = "packed",
     jid: str = os.getenv("SLURM_JOB_ID", ""),
-    wandb_project: str = "clif_mimic_packing",
+    wandb_project: str = None,
     **kwargs,
 ):
     """pass additional model configuration parameters with kwargs"""
@@ -58,7 +58,6 @@ def main(
     )
 
     def model_init(trial=None):
-        # grab a small mamba for training
         config = AutoConfig.from_pretrained(
             model_name,
             vocab_size=len(dataset.vocab),

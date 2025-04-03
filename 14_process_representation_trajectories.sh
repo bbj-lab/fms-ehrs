@@ -15,12 +15,13 @@ echo "SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
 
 case "${SLURM_ARRAY_TASK_ID}" in
     0) data_dir="${hm}/clif-data" ;;
-    1) data_dir="/scratch/burkh4rt/clif-data" ;;
+    1) data_dir="${hm}/clif-data-ucmc" ;;
     *) echo "Invalid SLURM_ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}" ;;
 esac
 
 python3 "${name}.py" \
-    --data_dir "${hm}/clif-data" \
-    --data_version day_stays_qc_first_24h \
-    --model_loc "${hm}/clif-mdls-archive/mdl-day_stays_qc-llama1b-57350630" \
-    --save_jumps True
+    --data_dir "$data_dir" \
+    --data_version QC_day_stays_first_24h \
+    --model_loc "${hm}/clif-mdls-archive/llama1b-57928921-run1" \
+    --load_jumps True
+#    --save_jumps True
