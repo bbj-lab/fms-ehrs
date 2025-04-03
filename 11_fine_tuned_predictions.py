@@ -25,11 +25,11 @@ logger.log_env()
 
 @logger.log_calls
 def main(
-    model_loc: os.PathLike = "../clif-mdls-archive/mdl-llama1b-sft-57451707-clsfr",
-    data_dir: os.PathLike = "../clif-data",
-    data_version: str = "day_stays_qc_first_24h",
+    model_loc: os.PathLike = None,
+    data_dir: os.PathLike = None,
+    data_version: str = "day_stays_first_24h",
     outcome: typing.Literal[
-        "same_admission_death", "long_length_of_stay"
+        "same_admission_death", "long_length_of_stay", "icu_admission", "imv_event"
     ] = "same_admission_death",
 ):
 
@@ -51,8 +51,14 @@ def main(
                 s: str(data_dirs[s].joinpath("tokens_timelines_outcomes.parquet"))
                 for s in ("test",)
             },
-            columns=["padded", outcome],
         )
+        .map(
+            lambda x: {
+                "same_admission_death_24h": False,
+                "long_length_of_stay_24h": False,
+            }
+        )
+        .select_columns(["padded", outcome, f"{outcome}_24h"])
         .with_format("torch")
         .map(
             lambda x: {
@@ -64,6 +70,9 @@ def main(
     )
 
     y_true = dataset["test"]["label"].numpy()
+    qualifier = ~dataset["test"][
+        f"{outcome}_24h"
+    ].numpy()  # qualifies if event did not occur in first 24h
 
     model = AutoModelForSequenceClassification.from_pretrained(model_loc)
     trainer = Trainer(model=model)
@@ -75,10 +84,12 @@ def main(
         data_dirs["test"].joinpath(
             "sft-{o}-preds-{m}.npy".format(o=outcome, m=model_loc.stem)
         ),
-        y_score,
+        np.column_stack((y_score, qualifier)),
     )
 
-    log_classification_metrics(y_true=y_true, y_score=y_score, logger=logger)
+    log_classification_metrics(
+        y_true=y_true[qualifier], y_score=y_score[qualifier], logger=logger
+    )
 
 
 if __name__ == "__main__":

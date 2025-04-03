@@ -75,6 +75,9 @@ srun -p gpuq \
   --time=8:00:00 \
   --job-name=adhoc \
   --pty bash -i
+. venv/bin/activate
+jupyter notebook --no-browser --ip=0.0.0.0 --port=8088
+ssh -L 8088:localhost:8088 cri22cn401
 ```
 
 Grab features and outcomes:

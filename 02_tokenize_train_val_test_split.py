@@ -20,9 +20,9 @@ logger.log_env()
 @logger.log_calls
 def main(
     *,
-    data_dir: os.PathLike = "../clif-data/",
+    data_dir: os.PathLike = None,
     data_version_in: str = "raw",
-    data_version_out: str = "day_stays_qc",
+    data_version_out: str = "day_stays",
     vocab_path: os.PathLike = None,
     max_padded_len: int = 1024,
     day_stay_filter: bool = True,

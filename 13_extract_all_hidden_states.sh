@@ -2,7 +2,7 @@
 
 #SBATCH --job-name=all-states
 #SBATCH --output=./output/%j-%x.stdout
-#SBATCH --partition=gpuq
+#SBATCH --partition=sxmq
 #SBATCH --gres=gpu:4
 #SBATCH --time=24:00:00
 #SBATCH --array=0-1
@@ -14,7 +14,7 @@ echo "SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
 
 case "${SLURM_ARRAY_TASK_ID}" in
     0) data_dir="${hm}/clif-data" ;;
-    1) data_dir="/scratch/burkh4rt/clif-data" ;;
+    1) data_dir="${hm}/clif-data-ucmc" ;;
     *) echo "Invalid SLURM_ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}" ;;
 esac
 
