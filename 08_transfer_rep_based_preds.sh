@@ -20,3 +20,4 @@ python3 "${name}.py" \
     --data_version QC_day_stays_first_24h \
     --model_loc "${hm}/clif-mdls-archive/llama1b-57928921-run1" \
     --classifier "${classifiers[$SLURM_ARRAY_TASK_ID]}"
+#    --covid_restriction True

@@ -29,7 +29,7 @@ def main(
     data_version: str = "day_stays_first_24h",
     model_loc: os.PathLike = None,
     save_jumps: bool = False,
-    load_jumps: os.PathLike = None,
+    load_jumps: bool = False,
 ):
 
     data_dir, model_loc = map(
@@ -37,7 +37,7 @@ def main(
         (data_dir, model_loc),
     )
 
-    if load_jumps is not None:
+    if load_jumps:
         jumps = np.load(
             data_dir.joinpath(
                 f"{data_version}-tokenized",
@@ -87,83 +87,79 @@ def main(
         jumps.astype(np.float64), axis=-1
     )  # not necessarily linear in trajectory length because of nan padding
 
-    mort = (
-        pl.scan_parquet(
-            data_dir.joinpath(f"{data_version}-tokenized", "test").joinpath(
-                "outcomes.parquet"
-            )
-        )
-        .select("same_admission_death")
-        .collect()
-        .to_numpy()
-        .ravel()
+    outcomes = (
+        "same_admission_death",
+        "long_length_of_stay",
+        "icu_admission",
+        "imv_event",
     )
-
-    llos = (
-        pl.scan_parquet(
-            data_dir.joinpath(f"{data_version}-tokenized", "test").joinpath(
-                "outcomes.parquet"
+    res = dict()
+    for outcome in outcomes:
+        res[outcome] = (
+            pl.scan_parquet(
+                data_dir.joinpath(f"{data_version}-tokenized", "test").joinpath(
+                    "tokens_timelines_outcomes.parquet"
+                )
             )
+            .select(outcome)
+            .collect()
+            .to_numpy()
+            .ravel()
+            .astype(int)
         )
-        .select("long_length_of_stay")
-        .collect()
-        .to_numpy()
-        .ravel()
-    )
 
     df = pd.DataFrame.from_dict(
         {
             "traj_len": traj_len,
             "max_jump": max_jump,
             "avg_jump": avg_jump,
-            "mort": mort.astype(int),
-            "llos": llos.astype(int),
         }
+        | res
     )
 
-    lr_mort = smf.logit("mort ~ 1 + traj_len + max_jump + avg_jump", data=df).fit()
-    logger.info(lr_mort.summary())
-
-    lr_llos = smf.logit("llos ~ 1 + traj_len + max_jump + avg_jump", data=df).fit()
-    logger.info(lr_llos.summary())
+    lr = dict()
+    for outcome in outcomes:
+        logger.info(outcome)
+        lr[outcome] = smf.logit(
+            f"{outcome} ~ 1 + traj_len + max_jump + avg_jump", data=df
+        ).fit()
+        logger.info(lr[outcome].summary())
 
     """
     what do large jumps look like, tokenwise?
     """
 
-    vocab = Vocabulary().load(
-        data_dir.joinpath(f"{data_version}-tokenized", "train", "vocab.gzip")
-    )
-
-    k = 25
-    w_sz = 5
-    top_k_flat_idx = np.argsort(np.nan_to_num(jumps.flatten()))[::-1][:k]
-    top_k_idx = np.array(np.unravel_index(top_k_flat_idx, jumps.shape)).T
-
-    raw_padded_timelines = np.array(
-        pl.scan_parquet(
-            data_dir.joinpath(
-                f"{data_version}-tokenized", "test", "tokens_timelines.parquet"
-            )
-        )
-        .select("padded")
-        .collect()
-        .to_series()
-        .to_list()
-    )
-
-    m = raw_padded_timelines.shape[-1]
-
-    for i0, i1 in top_k_idx:
-        ints = raw_padded_timelines[i0, max(0, i1 - w_sz) : min(m - 1, i1 + w_sz)]
-        tkns = "->".join(vocab.reverse[i] for i in ints)
-        hit = vocab.reverse[raw_padded_timelines[i0, i1 + 1]]
-        logger.info(
-            f"{i0=}, {i1=} "
-            + ("LLOS " if llos[i0] else "")
-            + ("MORT " if mort[i0] else "")
-        )
-        logger.info(f"{hit=} in {tkns}")
+    # vocab = Vocabulary().load(
+    #     data_dir.joinpath(f"{data_version}-tokenized", "train", "vocab.gzip")
+    # )
+    #
+    # k = 25
+    # w_sz = 5
+    # top_k_flat_idx = np.argsort(np.nan_to_num(jumps.flatten()))[::-1][:k]
+    # top_k_idx = np.array(np.unravel_index(top_k_flat_idx, jumps.shape)).T
+    #
+    # raw_padded_timelines = np.array(
+    #     pl.scan_parquet(
+    #         data_dir.joinpath(
+    #             f"{data_version}-tokenized", "test", "tokens_timelines.parquet"
+    #         )
+    #     )
+    #     .select("padded")
+    #     .collect()
+    #     .to_series()
+    #     .to_list()
+    # )
+    #
+    # m = raw_padded_timelines.shape[-1]
+    #
+    # for i0, i1 in top_k_idx:
+    #     ints = raw_padded_timelines[i0, max(0, i1 - w_sz) : min(m - 1, i1 + w_sz)]
+    #     tkns = "->".join(vocab.reverse[i] for i in ints)
+    #     hit = vocab.reverse[raw_padded_timelines[i0, i1 + 1]]
+    #     logger.info(
+    #         f"{i0=}, {i1=} "
+    #     )
+    #     logger.info(f"{hit=} in {tkns}")
 
 
 if __name__ == "__main__":

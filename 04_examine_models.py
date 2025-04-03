@@ -62,7 +62,7 @@ def main(
             for d in addl_mdls_loc.split(",")
         ]
         if addl_mdls_loc is not None
-        else None
+        else []
     )
 
     train_dir = data_dir.joinpath(f"{data_version}-tokenized", "train")
@@ -143,6 +143,9 @@ def main(
     fig.write_html(
         out_dir.joinpath("embedding_vis-{m}.html".format(m=ref_mdl_loc.stem))
     )
+    fig.write_image(
+        out_dir.joinpath("embedding_vis-{m}.pdf".format(m=ref_mdl_loc.stem))
+    )
 
     """
     quantile embeddings only
@@ -214,6 +217,7 @@ def main(
         fig.add_trace(addl_fig)
 
     fig.write_html(out_dir.joinpath("embedding_q-{m}.html".format(m=ref_mdl_loc.stem)))
+    fig.write_image(out_dir.joinpath("embedding_q-{m}.pdf".format(m=ref_mdl_loc.stem)))
 
 
 if __name__ == "__main__":
