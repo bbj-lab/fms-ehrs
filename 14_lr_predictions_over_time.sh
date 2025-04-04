@@ -1,9 +1,9 @@
 #!/bin/bash
 
-#SBATCH --job-name=all-states
+#SBATCH --job-name=add-lr-over-time
 #SBATCH --output=./output/%j-%x.stdout
-#SBATCH --partition=sxmq
-#SBATCH --gres=gpu:8
+#SBATCH --partition=tier3q
+#SBATCH --mem=1TB
 #SBATCH --time=24:00:00
 #SBATCH --array=0-1
 
@@ -18,13 +18,10 @@ case "${SLURM_ARRAY_TASK_ID}" in
     *) echo "Invalid SLURM_ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}" ;;
 esac
 
-torchrun --nproc_per_node=8 \
-    --rdzv_backend c10d \
-    --rdzv-id "$SLURM_ARRAY_TASK_ID" \
-    --rdzv-endpoint=localhost:0 \
-    "${name}.py" \
-    --data_dir "$data_dir" \
+python3 -i "13_lr_predictions_over_time.py" \
+    --data_dir_train "$data_dir" \
+    --data_dir_pred "$data_dir" \
     --data_version QC_day_stays_first_24h \
-    --model_loc "${hm}/clif-mdls-archive/llama1b-57928921-run1" \
-    --small_batch_sz $((2 ** 4)) \
+    --model_loc_base "${hm}/clif-mdls-archive/llama1b-57928921-run1" \
+    --model_loc_sft "${hm}/clif-mdls-archive/mdl-llama1b-57928921-run1-58115722-clsfr-same_admission_death" \
     --big_batch_sz $((2 ** 12))
