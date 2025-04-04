@@ -79,7 +79,7 @@ def main(
     dimensionality reduction on token embeddings
     """
 
-    # size: vocab x emb_dim
+    # size: vocab × emb_dim
     emb = ref_mdl.get_input_embeddings()(t_arange(len(vocab)))
     projector = (
         PCA(n_components=2, random_state=42)
@@ -154,7 +154,7 @@ def main(
     quantile embeddings only
     """
 
-    # size: vocab x emb_dim
+    # size: vocab × emb_dim
     emb = ref_mdl.get_input_embeddings()(t_arange(10))
     projector = (
         PCA(n_components=2, random_state=42)
