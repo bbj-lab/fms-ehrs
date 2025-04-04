@@ -3,7 +3,7 @@
 #SBATCH --job-name=all-states
 #SBATCH --output=./output/%j-%x.stdout
 #SBATCH --partition=sxmq
-#SBATCH --gres=gpu:4
+#SBATCH --gres=gpu:8
 #SBATCH --time=24:00:00
 #SBATCH --array=0-1
 
@@ -18,7 +18,7 @@ case "${SLURM_ARRAY_TASK_ID}" in
     *) echo "Invalid SLURM_ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}" ;;
 esac
 
-torchrun --nproc_per_node=4 \
+torchrun --nproc_per_node=8 \
     --rdzv_backend c10d \
     --rdzv-id "$SLURM_ARRAY_TASK_ID" \
     --rdzv-endpoint=localhost:0 \

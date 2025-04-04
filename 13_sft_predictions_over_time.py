@@ -78,7 +78,7 @@ def process_idx(trainer: Trainer, i: int):
     tl = dataset["test"][i]["input_ids"].reshape(-1)
     hz = wd if (wd := t.argmax((tl == tk).int()).item()) > 0 else tl.shape[0]
     seq = t.stack(
-        [t.concat([t.full((tl.shape[0] - i,), tk), tl[:i]]) for i in range(hz + 1)]
+        [t.concat([t.full((tl.shape[0] - i,), tk), tl[:i]]) for i in range(hz)]
     )
     logits = trainer.predict(
         ds.Dataset.from_dict({"input_ids": seq.tolist()})

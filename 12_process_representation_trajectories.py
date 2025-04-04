@@ -16,7 +16,8 @@ import tqdm
 from joblib import Parallel, delayed
 
 from logger import get_logger
-from vocabulary import Vocabulary
+
+# from vocabulary import Vocabulary
 
 logger = get_logger()
 logger.info("running {}".format(__file__))

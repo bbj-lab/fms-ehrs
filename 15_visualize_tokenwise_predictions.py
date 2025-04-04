@@ -53,12 +53,11 @@ with open(
     results = pickle.load(fp)
 
 
-for urt in (False, True):
+for suffix in ("", "_urt", "_lr"):
+
     fig = go.Figure()
 
-    Mt = ragged_lists_to_array(
-        results["mort_preds_urt" if urt else "mort_preds"].values()
-    )
+    Mt = ragged_lists_to_array(results["mort_preds" + suffix].values())
     Mt_mean = np.nanmean(Mt, axis=0)
     Mt_2σ_hi = np.nanquantile(Mt, q=0.5 + 0.95 / 2, axis=0)
     Mt_2σ_lo = np.nanquantile(Mt, q=0.5 - 0.95 / 2, axis=0)
@@ -89,9 +88,7 @@ for urt in (False, True):
 
     fig.data[1].showlegend = False
 
-    Lt = ragged_lists_to_array(
-        results["live_preds_urt" if urt else "live_preds"].values()
-    )
+    Lt = ragged_lists_to_array(results["live_preds" + suffix].values())
     Lt_mean = np.nanmean(Lt, axis=0)
     Lt_2σ_hi = np.nanquantile(Lt, q=0.5 + 0.95 / 2, axis=0)
     Lt_2σ_lo = np.nanquantile(Lt, q=0.5 - 0.95 / 2, axis=0)
@@ -123,18 +120,17 @@ for urt in (False, True):
     fig.data[4].showlegend = False
 
     fig.update_layout(
-        title="Predicted probability of death vs. number of tokens processed"
-        + (" (with URT)" if urt else ""),
+        title="Predicted probability of death vs. number of tokens processed "
+        + suffix[1:].upper(),
         xaxis_title="# tokens",
-        yaxis_title="Predicted admission mortality prob."
-        + (" (with URT)" if urt else ""),
+        yaxis_title="Predicted admission mortality prob.",
     )
 
     fig.write_image(
         out_dir.joinpath(
-            "tokenwise_vis-{m}{u}-{d}.pdf".format(
+            "tokenwise_vis-{m}{s}-{d}.pdf".format(
                 m=model_loc.stem,
-                u="-urt" if urt else "",
+                s=suffix,
                 d=data_dir.stem,
             )
         )
