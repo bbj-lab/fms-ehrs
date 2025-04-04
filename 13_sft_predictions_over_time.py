@@ -24,14 +24,16 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--data_dir", type=pathlib.Path)
 parser.add_argument("--data_version", type=str)
 parser.add_argument("--model_loc", type=pathlib.Path)
+parser.add_argument("--model_loc_urt", type=pathlib.Path)
+parser.add_argument("--n", type=int, default=10)
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
     logger.info(f"{k}: {v}")
 
-model_loc, data_dir = map(
+model_loc, model_loc_urt, data_dir = map(
     lambda d: pathlib.Path(d).expanduser().resolve(),
-    (args.model_loc, args.data_dir),
+    (args.model_loc, args.model_loc_urt, args.data_dir),
 )
 data_version = args.data_version
 
@@ -64,11 +66,15 @@ dataset = (
 device = t.device(f"cuda:0")
 
 tk: int = vocab("PAD")
+
 model = AutoModelForSequenceClassification.from_pretrained(model_loc)
 trainer = Trainer(model=model)
 
+model_urt = AutoModelForSequenceClassification.from_pretrained(model_loc_urt)
+trainer_urt = Trainer(model=model_urt)
 
-def process_idx(i: int):
+
+def process_idx(trainer: Trainer, i: int):
     tl = dataset["test"][i]["input_ids"].reshape(-1)
     hz = wd if (wd := t.argmax((tl == tk).int()).item()) > 0 else tl.shape[0]
     seq = t.stack(
@@ -85,14 +91,26 @@ mort_true = dataset["test"]["label"].numpy()
 mort_idx = np.nonzero(mort_true.astype(int).ravel())[0]
 live_idx = np.setdiff1d(np.arange(mort_true.shape[0]), mort_idx)
 
-mort_samp = rng.choice(mort_idx, size=10, replace=False).tolist()
-live_samp = rng.choice(live_idx, size=10, replace=False).tolist()
+mort_samp = rng.choice(mort_idx, size=args.n, replace=False).tolist()
+live_samp = rng.choice(live_idx, size=args.n, replace=False).tolist()
 
-mort_preds = {i: process_idx(i) for i in mort_samp}
-live_preds = {i: process_idx(i) for i in live_samp}
+mort_preds = {i: process_idx(trainer, i) for i in mort_samp}
+mort_preds_urt = {i: process_idx(trainer_urt, i) for i in mort_samp}
+live_preds = {i: process_idx(trainer, i) for i in live_samp}
+live_preds_urt = {i: process_idx(trainer_urt, i) for i in live_samp}
 
 with open(
-    data_dirs["test"].joinpath("sft_preds_tokenwise-" + model_loc.stem + "-lite.pkl"),
+    data_dirs["test"].joinpath(
+        "sft_preds-n" + str(args.n) + "_tokenwise-" + model_loc.stem + ".pkl"
+    ),
     "wb",
 ) as fp:
-    pickle.dump({"mort_preds": mort_preds, "live_preds": live_preds}, fp)
+    pickle.dump(
+        {
+            "mort_preds": mort_preds,
+            "mort_preds_urt": mort_preds_urt,
+            "live_preds": live_preds,
+            "live_preds_urt": live_preds_urt,
+        },
+        fp,
+    )
