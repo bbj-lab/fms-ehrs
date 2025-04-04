@@ -47,6 +47,7 @@ def rt_padding_to_left(
 def log_classification_metrics(
     y_true: np.array, y_score: np.array, logger: logging.Logger
 ):
+    """evaluate a classifier under a variety of metrics"""
     assert y_true.shape[0] == y_score.shape[0]
 
     logger.info(
@@ -67,6 +68,17 @@ def log_classification_metrics(
                 ),
             )
         )
+
+
+def ragged_lists_to_array(ls_arr: list[np.array]) -> np.array:
+    """
+    form an 2d-array from a collection of variably-sized 1d-arrays
+    """
+    n, m = len(ls_arr), max(map(len, ls_arr))
+    arr = np.full(shape=(n, m), fill_value=np.nan, dtype=type(next(iter(ls_arr))[0]))
+    for i, x in enumerate(ls_arr):
+        arr[i, : len(x)] = x
+    return arr
 
 
 def set_pd_options():

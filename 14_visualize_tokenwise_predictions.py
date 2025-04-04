@@ -13,8 +13,7 @@ import plotly.graph_objects as go
 import plotly.io as pio
 
 from logger import get_logger
-from util import mvg_avg as ma
-from vocabulary import Vocabulary
+from util import ragged_lists_to_array
 
 pio.kaleido.scope.mathjax = None
 
@@ -27,6 +26,7 @@ parser.add_argument("--data_dir", type=pathlib.Path)
 parser.add_argument("--data_version", type=str)
 parser.add_argument("--out_dir", type=pathlib.Path)
 parser.add_argument("--model_loc", type=pathlib.Path)
+parser.add_argument("--n", type=int, default=100)
 args, unknowns = parser.parse_known_args()
 
 model_loc, data_dir, out_dir = map(
@@ -36,72 +36,108 @@ model_loc, data_dir, out_dir = map(
 
 data_version = args.data_version
 
-
 # load and prep data
 rng = np.random.default_rng(42)
 splits = ("train", "val", "test")
 data_dirs = {s: data_dir.joinpath(f"{data_version}-tokenized", s) for s in splits}
 
-vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
-
 
 # open and unpack data
 
 with open(
-    data_dirs["test"].joinpath(f"sft_preds_tokenwise-{model_loc.stem}.pkl"),
+    data_dirs["test"].joinpath(
+        "sft_preds-n" + str(args.n) + f"_tokenwise-{model_loc.stem}.pkl"
+    ),
     "rb",
 ) as fp:
     results = pickle.load(fp)
 
 
-for mavg in (False, True):
+for urt in (False, True):
     fig = go.Figure()
 
-    for mt in results["mort_preds"].values():
+    Mt = ragged_lists_to_array(
+        results["mort_preds_urt" if urt else "mort_preds"].values()
+    )
+    Mt_mean = np.nanmean(Mt, axis=0)
+    Mt_2σ_hi = np.nanquantile(Mt, q=0.5 + 0.95 / 2, axis=0)
+    Mt_2σ_lo = np.nanquantile(Mt, q=0.5 - 0.95 / 2, axis=0)
+
+    fig.add_trace(
+        go.Scatter(
+            y=Mt_mean,
+            mode="lines",
+            line=dict(color="red"),
+            name="Dies",
+        )
+    )
+
+    for i, y in enumerate((Mt_2σ_lo, Mt_2σ_hi)):
         fig.add_trace(
             go.Scatter(
-                y=ma(mt) if mavg else mt,
+                y=y,
                 mode="lines",
                 opacity=0.2,
-                line=dict(color="red"),
-                name="Dies",
+                fill="tonexty" if i > 0 else None,
+                line=dict(
+                    color="red",
+                    width=1,
+                ),
+                name="+/- 2σ",
             )
         )
 
-    for lt in results["live_preds"].values():
+    fig.data[1].showlegend = False
+
+    Lt = ragged_lists_to_array(
+        results["live_preds_urt" if urt else "live_preds"].values()
+    )
+    Lt_mean = np.nanmean(Lt, axis=0)
+    Lt_2σ_hi = np.nanquantile(Lt, q=0.5 + 0.95 / 2, axis=0)
+    Lt_2σ_lo = np.nanquantile(Lt, q=0.5 - 0.95 / 2, axis=0)
+
+    fig.add_trace(
+        go.Scatter(
+            y=Lt_mean,
+            mode="lines",
+            line=dict(color="blue"),
+            name="Lives",
+        )
+    )
+
+    for i, y in enumerate((Lt_2σ_lo, Lt_2σ_hi)):
         fig.add_trace(
             go.Scatter(
-                y=ma(lt) if mavg else lt,
+                y=y,
                 mode="lines",
                 opacity=0.2,
-                line=dict(color="blue"),
-                name="Lives",
+                fill="tonexty" if i > 0 else None,
+                line=dict(
+                    color="blue",
+                    width=1,
+                ),
+                name="+/- 2σ",
             )
         )
 
-    for i in range(1, len(fig.data) - 1):
-        fig.data[i].showlegend = False
+    fig.data[4].showlegend = False
 
     fig.update_layout(
         title="Predicted probability of death vs. number of tokens processed"
-        + (" (smoothed)" if mavg else ""),
+        + (" (with URT)" if urt else ""),
         xaxis_title="# tokens",
         yaxis_title="Predicted admission mortality prob."
-        + (" (smoothed)" if mavg else ""),
+        + (" (with URT)" if urt else ""),
     )
 
-    # fig.show()
-    fig.write_html(
-        out_dir.joinpath(
-            "tokenwise_vis-{m}{s}.html".format(
-                m=model_loc.stem, s="-smooth" if mavg else ""
-            )
-        )
-    )
     fig.write_image(
         out_dir.joinpath(
-            "tokenwise_vis-{m}{s}.pdf".format(
-                m=model_loc.stem, s="-smooth" if mavg else ""
+            "tokenwise_vis-{m}{u}-{d}.pdf".format(
+                m=model_loc.stem,
+                u="-urt" if urt else "",
+                d=data_dir.stem,
             )
         )
+        .expanduser()
+        .resolve()
     )
