@@ -1,10 +1,10 @@
 #!/bin/bash
 
-#SBATCH --job-name=all-states
+#SBATCH --job-name=process-jumps
 #SBATCH --output=./output/%j-%x.stdout
-#SBATCH --partition=sxmq
-#SBATCH --gres=gpu:4
-#SBATCH --time=24:00:00
+#SBATCH --partition=tier2q
+#SBATCH --mem=25GB
+#SBATCH --time=1:00:00
 #SBATCH --array=0-1
 
 source preamble.sh
@@ -18,13 +18,9 @@ case "${SLURM_ARRAY_TASK_ID}" in
     *) echo "Invalid SLURM_ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}" ;;
 esac
 
-torchrun --nproc_per_node=4 \
-    --rdzv_backend c10d \
-    --rdzv-id "$SLURM_ARRAY_TASK_ID" \
-    --rdzv-endpoint=localhost:0 \
-    "${name}.py" \
+python3 "${name}.py" \
     --data_dir "$data_dir" \
     --data_version QC_day_stays_first_24h \
     --model_loc "${hm}/clif-mdls-archive/llama1b-57928921-run1" \
-    --small_batch_sz $((2 ** 4)) \
-    --big_batch_sz $((2 ** 12))
+    --load_jumps True
+#    --save_jumps True

@@ -13,6 +13,7 @@ import typing
 import fire as fi
 import plotly.express as px
 import plotly.graph_objects as go
+import plotly.io as pio
 import polars as pl
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
@@ -21,6 +22,8 @@ from transformers import AutoModelForCausalLM
 
 from logger import get_logger
 from vocabulary import Vocabulary
+
+pio.kaleido.scope.mathjax = None
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
@@ -76,7 +79,7 @@ def main(
     dimensionality reduction on token embeddings
     """
 
-    # size: vocab x emb_dim
+    # size: vocab × emb_dim
     emb = ref_mdl.get_input_embeddings()(t_arange(len(vocab)))
     projector = (
         PCA(n_components=2, random_state=42)
@@ -151,7 +154,7 @@ def main(
     quantile embeddings only
     """
 
-    # size: vocab x emb_dim
+    # size: vocab × emb_dim
     emb = ref_mdl.get_input_embeddings()(t_arange(10))
     projector = (
         PCA(n_components=2, random_state=42)

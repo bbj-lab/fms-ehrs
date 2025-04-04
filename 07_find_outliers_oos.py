@@ -54,12 +54,21 @@ clf = skl_ens.IsolationForest(
     random_state=42
 )  # "Returns -1 for outliers and 1 for inliers"
 out = dict()
+anom = dict()
 out["train"] = clf.fit_predict(feats["train"])
 logger.info(
     "train: {n} ({pct:.2f}%) outliers in {ntot}".format(
         n=(out["train"] == -1).sum(),
         pct=100 * (out["train"] == -1).mean(),
         ntot=out["train"].size,
+    )
+)
+anom["train"] = -1.0 * clf.score_samples(
+    feats["train"]
+)  # "Opposite of the anomaly score defined in the original paper"
+logger.info(
+    "anomaly score: mean {mn:.2f}, std {sd:.2f}, median {md:.2f}".format(
+        mn=anom["train"].mean(), sd=anom["train"].std(), md=np.median(anom["train"])
     )
 )
 for s in ("val", "test"):
@@ -72,6 +81,12 @@ for s in ("val", "test"):
             ntot=out[s].size,
         )
     )
+    anom[s] = -1.0 * clf.score_samples(feats[s])
+    logger.info(
+        "anomaly score: mean {mn:.2f}, std {sd:.2f}, median {md:.2f}".format(
+            mn=anom[s].mean(), sd=anom[s].std(), md=np.median(anom[s])
+        )
+    )
 
 for s in splits:
     np.save(
@@ -82,10 +97,7 @@ for s in splits:
         data_dirs[s].joinpath(
             "features-anomaly-score-{m}.npy".format(m=model_loc.stem)
         ),
-        -1.0
-        * clf.score_samples(
-            feats[s]
-        ),  # "Opposite of the anomaly score defined in the original paper"
+        anom[s],
     )
 
 """
@@ -112,6 +124,14 @@ for s in splits:
         )
     )
 
+    anom[s] = -1.0 * clf.score_samples(feats[s])
+    print(anom[s])
+    logger.info(
+        "anomaly score: mean {mn:.2f}, std {sd:.2f}, median {md:.2f}".format(
+            mn=anom[s].mean(), sd=anom[s].std(), md=np.median(anom[s])
+        )
+    )
+
     np.save(
         data_dirs[s].joinpath("features-outliers-{m}.npy".format(m=model_loc.stem)),
         out[s],
@@ -120,5 +140,5 @@ for s in splits:
         data_dirs[s].joinpath(
             "features-anomaly-score-{m}.npy".format(m=model_loc.stem)
         ),
-        -1.0 * clf.score_samples(feats[s]),
+        anom[s],
     )
