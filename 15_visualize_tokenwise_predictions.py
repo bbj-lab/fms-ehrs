@@ -46,7 +46,7 @@ data_dirs = {s: data_dir.joinpath(f"{data_version}-tokenized", s) for s in split
 
 with open(
     data_dirs["test"].joinpath(
-        "sft_preds-n" + str(args.n) + f"_tokenwise-{model_loc.stem}.pkl"
+        "sft_preds-n" + str(args.n) + f"_tokenwise-{model_loc.stem}_LR.pkl"
     ),
     "rb",
 ) as fp:
