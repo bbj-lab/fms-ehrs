@@ -2,7 +2,7 @@
 
 #SBATCH --job-name=tfr-sft
 #SBATCH --output=./output/%j-%x.stdout
-#SBATCH --partition=gpuq
+#SBATCH --partition=sxmq
 #SBATCH --gres=gpu:8
 #SBATCH --time=1-00:00:00
 #SBATCH --array=0-3
@@ -47,4 +47,5 @@ torchrun --nproc_per_node=8 \
     --per_device_eval_batch_size 4 \
     --gradient_accumulation_steps 2 \
     --outcome "$outcome" \
-    --wandb_project "$wandb_project"
+    --wandb_project "$wandb_project" \
+    --tune True

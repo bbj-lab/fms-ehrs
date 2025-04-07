@@ -19,7 +19,7 @@ python3 "02_tokenize_train_val_test_split.py" \
 
 echo "Using vocab from MIMIC to process UChicago data..."
 python3 "${name}.py" \
-    --data_dir "/scratch/$(whoami)/clif-data" \
+    --data_dir "${hm}/clif-data-ucmc" \
     --data_version_in QC \
     --data_version_out QC_day_stays \
     --vocab_path "${hm}/clif-data/QC_day_stays-tokenized/train/vocab.gzip" \

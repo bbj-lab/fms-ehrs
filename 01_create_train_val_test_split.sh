@@ -21,7 +21,7 @@ case "$dataset" in
     uchicago)
         python3 "${name}.py" \
             --data_dir_in "/scratch/$(whoami)/CLIF-2.0.0" \
-            --data_dir_out "/scratch/$(whoami)/clif-data" \
+            --data_dir_out "${hm}/clif-data-ucmc" \
             --data_version_out QC \
             --train_frac 0.05 \
             --val_frac 0.05 \
