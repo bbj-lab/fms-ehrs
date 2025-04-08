@@ -45,11 +45,21 @@ vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
 
 aggregations = [
     pl.col("hospitalization_id").count().alias("count"),
+    pl.col("seq_len").mean(),
     pl.col("age_at_admission").mean().alias("avg_age"),
     # pl.col("age_at_admission").std().alias("std_age"),
-    pl.col("seq_len").mean(),
     (pl.col("sex_category") == "Female").mean().alias("pct_female"),
-    (pl.col("race_category") == "White").mean().alias("pct_white"),
+    (pl.col("race_category") == "Black or African American")
+    .mean()
+    .alias("pct_African_Amer"),
+    (pl.col("race_category") == "Asian").mean().alias("pct_Asian"),
+    (pl.col("race_category") == "American Indian or Alaska Native")
+    .mean()
+    .alias("pct_Native_American"),  # Alaska is in America
+    (pl.col("race_category") == "Native Hawaiian or Other Pacific Islander")
+    .mean()
+    .alias("pct_Pacific_Islander"),  # Hawaii is a Pacific island
+    pl.col("race_category").is_in(["Unknown", "Other"]).mean().alias("Unknown/Other"),
     (pl.col("ethnicity_category") == "Hispanic").mean().alias("pct_hispanic"),
     # (pl.col("length_of_stay")/24).mean().alias("avg. length of stay (days)"),
     pl.col("same_admission_death").mean(),
