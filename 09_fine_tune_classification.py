@@ -144,7 +144,7 @@ def main(
             direction="minimize",
             backend="optuna",
             hp_space=optuna_hp_space,
-            n_trials=50,
+            n_trials=5,
         )
     else:
         trainer.train()

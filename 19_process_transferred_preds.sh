@@ -9,10 +9,10 @@ source preamble.sh
 
 outcomes=(same_admission_death long_length_of_stay icu_admission imv_event)
 models=(
-    "mdl-mdl-llama1b-57928921-run1-58115722-clsfr-same_admission_death-58245894-clsfr-same_admission_death"
-    "mdl-mdl-llama1b-57928921-run1-58134628-clsfr-long_length_of_stay-58245895-clsfr-long_length_of_stay"
-    "mdl-mdl-llama1b-57928921-run1-58165534-clsfr-icu_admission-58248788-clsfr-icu_admission"
-    "mdl-mdl-llama1b-57928921-run1-58165531-clsfr-imv_event-58245892-clsfr-imv_event"
+    "mdl-llama1b-57928921-run1-58115722-clsfr-same_admission_death-58321088-run4"
+    "mdl-llama1b-57928921-run1-58134628-clsfr-long_length_of_stay-58321089-run4"
+    "mdl-llama1b-57928921-run1-58165534-clsfr-icu_admission-58321090-run2"
+    "mdl-llama1b-57928921-run1-58165531-clsfr-imv_event-58321087-run0"
 )
 
 for i in {0..3}; do

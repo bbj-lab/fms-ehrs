@@ -66,7 +66,10 @@ for suffix in ("", "_urt", "_lr"):
         go.Scatter(
             y=Mt_mean,
             mode="lines",
-            line=dict(color="red"),
+            line=dict(
+                color="red",
+                width=1,
+            ),
             name="Dies",
         )
     )
@@ -76,11 +79,11 @@ for suffix in ("", "_urt", "_lr"):
             go.Scatter(
                 y=y,
                 mode="lines",
-                opacity=0.2,
+                opacity=0.1,
                 fill="tonexty" if i > 0 else None,
                 line=dict(
                     color="red",
-                    width=1,
+                    width=0,
                 ),
                 name="+/- 2σ",
             )
@@ -97,7 +100,10 @@ for suffix in ("", "_urt", "_lr"):
         go.Scatter(
             y=Lt_mean,
             mode="lines",
-            line=dict(color="blue"),
+            line=dict(
+                color="blue",
+                width=1,
+            ),
             name="Lives",
         )
     )
@@ -107,11 +113,11 @@ for suffix in ("", "_urt", "_lr"):
             go.Scatter(
                 y=y,
                 mode="lines",
-                opacity=0.2,
+                opacity=0.1,
                 fill="tonexty" if i > 0 else None,
                 line=dict(
                     color="blue",
-                    width=1,
+                    width=0,
                 ),
                 name="+/- 2σ",
             )
