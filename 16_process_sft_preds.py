@@ -34,6 +34,7 @@ parser.add_argument(
     ],
     default="same_admission_death",
 )
+parser.add_argument("--only_new", type=bool, default=False)
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -46,7 +47,7 @@ data_dir_orig, data_dir_new, model_sft_loc, model_outlier_loc = map(
 data_version = args.data_version
 outcome = args.outcome
 
-versions = ("orig", "new")
+versions = ("orig", "new") if not args.only_new else ("new",)
 data_dir = dict()
 outliers = dict()
 label = dict()
