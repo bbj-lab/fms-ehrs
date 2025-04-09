@@ -113,3 +113,26 @@ covid_hids = (
     )
     .select(pl.col("hadm_id").cast(str).alias("hospitalization_id"))
 )
+
+""" when are the first admissions """
+
+import pathlib
+import polars as pl
+
+data_dir = "../clif-data-ucmc/QC_day_stays_first_24h-tokenized"
+data_dir = pathlib.Path(data_dir).expanduser().resolve()
+splits = ("train", "val", "test")
+dirs = {s: data_dir.joinpath(s) for s in splits}
+
+for s in splits:
+    df = pl.read_parquet(
+        dirs[s].joinpath(
+            "tokens_timelines_outcomes.parquet",
+        )
+    )
+    print(
+        df.select(
+            pl.col("times").list.first().min().alias("first"),
+            pl.col("times").list.first().max().alias("last"),
+        )
+    )
