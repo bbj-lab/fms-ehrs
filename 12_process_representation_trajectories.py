@@ -92,7 +92,9 @@ def main(
         "same_admission_death",
         "long_length_of_stay",
         "icu_admission",
+        "icu_admission_24h",
         "imv_event",
+        "imv_event_24h",
     )
     res = dict()
     for outcome in outcomes:
@@ -110,6 +112,9 @@ def main(
             .ravel()
             .astype(int)
         )
+
+    res["same_admission_death_24h"] = np.zeros_like(res["same_admission_death"])
+    res["long_length_of_stay_24h"] = np.zeros_like(res["same_admission_death"])
 
     anom = np.load(
         data_dir.joinpath(
@@ -131,11 +136,14 @@ def main(
 
     lr = dict()
     for outcome in outcomes:
-        logger.info(outcome)
-        lr[outcome] = smf.logit(
-            f"{outcome} ~ 1 + traj_len + max_jump + anom_scr", data=df
-        ).fit()
-        logger.info(lr[outcome].summary())
+        if not outcome.endswith("_24h"):
+            logger.info(outcome)
+            lr[outcome] = smf.logit(
+                f"{outcome} ~ 1 + traj_len + max_jump + anom_scr",
+                data=df.loc[lambda x: x[outcome + "_24h"] == 0],
+            ).fit()
+            logger.info(lr[outcome].summary())
+            logger.info(lr[outcome].summary().as_latex())
 
     """
     what do large jumps look like, tokenwise?
