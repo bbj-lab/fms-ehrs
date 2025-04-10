@@ -145,42 +145,6 @@ def main(
             logger.info(lr[outcome].summary())
             logger.info(lr[outcome].summary().as_latex())
 
-    """
-    what do large jumps look like, tokenwise?
-    """
-
-    # vocab = Vocabulary().load(
-    #     data_dir.joinpath(f"{data_version}-tokenized", "train", "vocab.gzip")
-    # )
-    #
-    # k = 25
-    # w_sz = 5
-    # top_k_flat_idx = np.argsort(np.nan_to_num(jumps.flatten()))[::-1][:k]
-    # top_k_idx = np.array(np.unravel_index(top_k_flat_idx, jumps.shape)).T
-    #
-    # raw_padded_timelines = np.array(
-    #     pl.scan_parquet(
-    #         data_dir.joinpath(
-    #             f"{data_version}-tokenized", "test", "tokens_timelines.parquet"
-    #         )
-    #     )
-    #     .select("padded")
-    #     .collect()
-    #     .to_series()
-    #     .to_list()
-    # )
-    #
-    # m = raw_padded_timelines.shape[-1]
-    #
-    # for i0, i1 in top_k_idx:
-    #     ints = raw_padded_timelines[i0, max(0, i1 - w_sz) : min(m - 1, i1 + w_sz)]
-    #     tkns = "->".join(vocab.reverse[i] for i in ints)
-    #     hit = vocab.reverse[raw_padded_timelines[i0, i1 + 1]]
-    #     logger.info(
-    #         f"{i0=}, {i1=} "
-    #     )
-    #     logger.info(f"{hit=} in {tkns}")
-
 
 if __name__ == "__main__":
     fi.Fire(main)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-load results from 06_extract_outcomes and 11_fine_tuned_predictions and
+load results from 06_extract_outcomes and 10_fine_tuned_predictions and
 generate summary stats
 """
 
