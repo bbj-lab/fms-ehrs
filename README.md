@@ -1,17 +1,6 @@
-# CLIF Tokenizer
+# FM's for EHRs
 
-This workflow tokenizes CLIF data
-(https://clif-consortium.github.io/website/data-dictionary.html) into
-`hospitalization_id`-level timelines and trains some small LLM's/FM's on the
-result.
-
-The conversion script for
-[MIMIC-IV-3.1](https://physionet.org/content/mimiciv/3.1/) data creates 9 of
-these tables. The tables created using the conversion can be found at
-`/gpfs/data/bbj-lab/users/burkh4rt/CLIF-MIMIC/rclif`.
-
-The python scripts can be run in an environment as described in the
-`requirements.txt` file:
+This workflow can be used to reproduce the results in the accompanying manuscript. The bash scripts can be run in a slurm environment with the specified resource requirements. Each bash script calls one or more python scripts that depend on an environment as described in the `requirements.txt` file:
 
 ```sh
 python3 -m venv venv
@@ -19,6 +8,10 @@ source venv/bin/activate
 pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 pip3 install -r requirements.txt
 ```
+
+The code is structured logically as follows, where the numerical prefixes correspond to the prefixes in the bash (`.sh`) files:
+
+![Diagram for running the code](code-schematic.svg "Schematic")
 
 <!--
 
