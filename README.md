@@ -1,4 +1,4 @@
-# FM's for EHRs
+# FMs for EHRs
 
 This workflow can be used to reproduce the results in the accompanying manuscript. The bash scripts can be run in a slurm environment with the specified resource requirements. Each bash script calls one or more python scripts that depend on an environment as described in the `requirements.txt` file:
 
@@ -32,14 +32,6 @@ Update venv:
 pip3 list --format=freeze > requirements.txt
 ```
 
-Grab development sample:
-```sh
-export hm=/gpfs/data/bbj-lab/users/burkh4rt
-rsync -avht \
-    --delete \
-    randi:${hm}/clif-development-sample \
-    ~/Documents/chicago/CLIF/
-```
 
 Format:
 ```

@@ -13,7 +13,7 @@ python3 20_aggregate_summary_stats.py \
     --raw_version raw \
     --model_outlier_loc "${hm}/clif-mdls-archive/llama1b-57928921-run1"
 
-python3 -i 20_aggregate_summary_stats.py \
+python3 20_aggregate_summary_stats.py \
     --data_dir "${hm}/clif-data-ucmc" \
     --data_version QC_day_stays_first_24h \
     --raw_version QC \

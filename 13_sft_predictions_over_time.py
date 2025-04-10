@@ -25,7 +25,7 @@ parser.add_argument("--data_dir", type=pathlib.Path)
 parser.add_argument("--data_version", type=str)
 parser.add_argument("--model_loc", type=pathlib.Path)
 parser.add_argument("--model_loc_urt", type=pathlib.Path)
-parser.add_argument("--n", type=int, default=10)
+parser.add_argument("--n", type=int, default=100)
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():

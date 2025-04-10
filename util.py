@@ -36,7 +36,7 @@ def rt_padding_to_left(
     if unif_rand_trunc and i > 0:
         i = t.randint(
             low=1, high=i, size=(1,)
-        ).item()  # new cutpoint chosen uniformly at random from seq length
+        ).item()  # new cut-point chosen uniformly at random from seq length
     return (
         t.concat([t.full((t_rt_pdd.shape[0] - i,), pd_tk), t_rt_pdd[:i]])
         if i > 0
