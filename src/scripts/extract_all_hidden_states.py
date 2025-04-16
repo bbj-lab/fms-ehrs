@@ -2,7 +2,7 @@
 
 """
 grab all hidden states (at just under 24h) from each provided sequence;
-Cf. 05_extract_hidden_states.py
+Cf. extract_hidden_states
 """
 
 import os

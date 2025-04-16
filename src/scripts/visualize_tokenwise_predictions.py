@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-process results from 15_sft_predictions_over_time.py
+process results from sft_predictions_over_time
 """
 
 import argparse

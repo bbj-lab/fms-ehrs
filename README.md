@@ -1,7 +1,11 @@
 # FMs for EHRs
 
 > This workflow can be used to reproduce the results in the accompanying
+<<<<<<< HEAD
 > manuscript [^1].
+=======
+> manuscript.
+>>>>>>> main
 
 ## Requirements & structure
 
@@ -82,12 +86,15 @@ outcome-specific.
 Our pipeline extracts model-specific representations for each hospitalization
 event that our useful for predicting a number of subsequent outcomes.
 
+<<<<<<< HEAD
 [^1]:
     M. Burkhart, B. Ramadan, Z. Liao, K. Chhikara, J. Rojas, W. Parker, & B.
     Beaulieu-Jones, Foundation models for electronic health records:
     representation dynamics and transferability,
     [arXiv:2504.10422](https://doi.org/10.48550/arXiv.2504.10422)
 
+=======
+>>>>>>> main
 <!--
 
 Format:
@@ -98,6 +105,7 @@ shfmt -w *.sh
 prettier --write --print-width 81 --prose-wrap always *.md
 ```
 
+<<<<<<< HEAD
 Run on randi:
 ```
 systemd-run --scope --user tmux new -s t2q
@@ -131,4 +139,6 @@ rsync -avht \
     ~/Documents/chicago/clif-tokenizer/results
 ```
 
+=======
+>>>>>>> main
 -->
