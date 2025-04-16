@@ -14,8 +14,8 @@ import numpy as np
 import polars as pl
 import torch as t
 
-from util import rt_padding_to_left
-from vocabulary import Vocabulary
+from src.framework.util import rt_padding_to_left
+from src.framework.vocabulary import Vocabulary
 
 Frame: typing.TypeAlias = pl.DataFrame | pl.LazyFrame
 Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
