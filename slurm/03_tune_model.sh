@@ -19,7 +19,7 @@ torchrun --nproc_per_node=8 \
     --model_version llama1b-small \
     --model_name "meta-llama/Llama-3.2-1B" \
     --wandb_project mimic-llama \
-    --hidden_size $((2 ** 9)) \
-    --intermediate_size $((2 ** 10)) \
+    --hidden_size $((2 ** 10)) \
+    --intermediate_size $((2 ** 12)) \
     --num_hidden_layers $((2 ** 3)) \
     --num_attention_heads $((2 ** 3))
