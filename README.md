@@ -1,7 +1,7 @@
 # FMs for EHRs
 
 > This workflow can be used to reproduce the results in the accompanying
-> manuscript.
+> manuscript [^1].
 
 ## Requirements & structure
 
@@ -21,7 +21,60 @@ pip3 install -r requirements.txt
 The code is structured logically as follows, where the numerical prefixes
 correspond to the prefixes in the bash (`.sh`) files:
 
-![Diagram for running the code](img/code-schematic.svg "Schematic")
+```mermaid
+---
+config:
+  theme: neutral
+  look: handDrawn
+  layout: fixed
+  themeCSS: "* { overflow: visible; }"
+---
+flowchart TD
+ subgraph s1["Data processing"]
+        N1["01"]
+        N2["02"]
+        N6["06"]
+        N20["20"]
+  end
+ subgraph s2["Model training"]
+        N3["03"]
+        N4["04"]
+  end
+ subgraph s3["Representations"]
+        N5["05"]
+        N7["07"]
+        N8["08"]
+  end
+ subgraph s4["Finetuning"]
+        N9["09"]
+        N10["10"]
+        N16["16"]
+        N17["17"]
+        N18["18"]
+        N19["19"]
+  end
+ subgraph s5["Trajectories"]
+        N11["11"]
+        N12["12"]
+        N13["13"]
+        N14["14"]
+        N15["15"]
+  end
+    N1 --> N2
+    N2 --> N6 & N3
+    N6 --> N20 & N8 & N9 & N12
+    N3 --> N4 & N5 & N9 & N11
+    N5 --> N7
+    N7 --> N8
+    N9 --> N10 & N13
+    N10 --> N16 & N17
+    N17 --> N18
+    N18 --> N19
+    N11 --> N12 & N14
+    N12 --> N13
+    N13 --> N14
+    N14 --> N15
+```
 
 ## What the code does
 
@@ -36,8 +89,8 @@ encoded category-value pairs corresponding to, inter alia, lab records, vitals,
 and medication. The sequences end with information on discharge and an end token,
 like so:
 
-<img src="./img/eg_timeline.png" 
-     alt="Example timeline" 
+<img src="./img/eg_timeline.png"
+     alt="Example timeline"
      style="max-width:500px;width:100%">
 
 Category-value tokenization iterates over all categories present in a table and
@@ -48,8 +101,8 @@ for measurements within this category. For hospitalization 42, the tokens ‘33�
 for this category and then ‘0’ for the corresponding deciled measurement would be
 inserted into the timeline at ‘E1’:
 
-<img src="./img/category-value-tokenization.png" 
-     alt="CatVal tokenization" 
+<img src="./img/category-value-tokenization.png"
+     alt="CatVal tokenization"
      style="max-width:500px;width:100%">
 
 ### Self-supervised training
@@ -58,8 +111,8 @@ Our training process packs sequences together, allowing one sequence to bleed
 into the next example within a batch. The dark goldenrod boundary outlines tokens
 corresponding to two individual hospitalization events:
 
-<img src="./img/training.png" 
-     alt="Training" 
+<img src="./img/training.png"
+     alt="Training"
      style="max-width:500px;width:100%">
 
 We insert a variable number of padding tokens between sequences to expose the
@@ -73,14 +126,22 @@ hospitalization event (truncated at 24 hours) occupies a single training instanc
 and is paired with its associated subsequent outcome. In this way, fine-tuning is
 outcome-specific.
 
-<img src="./img/sft.png" 
-     alt="Supervised Finetuning" 
+<img src="./img/sft.png"
+     alt="Supervised Finetuning"
      style="max-width:500px;width:100%">
 
 ### Representation extraction and analysis
 
 Our pipeline extracts model-specific representations for each hospitalization
 event that our useful for predicting a number of subsequent outcomes.
+
+---
+
+[^1]:
+    M. Burkhart, B. Ramadan, Z. Liao, K. Chhikara, J. Rojas, W. Parker, & B.
+    Beaulieu-Jones, Foundation models for electronic health records:
+    representation dynamics and transferability,
+    [arXiv:2504.10422](https://doi.org/10.48550/arXiv.2504.10422)
 
 <!--
 
@@ -90,6 +151,39 @@ isort *.py
 black *.py
 shfmt -w *.sh
 prettier --write --print-width 81 --prose-wrap always *.md
+```
+
+Run on randi:
+```
+systemd-run --scope --user tmux new -s t2q
+srun -p tier2q \
+  --mem=25GB \
+  --time=8:00:00 \
+  --job-name=adhoc \
+  --pty bash -i
+source venv/bin/activate
+```
+
+Troubleshoot:
+```
+systemd-run --scope --user tmux new -s gpuq
+srun -p gpuq \
+  --gres=gpu:1 \
+  --time=8:00:00 \
+  --job-name=adhoc \
+  --pty bash -i
+. venv/bin/activate
+jupyter notebook --no-browser --ip=0.0.0.0 --port=8088
+ssh -L 8088:localhost:8088 cri22cn401
+```
+
+Grab features and outcomes:
+```
+export hm=/gpfs/data/bbj-lab/users/burkh4rt
+rsync -avht \
+    --exclude "**/tokens_timelines.parquet" \
+    randi:${hm}/clif-data/first-24h-tokenized \
+    ~/Documents/chicago/clif-tokenizer/results
 ```
 
 -->
