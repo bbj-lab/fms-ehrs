@@ -21,7 +21,60 @@ pip3 install -r requirements.txt
 The code is structured logically as follows, where the numerical prefixes
 correspond to the prefixes in the bash (`.sh`) files:
 
-![Diagram for running the code](img/code-schematic.svg "Schematic")
+```mermaid
+---
+config:
+  theme: neutral
+  look: handDrawn
+  layout: fixed
+  themeCSS: "* { overflow: visible; }"
+---
+flowchart TD
+ subgraph s1["Data processing"]
+        N1["01"]
+        N2["02"]
+        N6["06"]
+        N20["20"]
+  end
+ subgraph s2["Model training"]
+        N3["03"]
+        N4["04"]
+  end
+ subgraph s3["Representations"]
+        N5["05"]
+        N7["07"]
+        N8["08"]
+  end
+ subgraph s4["Finetuning"]
+        N9["09"]
+        N10["10"]
+        N16["16"]
+        N17["17"]
+        N18["18"]
+        N19["19"]
+  end
+ subgraph s5["Trajectories"]
+        N11["11"]
+        N12["12"]
+        N13["13"]
+        N14["14"]
+        N15["15"]
+  end
+    N1 --> N2
+    N2 --> N6 & N3
+    N6 --> N20 & N8 & N9 & N12
+    N3 --> N4 & N5 & N9 & N11
+    N5 --> N7
+    N7 --> N8
+    N9 --> N10 & N13
+    N10 --> N16 & N17
+    N17 --> N18
+    N18 --> N19
+    N11 --> N12 & N14
+    N12 --> N13
+    N13 --> N14
+    N14 --> N15
+```
 
 ## What the code does
 
@@ -82,6 +135,7 @@ outcome-specific.
 Our pipeline extracts model-specific representations for each hospitalization
 event that our useful for predicting a number of subsequent outcomes.
 
+---
 
 [^1]:
     M. Burkhart, B. Ramadan, Z. Liao, K. Chhikara, J. Rojas, W. Parker, & B.
