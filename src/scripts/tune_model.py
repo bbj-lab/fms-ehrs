@@ -35,6 +35,7 @@ def main(
     collation: typing.Literal["padded", "packed"] = "packed",
     jid: str = os.getenv("SLURM_JOB_ID", ""),
     wandb_project: str = None,
+    n_trials: int = 5,
     **kwargs,
 ):
     """pass additional model configuration parameters with kwargs"""
@@ -66,7 +67,10 @@ def main(
             pad_token_id=dataset.vocab("PAD"),
             **kwargs,
         )
-        return AutoModelForCausalLM.from_config(config)
+        mdl = AutoModelForCausalLM.from_config(config)
+        mdl_params = sum(p.numel() for p in mdl.parameters())
+        logger.info("Model initialized, n. param = {}".format(mdl_params))
+        return mdl
 
     def optuna_hp_space(trial):
         return {
@@ -117,7 +121,7 @@ def main(
         direction="minimize",
         backend="optuna",
         hp_space=optuna_hp_space,
-        n_trials=50,
+        n_trials=n_trials,
     )
 
 

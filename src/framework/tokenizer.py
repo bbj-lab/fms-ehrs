@@ -13,7 +13,7 @@ import typing
 import numpy as np
 import polars as pl
 
-from vocabulary import Vocabulary
+from src.framework.vocabulary import Vocabulary
 
 Frame: typing.TypeAlias = pl.DataFrame | pl.LazyFrame
 Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
