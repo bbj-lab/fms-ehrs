@@ -89,14 +89,14 @@ def main(
             )
             with t.inference_mode():
                 x = model.forward(input_ids=batch, output_hidden_states=True)
-                ret = t.empty(
-                    size=(final_nonpadding_idx.size(dim=0), d),
-                    dtype=x.hidden_states[-1].dtype,
-                    device=device,
-                )
-                for i, j in enumerate(final_nonpadding_idx):
-                    ret[i] = x.hidden_states[-1][i, j, :]
-                features[s][batch_idx] = ret.detach().to("cpu")
+            ret = t.empty(
+                size=(final_nonpadding_idx.size(dim=0), d),
+                dtype=x.hidden_states[-1].dtype,
+                device=device,
+            )
+            for i, j in enumerate(final_nonpadding_idx):
+                ret[i] = x.hidden_states[-1][i, j, :]
+            features[s][batch_idx] = ret.detach().to("cpu")
 
         np.save(
             data_dirs[s].joinpath("features-{m}.npy".format(m=model_loc.stem)),
