@@ -1,8 +1,7 @@
 #!/bin/bash
 
 # sources standard scripts
-# exports name `name` of slurm calling script
-# and home `hm` directory
+# exports paths
 
 hm="/gpfs/data/bbj-lab/users/$(whoami)"
 name=$(scontrol show job "$SLURM_JOBID" |
