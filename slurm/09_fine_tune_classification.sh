@@ -5,7 +5,7 @@
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:8
 #SBATCH --time=1-00:00:00
-#SBATCH --array=2-3
+#SBATCH --array=0-3
 
 source preamble.sh
 
@@ -31,7 +31,7 @@ case "${SLURM_ARRAY_TASK_ID}" in
         ;;
 esac
 
-wandb_project+="-urt"
+#wandb_project+="-urt"
 
 torchrun --nproc_per_node=8 \
     ../src/scripts/fine_tune_classification.py \
@@ -45,5 +45,5 @@ torchrun --nproc_per_node=8 \
     --per_device_eval_batch_size 4 \
     --gradient_accumulation_steps 2 \
     --outcome "$outcome" \
-    --wandb_project "$wandb_project" \
-    --unif_rand_trunc True
+    --wandb_project "$wandb_project"
+#    --unif_rand_trunc True

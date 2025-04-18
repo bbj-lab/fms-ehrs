@@ -37,10 +37,9 @@ data_dir, model_outlier_loc = map(
     lambda d: pathlib.Path(d).expanduser().resolve(),
     (args.data_dir, args.model_outlier_loc),
 )
-data_version, raw_version = args.data_version, args.raw_version
 
-data_dirs = {s: data_dir.joinpath(f"{data_version}-tokenized", s) for s in splits}
-raw_dirs = {s: data_dir.joinpath(raw_version, s) for s in splits}
+data_dirs = {s: data_dir.joinpath(f"{args.data_version}-tokenized", s) for s in splits}
+raw_dirs = {s: data_dir.joinpath(args.raw_version, s) for s in splits}
 vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
 
 aggregations = [
