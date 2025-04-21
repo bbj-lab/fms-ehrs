@@ -44,6 +44,7 @@ flowchart TD
         N5["05"]
         N7["07"]
         N8["08"]
+        N21["N21"]
   end
  subgraph s4["Finetuning"]
         N9["09"]
@@ -66,6 +67,7 @@ flowchart TD
     N3 --> N4 & N5 & N9 & N11
     N5 --> N7
     N7 --> N8
+    N8 --> N21
     N9 --> N10 & N13
     N10 --> N16 & N17
     N17 --> N18
@@ -177,13 +179,12 @@ jupyter notebook --no-browser --ip=0.0.0.0 --port=8088
 ssh -L 8088:localhost:8088 cri22cn401
 ```
 
-Grab features and outcomes:
+Grab generated plots:
 ```
 export hm=/gpfs/data/bbj-lab/users/burkh4rt
 rsync -avht \
-    --exclude "**/tokens_timelines.parquet" \
-    randi:${hm}/clif-data/first-24h-tokenized \
-    ~/Documents/chicago/clif-tokenizer/results
+    randi:${hm}/figs \
+    ~/Downloads
 ```
 
 -->

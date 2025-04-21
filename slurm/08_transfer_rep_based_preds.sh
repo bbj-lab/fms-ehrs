@@ -6,7 +6,7 @@
 #SBATCH --mem=25GB
 #SBATCH --time=1:00:00
 #SBATCH --array=0-6
-#SBATCH --dependency=afterok:58843768
+##SBATCH --dependency=afterok:58843768
 
 source preamble.sh
 

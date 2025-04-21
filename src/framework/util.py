@@ -122,7 +122,7 @@ def plot_calibration_curve(
                 x=prob_pred,
                 y=prob_true,
                 mode="lines+markers",
-                name="{} Calibration".format(name),
+                name=name,
                 marker=dict(color=colors[i % len(colors)]),
             )
         )
@@ -174,10 +174,10 @@ def plot_roc_curve(named_results: Dictlike, savepath: Pathlike = None):
                 x=fpr,
                 y=tpr,
                 mode="lines+markers",
-                name="ROC (AUC: {:.3f})".format(
-                    skl_mets.roc_auc_score(y_true=y_true, y_score=y_score)
+                name="{} (AUC: {:.3f})".format(
+                    name, skl_mets.roc_auc_score(y_true=y_true, y_score=y_score)
                 ),
-                marker=dict(color=colors[i % len(colors)], size=3),
+                marker=dict(color=colors[i % len(colors)], size=1),
             )
         )
 
