@@ -5,11 +5,30 @@
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:8
 #SBATCH --time=1-00:00:00
-#SBATCH --array=0-3
+#SBATCH --array=0-27
 
 source preamble.sh
 
-case "${SLURM_ARRAY_TASK_ID}" in
+echo "SLURM_ARRAY_JOB_ID=${SLURM_ARRAY_JOB_ID}"
+echo "SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
+
+div=4
+quo=$((SLURM_ARRAY_TASK_ID / div))
+rem=$((SLURM_ARRAY_TASK_ID % div))
+
+source preamble.sh
+
+models=(
+    llama-orig-58789721
+    llama-large-58788825
+    llama-med-58788824
+    llama-small-58741567
+    llama-smol-58761427
+    llama-tiny-58761428
+    llama-teensy-58741565
+)
+
+case ${rem} in
     0)
         outcome=same_admission_death
         wandb_project=mimic-sft-clsfr-mort
@@ -31,11 +50,9 @@ case "${SLURM_ARRAY_TASK_ID}" in
         ;;
 esac
 
-#wandb_project+="-urt"
-
 torchrun --nproc_per_node=8 \
     ../src/scripts/fine_tune_classification.py \
-    --model_loc "${hm}/clif-mdls-archive/llama1b-57928921-run1" \
+    --model_loc "${hm}/clif-mdls-archive/${models[$quo]}" \
     --data_dir "${hm}/clif-data" \
     --data_version QC_day_stays_first_24h \
     --out_dir "${hm}/clif-mdls" \
@@ -46,4 +63,3 @@ torchrun --nproc_per_node=8 \
     --gradient_accumulation_steps 2 \
     --outcome "$outcome" \
     --wandb_project "$wandb_project"
-#    --unif_rand_trunc True
