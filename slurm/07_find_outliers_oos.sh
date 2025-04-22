@@ -5,18 +5,21 @@
 #SBATCH --partition=tier2q
 #SBATCH --mem=25GB
 #SBATCH --time=2:00:00
-#SBATCH --dependency=afterok:58822890_0:58822890_2
+#SBATCH --dependency=afterok:59000111_[0-5]
 
 source preamble.sh
 
 models=(
-    llama-orig-58789721
-    llama-large-58788825
-    llama-med-58788824
-    llama-small-58741567
-    llama-smol-58761427
-    llama-tiny-58761428
-    llama-teensy-58741565
+    #    llama-orig-58789721
+    #    llama-large-58788825
+    #    llama-med-58788824
+    #    llama-small-58741567
+    #    llama-smol-58761427
+    #    llama-tiny-58761428
+    #    llama-teensy-58741565
+    llama-wee-58996725
+    llama-bitsy-58996726
+    llama-micro-58996720
 )
 
 for m in "${models[@]}"; do

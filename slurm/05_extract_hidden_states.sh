@@ -5,7 +5,7 @@
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:4
 #SBATCH --time=1-00:00:00
-#SBATCH --array=0-13
+#SBATCH --array=0-5
 
 source preamble.sh
 
@@ -21,13 +21,16 @@ data_dirs=(
     "${hm}/clif-data-ucmc"
 )
 models=(
-    llama-orig-58789721
-    llama-large-58788825
-    llama-med-58788824
-    llama-small-58741567
-    llama-smol-58761427
-    llama-tiny-58761428
-    llama-teensy-58741565
+    #    llama-orig-58789721
+    #    llama-large-58788825
+    #    llama-med-58788824
+    #    llama-small-58741567
+    #    llama-smol-58761427
+    #    llama-tiny-58761428
+    #    llama-teensy-58741565
+    llama-wee-58996725
+    llama-bitsy-58996726
+    llama-micro-58996720
 )
 
 torchrun --nproc_per_node=4 \

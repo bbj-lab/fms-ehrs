@@ -4,7 +4,7 @@
 #SBATCH --output=./output/%j-%x.stdout
 #SBATCH --partition=tier2q
 #SBATCH --time=3:00:00
-##SBATCH --dependency=afterok:58843812_[0-6]
+#SBATCH --dependency=afterok:59000155_[0-6]
 #SBATCH --array=0-1
 
 source preamble.sh
@@ -26,6 +26,9 @@ models=(
     "${hm}/clif-mdls-archive/llama-smol-58761427"
     "${hm}/clif-mdls-archive/llama-tiny-58761428"
     "${hm}/clif-mdls-archive/llama-teensy-58741565"
+    "${hm}/clif-mdls-archive/llama-wee-58996725"
+    "${hm}/clif-mdls-archive/llama-bitsy-58996726"
+    "${hm}/clif-mdls-archive/llama-micro-58996720"
 )
 
 python3 ../src/scripts/aggregate_model_preds.py \

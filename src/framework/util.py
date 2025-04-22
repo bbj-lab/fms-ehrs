@@ -14,8 +14,8 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.io as pio
-import sklearn.metrics as skl_mets
 import sklearn.calibration as skl_cal
+import sklearn.metrics as skl_mets
 import torch as t
 
 Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
@@ -23,9 +23,9 @@ Dictlike: typing.TypeAlias = collections.OrderedDict | dict
 
 pio.kaleido.scope.mathjax = None
 
-mains = ("#EAAA00", "#DE7C00", "#789D4A", "#275D38", "#007396", "#56315F")
-lights = ("#F3D03E", "#ECA154", "#A9C47F", "#9CAF88", "#3EB1C8", "#86647A")
-darks = ("#CC8A00", "#A9431E", "#13301C", "#284734", "#002A3A", "#41273B")
+mains = ("#EAAA00", "#DE7C00", "#789D4A", "#275D38", "#007396", "#56315F", "#A4343A")
+lights = ("#F3D03E", "#ECA154", "#A9C47F", "#9CAF88", "#3EB1C8", "#86647A", "#B46A55")
+darks = ("#CC8A00", "#A9431E", "#13301C", "#284734", "#002A3A", "#41273B", "#643335")
 colors = mains + lights + darks
 
 

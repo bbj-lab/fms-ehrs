@@ -44,7 +44,7 @@ flowchart TD
         N5["05"]
         N7["07"]
         N8["08"]
-        N21["N21"]
+        N21["21"]
   end
  subgraph s4["Finetuning"]
         N9["09"]
@@ -149,9 +149,9 @@ event that our useful for predicting a number of subsequent outcomes.
 
 Format:
 ```
-isort *.py
-black *.py
-shfmt -w *.sh
+isort src/
+black src/
+shfmt -w slurm/
 prettier --write --print-width 81 --prose-wrap always *.md
 ```
 
