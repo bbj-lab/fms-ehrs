@@ -53,6 +53,7 @@ flowchart TD
         N17["17"]
         N18["18"]
         N19["19"]
+        N22["22"]
   end
  subgraph s5["Trajectories"]
         N11["11"]
@@ -69,7 +70,7 @@ flowchart TD
     N7 --> N8
     N8 --> N21
     N9 --> N10 & N13
-    N10 --> N16 & N17
+    N10 --> N16 & N17 & N22
     N17 --> N18
     N18 --> N19
     N11 --> N12 & N14
