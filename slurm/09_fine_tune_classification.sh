@@ -5,7 +5,7 @@
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:8
 #SBATCH --time=1-00:00:00
-#SBATCH --array=0-27
+#SBATCH --array=0-39
 
 source preamble.sh
 
@@ -26,6 +26,9 @@ models=(
     llama-smol-58761427
     llama-tiny-58761428
     llama-teensy-58741565
+    llama-wee-58996725
+    llama-bitsy-58996726
+    llama-micro-58996720
 )
 
 case ${rem} in
