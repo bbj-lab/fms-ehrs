@@ -42,9 +42,12 @@ class ClifTokenizer:
         """
         self.data_dir = pathlib.Path(data_dir).expanduser()
         self.tbl = dict()
+        self.special = ("TL_START", "TL_END", "PAD", "TRUNC", None)
         if vocab_path is None:
             self.vocab_path = None
-            self.vocab = Vocabulary(tuple(map(lambda i: f"Q{i}", range(10))) + (None,))
+            self.vocab = Vocabulary(
+                tuple(map(lambda i: f"Q{i}", range(10))) + self.special
+            )
             self.vocab.is_training = True
         else:
             self.vocab_path = pathlib.Path(vocab_path).expanduser()
