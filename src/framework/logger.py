@@ -13,7 +13,7 @@ import sys
 
 
 class SlurmLogger(logging.Logger):
-    def __init__(self, name: str = "clif-tokenizer"):
+    def __init__(self, name: str = "fms-ehrs-reps"):
         super().__init__(name=name)
         self.setLevel(logging.INFO)
         self.handlers.clear()
@@ -82,7 +82,7 @@ class SlurmLogger(logging.Logger):
 
 def get_logger() -> SlurmLogger:
     logging.setLoggerClass(SlurmLogger)
-    logger = logging.getLogger("clif-tokenizer")
+    logger = logging.getLogger("fms-ehrs-reps")
     return logger
 
 

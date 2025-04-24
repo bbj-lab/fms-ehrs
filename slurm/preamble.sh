@@ -1,8 +1,7 @@
 #!/bin/bash
 
 # sources standard scripts
-# exports name `name` of slurm calling script
-# and home `hm` directory
+# exports paths
 
 hm="/gpfs/data/bbj-lab/users/$(whoami)"
 name=$(scontrol show job "$SLURM_JOBID" |
@@ -12,7 +11,7 @@ name=$(scontrol show job "$SLURM_JOBID" |
 export hm name
 
 source ~/.bashrc 2> /dev/null
-source "$hm/clif-tokenizer/venv/bin/activate" 2> /dev/null
+source ../venv/bin/activate 2> /dev/null
 
 HF_HOME=/gpfs/data/bbj-lab/cache/huggingface/
 WANDB_CACHE_DIR="/scratch/$(whoami)/"

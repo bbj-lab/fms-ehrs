@@ -7,8 +7,8 @@ break down performance by ICU admission type
 
 import argparse
 import collections
-import os
 import pathlib
+import pickle
 
 import lightgbm as lgb
 import numpy as np
@@ -34,7 +34,7 @@ parser.add_argument(
     choices=["light_gbm", "logistic_regression_cv", "logistic_regression"],
     default="logistic_regression",
 )
-parser.add_argument("--covid_restriction", type=bool, default=False)
+parser.add_argument("--save_preds", action="store_true")
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -44,8 +44,6 @@ data_dir_orig, data_dir_new, model_loc = map(
     lambda d: pathlib.Path(d).expanduser().resolve(),
     (args.data_dir_orig, args.data_dir_new, args.model_loc),
 )
-data_version = args.data_version
-covid_restriction = bool(args.covid_restriction)
 
 splits = ("train", "val", "test")
 versions = ("orig", "new")
@@ -57,30 +55,10 @@ features = collections.defaultdict(dict)
 qualifiers = collections.defaultdict(lambda: collections.defaultdict(dict))
 labels = collections.defaultdict(lambda: collections.defaultdict(dict))
 
-if covid_restriction:
-    hm = pathlib.Path("/gpfs/data/bbj-lab/users/{}".format(os.getenv("USER")))
-    mimic_hm = hm.joinpath("physionet.org/files/mimiciv/3.1/")
-    mimic_covid_hids = (
-        pl.read_csv(mimic_hm.joinpath("hosp/patients.csv.gz"))
-        .filter(pl.col("anchor_year_group") == "2020 - 2022")
-        .cast({"subject_id": str})
-        .join(
-            pl.read_csv(mimic_hm.joinpath("hosp/admissions.csv.gz")).cast(
-                {"subject_id": str}
-            ),
-            on="subject_id",
-            how="inner",
-            validate="1:m",
-        )
-        .select(pl.col("hadm_id").cast(str).alias("hospitalization_id"))
-        .to_numpy()
-        .ravel()
-    )
-
 for v in versions:
     for s in splits:
         data_dirs[v][s] = (data_dir_orig if v == "orig" else data_dir_new).joinpath(
-            f"{data_version}-tokenized", s
+            f"{args.data_version}-tokenized", s
         )
         outliers[v][s] = (
             np.load(
@@ -93,18 +71,6 @@ for v in versions:
         features[v][s] = np.load(
             data_dirs[v][s].joinpath("features-{m}.npy".format(m=model_loc.stem))
         )
-        if covid_restriction and v == "orig" and s in ("train", "val"):
-            logger.info("Restricting to 2020-2022 MIMIC anchor years...")
-            c_flag = np.isin(
-                pl.scan_parquet(
-                    data_dirs[v][s].joinpath("tokens_timelines_outcomes.parquet")
-                )
-                .select("hospitalization_id")
-                .collect()
-                .to_numpy()
-                .ravel(),
-                mimic_covid_hids,
-            )
         for outcome in outcomes:
             labels[outcome][v][s] = (
                 pl.scan_parquet(
@@ -128,10 +94,6 @@ for v in versions:
                 if outcome in ("icu_admission", "imv_event")
                 else True * np.ones_like(labels[outcome][v][s])
             )
-            if covid_restriction and v == "orig" and s in ("train", "val"):
-                qualifiers[outcome][v][s] = np.logical_and(
-                    qualifiers[outcome][v][s], c_flag
-                )
 
 
 """ classification outcomes
@@ -214,3 +176,24 @@ for outcome in outcomes:
             y_score=y_score[~out_test],
             logger=logger,
         )
+
+if args.save_preds:
+    for v in versions:
+        with open(
+            data_dirs[v]["test"].joinpath(
+                args.classifier + "-preds-" + model_loc.stem + ".pkl"
+            ),
+            "wb",
+        ) as fp:
+            pickle.dump(
+                {
+                    "qualifiers": {
+                        outcome: qualifiers[outcome][v]["test"] for outcome in outcomes
+                    },
+                    "predictions": {outcome: preds[outcome][v] for outcome in outcomes},
+                    "labels": {
+                        outcome: labels[outcome][v]["test"] for outcome in outcomes
+                    },
+                },
+                fp,
+            )

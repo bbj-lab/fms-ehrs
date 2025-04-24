@@ -34,7 +34,7 @@ parser.add_argument(
     ],
     default="same_admission_death",
 )
-parser.add_argument("--only_new", type=bool, default=False)
+parser.add_argument("--only_new", action="store_true")
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():

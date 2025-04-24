@@ -29,17 +29,18 @@ parser.add_argument("--model_loc", type=pathlib.Path)
 parser.add_argument("--n", type=int, default=100)
 args, unknowns = parser.parse_known_args()
 
+for k, v in vars(args).items():
+    logger.info(f"{k}: {v}")
+
 model_loc, data_dir, out_dir = map(
     lambda d: pathlib.Path(d).expanduser().resolve(),
     (args.model_loc, args.data_dir, args.out_dir),
 )
 
-data_version = args.data_version
-
 # load and prep data
 rng = np.random.default_rng(42)
 splits = ("train", "val", "test")
-data_dirs = {s: data_dir.joinpath(f"{data_version}-tokenized", s) for s in splits}
+data_dirs = {s: data_dir.joinpath(f"{args.data_version}-tokenized", s) for s in splits}
 
 
 # open and unpack data
