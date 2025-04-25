@@ -196,6 +196,53 @@ def plot_roc_curve(named_results: Dictlike, savepath: Pathlike = None):
         fig.write_image(pathlib.Path(savepath).expanduser().resolve())
 
 
+def plot_precision_recall_curve(
+    named_results: Dictlike, savepath: Pathlike = None, decimals: int = 3
+):
+    """
+    plot a precision-recall curve for each named set of predictions;
+    {"name": {"y_true": y_true, "y_score": y_score}}
+    if provided a `savepath`; otherwise, display
+    """
+
+    fig = go.Figure()
+
+    for i, (name, results) in enumerate(named_results.items()):
+
+        y_true = results["y_true"]
+        y_score = results["y_score"]
+
+        assert y_true.shape[0] == y_score.shape[0]
+
+        precs, recs, _ = skl_mets.precision_recall_curve(
+            y_true, np.round(y_score, decimals=decimals), drop_intermediate=True
+        )
+
+        fig.add_trace(
+            go.Scatter(
+                x=recs,
+                y=precs,
+                mode="lines+markers",
+                name="{} (PR-AUC: {:.3f})".format(name, skl_mets.auc(recs, precs)),
+                marker=dict(color=colors[i % len(colors)], size=1),
+            )
+        )
+
+    fig.update_layout(
+        title="Precision-recall curve",
+        xaxis_title="Recall",
+        yaxis_title="Precision",
+        xaxis=dict(range=[0, 1]),
+        yaxis=dict(range=[0, 1]),
+        template="plotly_white",
+    )
+
+    if savepath is None:
+        fig.show()
+    else:
+        fig.write_image(pathlib.Path(savepath).expanduser().resolve())
+
+
 def ragged_lists_to_array(ls_arr: list[np.array]) -> np.array:
     """
     form an 2d-array from a collection of variably-sized 1d-arrays
@@ -226,11 +273,14 @@ if __name__ == "__main__":
     y_true = (y_seed > 0.4).astype(int)
     y_pred = np.clip(y_seed + np_rng.normal(scale=0.2, size=1000), a_min=0, a_max=1)
     y_pred2 = np.clip(y_seed + np_rng.normal(scale=0.2, size=1000), a_min=0, a_max=1)
+    y_pred3 = np.clip(y_seed + np_rng.normal(scale=0.5, size=1000), a_min=0, a_max=1)
     log_classification_metrics(y_true, y_pred, logger)
 
     named_results = collections.OrderedDict()
     named_results["test1"] = {"y_true": y_true, "y_score": y_pred}
     named_results["test2"] = {"y_true": y_true, "y_score": y_pred2}
+    named_results["test3"] = {"y_true": y_true, "y_score": y_pred3}
 
     plot_calibration_curve(named_results)
     plot_roc_curve(named_results)
+    plot_precision_recall_curve(named_results)

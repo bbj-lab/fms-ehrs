@@ -114,3 +114,5 @@ with open(
         },
         fp,
     )
+
+logger.info("---fin")

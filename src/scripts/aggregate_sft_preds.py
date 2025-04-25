@@ -13,7 +13,11 @@ import polars as pl
 import numpy as np
 
 from src.framework.logger import get_logger
-from src.framework.util import plot_calibration_curve, plot_roc_curve
+from src.framework.util import (
+    plot_calibration_curve,
+    plot_roc_curve,
+    plot_precision_recall_curve,
+)
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
@@ -77,3 +81,9 @@ plot_roc_curve(
     named_results,
     savepath=out_dir.joinpath(f"sft-roc-{args.outcome}-{data_dir.stem}.pdf"),
 )
+plot_precision_recall_curve(
+    named_results,
+    savepath=out_dir.joinpath(f"sft-pr-{args.outcome}-{data_dir.stem}.pdf"),
+)
+
+logger.info("---fin")

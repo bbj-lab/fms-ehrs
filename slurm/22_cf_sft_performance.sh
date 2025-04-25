@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=cf-mdls
+#SBATCH --job-name=cf-sft-mdls
 #SBATCH --output=./output/%j-%x.stdout
 #SBATCH --partition=tier2q
 #SBATCH --time=3:00:00
