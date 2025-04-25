@@ -197,3 +197,5 @@ if args.save_preds:
                 },
                 fp,
             )
+
+logger.info("---fin")

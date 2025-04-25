@@ -141,3 +141,5 @@ for s in splits:
         ),
         anom[s],
     )
+
+logger.info("---fin")

@@ -11,7 +11,11 @@ import pathlib
 import pickle
 
 from src.framework.logger import get_logger
-from src.framework.util import plot_calibration_curve, plot_roc_curve
+from src.framework.util import (
+    plot_calibration_curve,
+    plot_roc_curve,
+    plot_precision_recall_curve,
+)
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
@@ -62,3 +66,9 @@ for outcome in outcomes:
         named_results,
         savepath=out_dir.joinpath(f"roc-{outcome}-{data_dir.stem}.pdf"),
     )
+    plot_precision_recall_curve(
+        named_results,
+        savepath=out_dir.joinpath(f"pr-{outcome}-{data_dir.stem}.pdf"),
+    )
+
+logger.info("---fin")
