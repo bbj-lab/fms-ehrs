@@ -188,9 +188,8 @@ ssh -L 8088:localhost:8088 cri22cn401
 
 Grab generated plots:
 ```
-export hm=/gpfs/data/bbj-lab/users/burkh4rt
 rsync -avht \
-    randi:${hm}/figs \
+    randi:/gpfs/data/bbj-lab/users/burkh4rt/figs \
     ~/Downloads
 ```
 

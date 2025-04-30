@@ -178,7 +178,7 @@ def plot_roc_curve(named_results: Dictlike, savepath: Pathlike = None):
                 name="{} (AUC: {:.3f})".format(
                     name, skl_mets.roc_auc_score(y_true=y_true, y_score=y_score)
                 ),
-                marker=dict(color=colors[i % len(colors)], size=1),
+                marker=dict(color=colors[(i + 1) % len(colors)], size=1),
             )
         )
 
@@ -225,7 +225,7 @@ def plot_precision_recall_curve(
                 y=precs,
                 mode="lines+markers",
                 name="{} (PR-AUC: {:.3f})".format(name, skl_mets.auc(recs, precs)),
-                marker=dict(color=colors[i % len(colors)], size=1),
+                marker=dict(color=colors[(i + 1) % len(colors)], size=1),
             )
         )
 
@@ -252,11 +252,80 @@ def plot_histogram(
     if provided a `savepath`; otherwise, display
     """
 
-    arr = arr[np.isfinite(arr)].ravel()
-
-    fig = px.histogram(arr, nbins=nbins, labels={"value": "Value"})
+    fig = px.histogram(
+        arr[np.isfinite(arr)].ravel(), nbins=nbins, labels={"value": "Value"}
+    )
 
     fig.update_layout(title=title, template="plotly_white", showlegend=False)
+
+    if savepath is None:
+        fig.show()
+    else:
+        fig.write_image(pathlib.Path(savepath).expanduser().resolve())
+
+
+def plot_histograms(
+    named_arrs: dict,
+    *,
+    title: str = "Histogram",
+    nbins: int = 50,
+    savepath: Pathlike = None,
+    **kwargs,
+):
+    """
+    plot a histogram of the non-nan values in an array `arr`;
+    if provided a `savepath`; otherwise, display;
+    NB: by default, plotly saves all data passed to its histogram function--not simply
+    the summary statistics required to create the plot
+    """
+
+    fig = go.Figure()
+
+    edges = np.histogram_bin_edges(
+        np.concatenate([x[np.isfinite(x)].ravel() for x in named_arrs.values()]),
+        bins=nbins,
+    )
+
+    for i, (name, arr) in enumerate(named_arrs.items()):
+        ct, bins = np.histogram(arr[np.isfinite(arr)].ravel(), bins=edges, density=True)
+        bin_centers = 0.5 * (bins[:-1] + bins[1:])
+        bin_widths = bins[1:] - bins[:-1]
+        fig.add_trace(
+            go.Bar(
+                x=bin_centers,
+                y=ct,
+                name=name,
+                opacity=0.5,
+                width=bin_widths,
+                marker_color=colors[(i + 1) % len(colors)],
+            )
+        )
+        # fig.add_trace(
+        #     go.Histogram(
+        #         x=arr[np.isfinite(arr)].ravel(),
+        #         nbinsx=nbins,
+        #         name=name,
+        #         opacity=0.5,
+        #         marker_color=colors[(i + 1) % len(colors)],
+        #     )
+        # )
+    fig.update_layout(barmode="overlay", template="plotly_white", title=title, **kwargs)
+    # df = pd.DataFrame(
+    #     [(n, x) for n, arr in named_arrs.items() for x in arr[np.isfinite(arr)]],
+    #     columns=["name", "value"],
+    # )
+    #
+    # fig = px.histogram(
+    #     df,
+    #     x="value",
+    #     color="name",
+    #     nbins=nbins,
+    #     opacity=0.5,
+    #     color_discrete_sequence=colors[1:],
+    #     barmode="overlay",
+    #     template="plotly_white",
+    #     title=title,
+    # )
 
     if savepath is None:
         fig.show()
@@ -318,7 +387,9 @@ if __name__ == "__main__":
     plot_roc_curve(named_results)
     plot_precision_recall_curve(named_results)
 
-    vals = np_rng.normal(scale=0.2, size=1000).reshape((10, 10, 10))
+    vals = np_rng.normal(scale=0.2, size=100000).reshape((10, 10, -1))
     vals[vals > 0.6] = np.nan
     plot_histogram(vals)
     log_summary(vals, logger)
+
+    plot_histograms({"foo": vals, "bar": vals + 0.2}, xaxis_title="bits")
