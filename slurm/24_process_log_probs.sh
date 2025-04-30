@@ -7,10 +7,9 @@
 
 source preamble.sh
 
-for data_dir in "${hm}/clif-data" "${hm}/clif-data-ucmc"; do
-    python3 ../src/scripts/process_log_probs.py \
-        --data_dir "$data_dir" \
-        --data_version QC_day_stays_first_24h \
-        --model_loc "${hm}/clif-mdls-archive/llama-med-58788824" \
-        --out_dir "${hm}/figs"
-done
+python3 ../src/scripts/process_log_probs.py \
+    --data_dir_orig "${hm}/clif-data" \
+    --data_dir_new "${hm}/clif-data-ucmc" \
+    --data_version QC_day_stays_first_24h \
+    --model_loc "${hm}/clif-mdls-archive/llama-med-58788824" \
+    --out_dir "${hm}/figs"
