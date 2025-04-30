@@ -12,6 +12,7 @@ import typing
 
 import numpy as np
 import pandas as pd
+import plotly.express as px
 import plotly.graph_objects as go
 import plotly.io as pio
 import sklearn.calibration as skl_cal
@@ -243,6 +244,38 @@ def plot_precision_recall_curve(
         fig.write_image(pathlib.Path(savepath).expanduser().resolve())
 
 
+def plot_histogram(
+    arr: np.array, title: str = "Histogram", nbins: int = 50, savepath: Pathlike = None
+):
+    """
+    plot a histogram of the non-nan values in an array `arr`;
+    if provided a `savepath`; otherwise, display
+    """
+
+    arr = arr[np.isfinite(arr)].ravel()
+
+    fig = px.histogram(arr, nbins=nbins, labels={"value": "Value"})
+
+    fig.update_layout(title=title, template="plotly_white", showlegend=False)
+
+    if savepath is None:
+        fig.show()
+    else:
+        fig.write_image(pathlib.Path(savepath).expanduser().resolve())
+
+
+def log_summary(arr: np.array, logger: logging.Logger):
+
+    logger.info("Array of shape: {}".format(arr.shape))
+    logger.info("Pct non-nan: {:.2f}".format(100 * np.isfinite(arr).mean()))
+    logger.info("Range: ({:.2f}, {:.2f})".format(np.nanmin(arr), np.nanmax(arr)))
+    logger.info("Mean: {:.2f}".format(np.nanmean(arr)))
+    for q in (0.5, 0.9, 0.99, 0.999, 0.9999):  # 0.0001, 0.001, 0.01, 0.1,
+        logger.info(
+            "{:05.2f}% quantile: {:.2f}".format(100 * q, np.nanquantile(arr, q))
+        )
+
+
 def ragged_lists_to_array(ls_arr: list[np.array]) -> np.array:
     """
     form an 2d-array from a collection of variably-sized 1d-arrays
@@ -284,3 +317,8 @@ if __name__ == "__main__":
     plot_calibration_curve(named_results)
     plot_roc_curve(named_results)
     plot_precision_recall_curve(named_results)
+
+    vals = np_rng.normal(scale=0.2, size=1000).reshape((10, 10, 10))
+    vals[vals > 0.6] = np.nan
+    plot_histogram(vals)
+    log_summary(vals, logger)
