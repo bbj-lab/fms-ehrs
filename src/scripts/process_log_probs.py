@@ -8,6 +8,7 @@ import argparse
 import pathlib
 
 import numpy as np
+import polars as pl
 
 from src.framework.logger import get_logger
 from src.framework.util import log_summary, plot_histograms
@@ -104,5 +105,64 @@ logger.info("Orig:")
 log_summary(inf_orig_trips, logger)
 logger.info("New:")
 log_summary(inf_new_trips, logger)
+
+
+logger.info("Orig:")
+k = 100
+top_k_flat_idx = np.argsort(np.nan_to_num(inf_orig.flatten()))[::-1][:k]
+top_k_idx = np.array(np.unravel_index(top_k_flat_idx, inf_orig.shape)).T
+
+raw_padded_timelines = np.array(
+    pl.scan_parquet(
+        data_dirs_orig["test"].joinpath(
+            "tokens_timelines_outcomes.parquet",
+        )
+    )
+    .select("padded")
+    .collect()
+    .to_series()
+    .to_list()
+)
+m = raw_padded_timelines.shape[-1]
+w_sz = 3
+
+for i0, i1 in top_k_idx:
+    ints = raw_padded_timelines[i0, max(0, i1 - w_sz) : min(m - 1, i1 + w_sz)]
+    tkns = "->".join(s if (s := vocab.reverse[i]) is not None else "None" for i in ints)
+    hit = vocab.reverse[raw_padded_timelines[i0, i1]]
+    logger.info(f"{i0=}, {i1=} ")
+    logger.info(f"{hit=} in {tkns}")
+    logger.info(
+        "->".join(map(str, inf_orig[i0, max(0, i1 - w_sz) : min(m - 1, i1 + w_sz)]))
+    )
+
+logger.info("New:")
+k = 100
+top_k_flat_idx = np.argsort(np.nan_to_num(inf_new.flatten()))[::-1][:k]
+top_k_idx = np.array(np.unravel_index(top_k_flat_idx, inf_new.shape)).T
+
+raw_padded_timelines = np.array(
+    pl.scan_parquet(
+        data_dirs_new["test"].joinpath(
+            "tokens_timelines_outcomes.parquet",
+        )
+    )
+    .select("padded")
+    .collect()
+    .to_series()
+    .to_list()
+)
+m = raw_padded_timelines.shape[-1]
+w_sz = 3
+
+for i0, i1 in top_k_idx:
+    ints = raw_padded_timelines[i0, max(0, i1 - w_sz) : min(m - 1, i1 + w_sz)]
+    tkns = "->".join(s if (s := vocab.reverse[i]) is not None else "None" for i in ints)
+    hit = vocab.reverse[raw_padded_timelines[i0, i1]]
+    logger.info(f"{i0=}, {i1=} ")
+    logger.info(f"{hit=} in {tkns}")
+    logger.info(
+        "->".join(map(str, inf_new[i0, max(0, i1 - w_sz) : min(m - 1, i1 + w_sz)]))
+    )
 
 logger.info("---fin")
