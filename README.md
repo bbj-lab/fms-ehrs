@@ -68,7 +68,7 @@ flowchart TD
  end
     N1 --> N2
     N2 --> N6 & N3
-    N6 --> N20 & N8 & N9 & N12
+    N6 --> N20 & N8 & N9 & N12 & N24
     N3 --> N4 & N5 & N9 & N11
     N5 --> N7
     N7 --> N8
