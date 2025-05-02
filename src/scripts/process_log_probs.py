@@ -6,14 +6,18 @@ grab the sequence of logits from the test set
 
 import argparse
 import collections
-import logging
 import pathlib
 
 import numpy as np
 import polars as pl
 
 from src.framework.logger import get_logger
-from src.framework.util import log_summary, plot_histograms
+from src.framework.util import (
+    extract_examples,
+    imshow_text,
+    log_summary,
+    plot_histograms,
+)
 from src.framework.vocabulary import Vocabulary
 
 logger = get_logger()
@@ -32,6 +36,7 @@ parser.add_argument(
     default="../../clif-mdls-archive/llama-med-58788824",
 )
 parser.add_argument("--out_dir", type=pathlib.Path, default="../../")
+parser.add_argument("--n_samp", type=int, default=5)
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -42,6 +47,7 @@ data_dir_orig, data_dir_new, model_loc, out_dir = map(
     (args.data_dir_orig, args.data_dir_new, args.model_loc, args.out_dir),
 )
 
+rng = np.random.default_rng(42)
 names = {"orig": args.name_orig, "new": args.name_new}
 splits = ("train", "val", "test")
 versions = ("orig", "new")
@@ -105,55 +111,6 @@ flags = {
     for v in versions
 }
 
-
-def extract_examples(
-    timelines: np.array,
-    criteria: np.array,
-    flags: list = None,
-    vocab: Vocabulary = vocab,
-    k: int = 10,
-    w_sz: int = 3,
-    lag: int = 0,
-    logger: logging.Logger = logger,
-    top_k: bool = True,
-):
-    assert timelines.shape[0] == criteria.shape[0]
-    assert timelines.shape[1] == criteria.shape[1] + lag
-    if flags:
-        assert len(flags) == timelines.shape[0]
-    top_k_flat_idx = (
-        np.argsort(np.nan_to_num(criteria.flatten()))[::-1][:k]
-        if top_k
-        else np.argsort(np.nan_to_num(criteria.flatten(), nan=np.inf))[:k]  # bottom k
-    )
-    top_k_idx = np.array(np.unravel_index(top_k_flat_idx, criteria.shape)).T
-    m = timelines.shape[-1]
-    for i0, i1 in top_k_idx:
-        ints = timelines[i0, max(0, i1 - w_sz) : min(m - 1, i1 + w_sz + lag)]
-        tkns = "->".join(
-            s if (s := vocab.reverse[i]) is not None else "None" for i in ints
-        )
-        hit = " ".join(
-            s if (s := vocab.reverse[i]) is not None else "None"
-            for i in timelines[i0][i1 : i1 + lag + 1]
-        )
-        if flags:
-            logger.info(f"{i0=}, {i1=} | {flags[i0]}")
-        else:
-            logger.info(f"{i0=}, {i1=} ")
-        logger.info(f"{hit=} in {tkns}")
-        logger.info(
-            "->".join(
-                map(
-                    str,
-                    criteria[i0, max(0, i1 - w_sz) : min(m - 1, i1 + w_sz + lag)].round(
-                        2
-                    ),
-                )
-            )
-        )
-
-
 # single-token events
 logger.info("Singletons |".ljust(79, "="))
 plot_histograms(
@@ -166,16 +123,17 @@ plot_histograms(
 for v in versions:
     logger.info(f"{names[v]}:")
     log_summary(infm[v], logger)
-    extract_examples(timelines=tl[v], criteria=infm[v], flags=flags[v], logger=logger)
-    logger.info("bottom k")
     extract_examples(
-        timelines=tl[v],
-        criteria=infm[v],
-        flags=flags[v],
-        logger=logger,
-        k=100,
-        top_k=False,
+        timelines=tl[v], criteria=infm[v], flags=flags[v], vocab=vocab, logger=logger
     )
+    logger.info("bottom k")
+    # extract_examples(
+    #     timelines=tl[v],
+    #     criteria=infm[v],
+    #     flags=flags[v],
+    #     logger=logger,
+    #     top_k=False,
+    # )
 
 
 # 2-token events
@@ -198,7 +156,12 @@ for v in versions:
     logger.info(f"{names[v]}:")
     log_summary(infm_pairs[v], logger)
     extract_examples(
-        timelines=tl[v], criteria=infm_pairs[v], flags=flags[v], lag=1, logger=logger
+        timelines=tl[v],
+        criteria=infm_pairs[v],
+        flags=flags[v],
+        vocab=vocab,
+        lag=1,
+        logger=logger,
     )
 
 # 3-token events
@@ -221,30 +184,33 @@ for v in versions:
     logger.info(f"{names[v]}:")
     log_summary(infm_trips[v], logger)
     extract_examples(
-        timelines=tl[v], criteria=infm_trips[v], flags=flags[v], lag=2, logger=logger
+        timelines=tl[v],
+        criteria=infm_trips[v],
+        flags=flags[v],
+        vocab=vocab,
+        lag=2,
+        logger=logger,
     )
 
-# 4-token events
-# logger.info("Quads |".ljust(79, "="))
-# infm_quads = {
-#     v: np.lib.stride_tricks.sliding_window_view(infm[v], window_shape=4, axis=-1).mean(
-#         axis=-1
-#     )
-#     for v in versions
-# }
-#
-# plot_histograms(
-#     named_arrs={names[v]: infm_quads[v] for v in versions},
-#     title="Histogram of pairwise information (per token)",
-#     xaxis_title="bits",
-#     yaxis_title="frequency",
-#     savepath=out_dir.joinpath("log_probs_quads-{m}-hist.pdf".format(m=model_loc.stem)),
-# )
-# for v in versions:
-#     logger.info(f"{names[v]}:")
-#     log_summary(infm_quads[v], logger)
-#     extract_examples(
-#         timelines=tl[v], criteria=infm_quads[v], flags=flags[v], lag=3, logger=logger
-#     )
+n_cols = 2**3
+for v in versions:
+    samp = rng.choice(infm[v].shape[0], size=args.n_samp, replace=False)
+    for i in samp:
+        inf = infm[v][i].reshape((-1, n_cols))
+        tt = np.array(
+            [
+                d[:10] if (d := vocab.reverse[t]) is not None else "None"
+                for t in tl[v][i]
+            ]
+        ).reshape((-1, n_cols))
+        imshow_text(
+            values=inf,
+            text=tt,
+            title=f"Information by token for patient {i} in {names[v]}",
+            savepath=out_dir.joinpath(
+                "tokens-{v}-{i}-{m}-hist.pdf".format(v=v, i=i, m=model_loc.stem)
+            ),
+        )
+
 
 logger.info("---fin")

@@ -19,6 +19,9 @@ import sklearn.calibration as skl_cal
 import sklearn.metrics as skl_mets
 import torch as t
 
+from src.framework.logger import get_logger
+from src.framework.vocabulary import Vocabulary
+
 Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
 Dictlike: typing.TypeAlias = collections.OrderedDict | dict
 
@@ -334,7 +337,7 @@ def plot_histograms(
 
 
 def log_summary(arr: np.array, logger: logging.Logger):
-
+    """log some summary stats for the array `arr`"""
     logger.info("Array of shape: {}".format(arr.shape))
     logger.info("Pct non-nan: {:.2f}".format(100 * np.isfinite(arr).mean()))
     logger.info("Range: ({:.2f}, {:.2f})".format(np.nanmin(arr), np.nanmax(arr)))
@@ -356,6 +359,87 @@ def ragged_lists_to_array(ls_arr: list[np.array]) -> np.array:
     return arr
 
 
+def extract_examples(
+    timelines: np.array,
+    criteria: np.array,
+    vocab: Vocabulary,
+    flags: list = None,
+    k: int = 10,
+    w_sz: int = 3,
+    lag: int = 0,
+    logger: logging.Logger = get_logger(),
+    top_k: bool = True,
+):
+    assert timelines.shape[0] == criteria.shape[0]
+    assert timelines.shape[1] == criteria.shape[1] + lag
+    if flags:
+        assert len(flags) == timelines.shape[0]
+    top_k_flat_idx = (
+        np.argsort(np.nan_to_num(criteria.flatten()))[::-1][:k]
+        if top_k
+        else np.argsort(np.nan_to_num(criteria.flatten(), nan=np.inf))[:k]  # bottom k
+    )
+    top_k_idx = np.array(np.unravel_index(top_k_flat_idx, criteria.shape)).T
+    m = timelines.shape[-1]
+    for i0, i1 in top_k_idx:
+        ints = timelines[i0, max(0, i1 - w_sz) : min(m - 1, i1 + w_sz + lag)]
+        tkns = "->".join(
+            s if (s := vocab.reverse[i]) is not None else "None" for i in ints
+        )
+        hit = " ".join(
+            s if (s := vocab.reverse[i]) is not None else "None"
+            for i in timelines[i0][i1 : i1 + lag + 1]
+        )
+        if flags:
+            logger.info(f"{i0=}, {i1=} | {flags[i0]}")
+        else:
+            logger.info(f"{i0=}, {i1=} ")
+        logger.info(f"{hit=} in {tkns}")
+        logger.info(
+            "->".join(
+                map(
+                    str,
+                    criteria[i0, max(0, i1 - w_sz) : min(m - 1, i1 + w_sz + lag)].round(
+                        2
+                    ),
+                )
+            )
+        )
+
+
+def imshow_text(values: np.array, text: np.array, title: str = "", savepath=None):
+    assert values.shape == text.shape
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=values,
+            text=text,
+            texttemplate="%{text}",
+            textfont={"size": 12, "color": "white"},
+            colorscale="Viridis",
+            reversescale=False,
+            showscale=True,
+            zsmooth=False,
+            xgap=1,
+            ygap=1,
+        )
+    )
+
+    fig.update_layout(
+        title=title,
+        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        yaxis=dict(
+            showgrid=False, zeroline=False, showticklabels=False, autorange="reversed"
+        ),
+        height=1800,
+        width=900,
+    )
+
+    if savepath is None:
+        fig.show()
+    else:
+        fig.write_image(pathlib.Path(savepath).expanduser().resolve())
+
+
 def set_pd_options():
     pd.options.display.float_format = "{:,.3f}".format
     pd.options.display.max_columns = None
@@ -364,8 +448,6 @@ def set_pd_options():
 
 
 if __name__ == "__main__":
-    from src.framework.logger import get_logger
-
     logger = get_logger()
     np_rng = np.random.default_rng(42)
 
@@ -393,3 +475,8 @@ if __name__ == "__main__":
     log_summary(vals, logger)
 
     plot_histograms({"foo": vals, "bar": vals + 0.2}, xaxis_title="bits")
+
+    n_tot, n_col = 2**10, 2**3
+    vals = np_rng.poisson(lam=20, size=n_tot).reshape((-1, n_col))
+    text = np.arange(n_tot).astype(str).reshape((-1, n_col))
+    imshow_text(values=vals, text=text)
