@@ -99,3 +99,5 @@ for v in versions:
     log_classification_metrics(
         y_true=label[v][outliers[v]], y_score=sft_pred[v][outliers[v]], logger=logger
     )
+
+logger.info("---fin")

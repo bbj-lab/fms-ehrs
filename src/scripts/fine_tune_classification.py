@@ -140,17 +140,26 @@ def main(
     )
 
     if tune:
-        trainer.hyperparameter_search(
+        best_trial = trainer.hyperparameter_search(
             direction="minimize",
             backend="optuna",
             hp_space=optuna_hp_space,
             n_trials=5,
         )
+
+        best_ckpt = sorted(
+            output_dir.joinpath(f"run-{best_trial.run_id}").glob("checkpoint-*")
+        ).pop()
+        best_mdl_loc = out_dir.joinpath("{m}-{j}-hp".format(m=model_loc.stem, j=jid))
+        AutoModelForSequenceClassification.from_pretrained(best_ckpt).save_pretrained(
+            best_mdl_loc
+        )
+
     else:
         trainer.train()
         trainer.save_model(
             str(
-                output_dir.joinpath(
+                best_mdl_loc := output_dir.joinpath(
                     "mdl-{m}-{j}-clsfr-{o}{u}".format(
                         m=model_loc.stem,
                         j=jid,
@@ -160,6 +169,8 @@ def main(
                 )
             )
         )
+
+    return best_mdl_loc
 
 
 if __name__ == "__main__":

@@ -117,12 +117,20 @@ def main(
         callbacks=[EarlyStoppingCallback(early_stopping_patience=3)],
     )
 
-    trainer.hyperparameter_search(
+    best_trial = trainer.hyperparameter_search(
         direction="minimize",
         backend="optuna",
         hp_space=optuna_hp_space,
         n_trials=n_trials,
     )
+
+    best_ckpt = sorted(
+        output_dir.joinpath(f"run-{best_trial.run_id}").glob("checkpoint-*")
+    ).pop()
+    best_mdl_loc = model_dir.joinpath("{m}-{j}-hp".format(m=model_version, j=jid))
+    AutoModelForCausalLM.from_pretrained(best_ckpt).save_pretrained(best_mdl_loc)
+
+    return best_mdl_loc
 
 
 if __name__ == "__main__":

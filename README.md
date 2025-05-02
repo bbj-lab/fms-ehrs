@@ -62,9 +62,13 @@ flowchart TD
         N14["14"]
         N15["15"]
   end
+ subgraph s6["Information quantification"]
+        N23["23"]
+        N24["24"]
+ end
     N1 --> N2
     N2 --> N6 & N3
-    N6 --> N20 & N8 & N9 & N12
+    N6 --> N20 & N8 & N9 & N12 & N24
     N3 --> N4 & N5 & N9 & N11
     N5 --> N7
     N7 --> N8
@@ -77,6 +81,8 @@ flowchart TD
     N12 --> N13
     N13 --> N14
     N14 --> N15
+    N4 --> N23
+    N23 --> N24
 ```
 
 ## What the code does
@@ -182,9 +188,8 @@ ssh -L 8088:localhost:8088 cri22cn401
 
 Grab generated plots:
 ```
-export hm=/gpfs/data/bbj-lab/users/burkh4rt
 rsync -avht \
-    randi:${hm}/figs \
+    randi:/gpfs/data/bbj-lab/users/burkh4rt/figs \
     ~/Downloads
 ```
 

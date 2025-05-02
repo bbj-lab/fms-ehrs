@@ -144,3 +144,5 @@ for suffix in ("", "_urt", "_lr"):
         .expanduser()
         .resolve()
     )
+
+logger.info("---fin")

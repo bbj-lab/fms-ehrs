@@ -122,3 +122,5 @@ with open(
     "wb",
 ) as fp:
     pickle.dump(ml_info, fp)
+
+logger.info("---fin")

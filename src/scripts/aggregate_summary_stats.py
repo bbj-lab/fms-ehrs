@@ -124,3 +124,5 @@ logger.info(
     .transpose()
     .to_latex(float_format="%.3f")
 )
+
+logger.info("---fin")

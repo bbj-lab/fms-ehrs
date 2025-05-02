@@ -35,17 +35,21 @@ case "${SLURM_ARRAY_TASK_ID}" in
         ;;
 esac
 
-torchrun --nproc_per_node=8 \
-    ../src/scripts/fine_tune_classification.py \
-    --model_loc "${hm}/clif-mdls-archive/${model}" \
-    --data_dir "${hm}/clif-data-ucmc" \
-    --data_version QC_day_stays_first_24h \
-    --out_dir "${hm}/clif-mdls" \
-    --n_epochs 10 \
-    --learning_rate 0.00002 \
-    --per_device_train_batch_size 4 \
-    --per_device_eval_batch_size 4 \
-    --gradient_accumulation_steps 2 \
-    --outcome "$outcome" \
-    --wandb_project "$wandb_project" \
-    --tune True
+res=$(
+    torchrun --nproc_per_node=8 \
+        ../src/scripts/fine_tune_classification.py \
+        --model_loc "${hm}/clif-mdls-archive/${model}" \
+        --data_dir "${hm}/clif-data-ucmc" \
+        --data_version QC_day_stays_first_24h \
+        --out_dir "${hm}/clif-mdls" \
+        --n_epochs 10 \
+        --learning_rate 0.00002 \
+        --per_device_train_batch_size 4 \
+        --per_device_eval_batch_size 4 \
+        --gradient_accumulation_steps 2 \
+        --outcome "$outcome" \
+        --wandb_project "$wandb_project" \
+        --tune True
+)
+
+echo "$res"
