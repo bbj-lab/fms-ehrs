@@ -12,18 +12,23 @@ echo "Processing MIMIC data..."
 python3 ../src/scripts/tokenize_train_val_test_split.py \
     --data_dir "${hm}/clif-data/" \
     --data_version_in QC \
-    --data_version_out QC_day_stays \
+    --data_version_out QC_no10 \
+    --vocab_path "${hm}/clif-data/QC_day_stays-tokenized/train/vocab.gzip" \
     --max_padded_len 1024 \
     --day_stay_filter True \
-    --include_24h_cut True
+    --include_24h_cut True \
+    --lab_time collect \
+    --drop_deciles True
 
 echo "Using vocab from MIMIC to process UChicago data..."
 python3 ../src/scripts/tokenize_train_val_test_split.py \
     --data_dir "${hm}/clif-data-ucmc" \
     --data_version_in QC \
-    --data_version_out QC_day_stays \
+    --data_version_out QC_no10 \
     --vocab_path "${hm}/clif-data/QC_day_stays-tokenized/train/vocab.gzip" \
     --max_padded_len 1024 \
     --day_stay_filter True \
     --include_24h_cut True \
-    --valid_admission_window "('2020-03-01','2022-03-01')"
+    --valid_admission_window "('2020-03-01','2022-03-01')" \
+    --lab_time collect \
+    --drop_deciles True

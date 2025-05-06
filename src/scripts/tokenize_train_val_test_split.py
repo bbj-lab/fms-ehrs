@@ -6,6 +6,7 @@ learn the tokenizer on the training set and apply it to the validation and test 
 
 import os
 import pathlib
+import typing
 
 import fire as fi
 
@@ -28,6 +29,8 @@ def main(
     day_stay_filter: bool = True,
     include_24h_cut: bool = True,
     valid_admission_window: tuple[str, str] = None,
+    lab_time: typing.Literal["collect", "result"] = "result",
+    drop_deciles: bool = False,
 ):
     data_dir = pathlib.Path(data_dir).expanduser().resolve()
     splits = ("train", "val", "test")
@@ -61,6 +64,8 @@ def main(
             day_stay_filter=day_stay_filter,
             cut_at_24h=cut_at_24h,
             valid_admission_window=valid_admission_window,
+            lab_time=lab_time,
+            drop_deciles=drop_deciles,
         )
         tokens_timelines = tkzr.get_tokens_timelines()
         logger.info("train...")
@@ -86,6 +91,8 @@ def main(
                 day_stay_filter=day_stay_filter,
                 cut_at_24h=cut_at_24h,
                 valid_admission_window=valid_admission_window,
+                lab_time=lab_time,
+                drop_deciles=drop_deciles,
             )
             tokens_timelines = tkzr.get_tokens_timelines()
             logger.info(f"{s}...")

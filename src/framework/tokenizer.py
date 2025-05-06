@@ -35,6 +35,8 @@ class ClifTokenizer:
         day_stay_filter: bool = False,
         cut_at_24h: bool = False,
         valid_admission_window: tuple[str, str] = None,
+        lab_time: typing.Literal["collect", "result"] = "result",
+        drop_deciles: bool = False,
     ):
         """
         if no vocabulary is provided, we are in training mode; otherwise, the
@@ -57,6 +59,8 @@ class ClifTokenizer:
         self.day_stay_filter = bool(day_stay_filter)
         self.cut_at_24h = bool(cut_at_24h)
         self.valid_admission_window = valid_admission_window
+        self.lab_time = lab_time
+        self.drop_deciles = bool(drop_deciles)
 
     def load_tables(self):
         """lazy-load all parquet tables from the directory `self.data_dir`"""
@@ -258,10 +262,7 @@ class ClifTokenizer:
             .filter(~pl.col("lab_category").is_null())
             .select(
                 "hospitalization_id",
-                pl.col("lab_collect_dttm")
-                .cast(pl.Datetime(time_unit="ms"))
-                .alias("event_start"),
-                pl.col("lab_result_dttm")
+                pl.col(f"lab_{self.lab_time}_dttm")
                 .cast(pl.Datetime(time_unit="ms"))
                 .alias("event_time"),
                 pl.col("lab_category").str.to_lowercase().alias("category"),
@@ -480,13 +481,11 @@ class ClifTokenizer:
             events.lazy()
             .sort("event_time")
             .group_by("hospitalization_id", maintain_order=True)
-            .agg(
-                [pl.col("times").explode()],
-            )
+            .agg([pl.col("times").explode()])
         )
 
         event_tokens = tokens_agg.join(
-            times_agg, on="hospitalization_id", validate="1:1"
+            times_agg, on="hospitalization_id", validate="1:1", maintain_order="left"
         )
         return event_tokens
 
@@ -551,6 +550,21 @@ class ClifTokenizer:
 
         if self.cut_at_24h:
             tt = self.cut_at_time(tt)
+
+        if self.drop_deciles:
+            filtered = tt.explode("tokens", "times").filter(pl.col("tokens") >= 10)
+            new_times = filtered.group_by(
+                "hospitalization_id", maintain_order=True
+            ).agg([pl.col("times")])
+            new_tokens = filtered.group_by(
+                "hospitalization_id", maintain_order=True
+            ).agg([pl.col("tokens")])
+            tt = new_tokens.join(
+                new_times,
+                on="hospitalization_id",
+                validate="1:1",
+                maintain_order="left",
+            )
 
         return tt.collect()
 
@@ -661,7 +675,7 @@ if __name__ == "__main__":
         day_stay_filter=True,  # cut_at_24h=True
         valid_admission_window=("2110-01-01", "2111-12-31"),
     )
-    tokens_timelines = tkzr.get_tokens_timelines()
+    tt = tokens_timelines = tkzr.get_tokens_timelines()
 
     tkzr.print_aux()
     summarize(tkzr, tokens_timelines)
