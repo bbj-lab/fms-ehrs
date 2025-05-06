@@ -14,7 +14,7 @@ case "$dataset" in
         python3 ../src/scripts/create_train_val_test_split.py \
             --data_dir_in "${hm}/CLIF-MIMIC/output/rclif-2.1-edit/" \
             --data_dir_out "${hm}/clif-data/" \
-            --data_version_out TEST \
+            --data_version_out QC \
             --train_frac 0.7 \
             --val_frac 0.1
         ;;
