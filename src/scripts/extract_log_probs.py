@@ -101,13 +101,13 @@ for batch_idx in tqdm(t.split(t.arange(n), args.batch_sz)):
         .cpu()
         .numpy()
     )
-    final_nonpadding_idx = (
-        (t.argmax(t.isin(batch, stop_tokens).int(), axis=1, keepdim=True) - 1)
+    first_stop_idx = (
+        t.argmax(t.isin(batch, stop_tokens).int(), axis=1, keepdim=True)
         .cpu()
         .numpy()
         .ravel()
     )
-    for i, j in enumerate(final_nonpadding_idx):
+    for i, j in enumerate(first_stop_idx):
         if j > 0:
             log_probs_realized[i, j:] = np.nan
     log_probs[batch_idx] = log_probs_realized
