@@ -6,7 +6,7 @@
 ## Requirements & structure
 
 The bash scripts can be run in a slurm environment with the specified resource
-requirements. (We used compute nodes with 8xA100 GPUs, connected with 2x 16-core
+requirements. (We used compute nodes with 8×A100 GPUs, connected with 2×16-core
 3.0-GHz AMD Milan processors for GPU-based work.) Each bash script calls one or
 more python scripts that depend on an environment as described in the
 `requirements.txt` file:
@@ -144,6 +144,13 @@ outcome-specific.
 Our pipeline extracts model-specific representations for each hospitalization
 event that our useful for predicting a number of subsequent outcomes.
 
+## Usage notes
+Queue slurm jobs with dependencies as follows:
+```sh
+j01=$(sbatch --parsable 01_create_train_val_test_split.sh)
+j02=$(sbatch --parsable --depend=afterok:${j01} 02_tokenize_train_val_test_split.sh)
+```
+
 ---
 
 [^1]:
@@ -160,6 +167,17 @@ isort src/
 black src/
 shfmt -w slurm/
 prettier --write --print-width 81 --prose-wrap always *.md
+```
+
+Send to randi:
+```
+rsync -avht \
+  --delete \
+  --exclude "slurm/output/" \
+  --exclude "venv/" \
+  --exclude ".idea/" \
+  ~/Documents/chicago/fms-ehrs-reps \
+  randi:/gpfs/data/bbj-lab/users/burkh4rt
 ```
 
 Run on randi:
