@@ -31,6 +31,7 @@ def main(
     valid_admission_window: tuple[str, str] = None,
     lab_time: typing.Literal["collect", "result"] = "result",
     drop_deciles: bool = False,
+    drop_nulls_nans: bool = False,
 ):
     data_dir = pathlib.Path(data_dir).expanduser().resolve()
     splits = ("train", "val", "test")
@@ -66,6 +67,7 @@ def main(
             valid_admission_window=valid_admission_window,
             lab_time=lab_time,
             drop_deciles=drop_deciles,
+            drop_nulls_nans=drop_nulls_nans,
         )
         tokens_timelines = tkzr.get_tokens_timelines()
         logger.info("train...")
@@ -93,6 +95,7 @@ def main(
                 valid_admission_window=valid_admission_window,
                 lab_time=lab_time,
                 drop_deciles=drop_deciles,
+                drop_nulls_nans=drop_nulls_nans,
             )
             tokens_timelines = tkzr.get_tokens_timelines()
             logger.info(f"{s}...")

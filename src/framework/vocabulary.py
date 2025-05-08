@@ -34,7 +34,7 @@ class Vocabulary:
         self.aux = {}
         self._is_training = is_training
 
-    def __call__(self, word: Hashable) -> int | None:
+    def __call__(self, word: Hashable | None) -> int | None:
         try:
             return self.lookup[word]
         except KeyError:

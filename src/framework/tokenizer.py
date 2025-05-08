@@ -37,6 +37,7 @@ class ClifTokenizer:
         valid_admission_window: tuple[str, str] = None,
         lab_time: typing.Literal["collect", "result"] = "result",
         drop_deciles: bool = False,
+        drop_nulls_nans: bool = False,
     ):
         """
         if no vocabulary is provided, we are in training mode; otherwise, the
@@ -44,7 +45,7 @@ class ClifTokenizer:
         """
         self.data_dir = pathlib.Path(data_dir).expanduser()
         self.tbl = dict()
-        self.special = ("TL_START", "TL_END", "PAD", "TRUNC", None)
+        self.special = ("TL_START", "TL_END", "PAD", "TRUNC", None, "nan")
         if vocab_path is None:
             self.vocab_path = None
             self.vocab = Vocabulary(
@@ -61,6 +62,7 @@ class ClifTokenizer:
         self.valid_admission_window = valid_admission_window
         self.lab_time = lab_time
         self.drop_deciles = bool(drop_deciles)
+        self.drop_nulls_nans = bool(drop_nulls_nans)
 
     def load_tables(self):
         """lazy-load all parquet tables from the directory `self.data_dir`"""
@@ -551,8 +553,16 @@ class ClifTokenizer:
         if self.cut_at_24h:
             tt = self.cut_at_time(tt)
 
-        if self.drop_deciles:
-            filtered = tt.explode("tokens", "times").filter(pl.col("tokens") >= 10)
+        if self.drop_deciles or self.drop_nulls_nans:
+            filtered = (
+                tt.explode("tokens", "times")
+                .filter(pl.col("tokens") >= 10 if self.drop_deciles else pl.lit(True))
+                .filter(
+                    (~pl.col("tokens").is_in([self.vocab(None), self.vocab("nan")]))
+                    if self.drop_nulls_nans
+                    else pl.lit(True)
+                )
+            )
             new_times = filtered.group_by(
                 "hospitalization_id", maintain_order=True
             ).agg([pl.col("times")])
@@ -674,6 +684,8 @@ if __name__ == "__main__":
         max_padded_len=1024,
         day_stay_filter=True,  # cut_at_24h=True
         valid_admission_window=("2110-01-01", "2111-12-31"),
+        drop_deciles=True,
+        drop_nulls_nans=True,
     )
     tt = tokens_timelines = tkzr.get_tokens_timelines()
 

@@ -36,7 +36,18 @@ parser.add_argument(
     default="../../clif-mdls-archive/llama-med-58788824",
 )
 parser.add_argument("--out_dir", type=pathlib.Path, default="../../")
-parser.add_argument("--n_samp", type=int, default=5)
+parser.add_argument(
+    "--samp_orig",
+    type=str,
+    nargs="*",
+    default=["24237326", "24370390", "24968777", "26774648", "29173149"],
+)
+parser.add_argument(
+    "--samp_new",
+    type=str,
+    nargs="*",
+    default=["14640279", "2023232", "6017554", "6503727", "8797520"],
+)
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -86,6 +97,23 @@ tl = {
     for v in versions
 }
 
+samp = {"orig": args.samp_orig, "new": args.samp_new}
+
+ids = {
+    v: np.array(
+        pl.scan_parquet(
+            data_dirs[v]["test"].joinpath(
+                "tokens_timelines_outcomes.parquet",
+            )
+        )
+        .select("hospitalization_id")
+        .collect()
+        .to_series()
+        .to_numpy()
+    )
+    for v in versions
+}
+
 flags = {
     v: (
         pl.scan_parquet(
@@ -126,15 +154,6 @@ for v in versions:
     extract_examples(
         timelines=tl[v], criteria=infm[v], flags=flags[v], vocab=vocab, logger=logger
     )
-    logger.info("bottom k")
-    # extract_examples(
-    #     timelines=tl[v],
-    #     criteria=infm[v],
-    #     flags=flags[v],
-    #     logger=logger,
-    #     top_k=False,
-    # )
-
 
 # 2-token events
 logger.info("Pairs |".ljust(79, "="))
@@ -194,8 +213,8 @@ for v in versions:
 
 n_cols = 2**3
 for v in versions:
-    samp = rng.choice(infm[v].shape[0], size=args.n_samp, replace=False)
-    for i in samp:
+    for s in samp[v]:
+        i = np.argmax(s == ids[v])
         inf = infm[v][i].reshape((-1, n_cols))
         tt = np.array(
             [
@@ -206,9 +225,9 @@ for v in versions:
         imshow_text(
             values=inf,
             text=tt,
-            title=f"Information by token for patient {i} in {names[v]}",
+            title=f"Information by token for patient {s} in {names[v]}",
             savepath=out_dir.joinpath(
-                "tokens-{v}-{i}-{m}-hist.pdf".format(v=v, i=i, m=model_loc.stem)
+                "tokens-{v}-{s}-{m}-hist.pdf".format(v=v, s=s, m=model_loc.stem)
             ),
         )
 
