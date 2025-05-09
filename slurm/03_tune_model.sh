@@ -6,7 +6,7 @@
 #SBATCH --gres=gpu:8
 #SBATCH --time=1-00:00:00
 ##SBATCH --dependency=afterok:59626732
-#SBATCH --array=0-3
+#SBATCH --array=0
 
 source preamble.sh
 
@@ -23,7 +23,7 @@ res=$(
         --n_epochs 10 \
         --n_trials 5 \
         --data_dir "${hm}/clif-data" \
-        --data_version QC_no10 \
+        --data_version QC_no10_noX \
         --collation packed \
         --model_dir "${hm}/clif-mdls" \
         --model_version "llama1b-${names[$SLURM_ARRAY_TASK_ID]}" \
