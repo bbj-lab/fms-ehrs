@@ -5,7 +5,7 @@
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:4
 #SBATCH --time=1-00:00:00
-#SBATCH --array=0-7
+#SBATCH --array=0-1
 
 source preamble.sh
 
@@ -21,10 +21,7 @@ data_dirs=(
     "${hm}/clif-data-ucmc"
 )
 models=(
-    llama1b-original-59713433-hp-no10
-    llama1b-med-59713434-hp-no10
-    llama1b-small-59713435-hp-no10
-    llama1b-smol-59713429-hp-no10
+    llama1b-original-59772926-hp
 )
 
 torchrun --nproc_per_node=4 \
@@ -33,6 +30,6 @@ torchrun --nproc_per_node=4 \
     --rdzv-endpoint=localhost:0 \
     ../src/scripts/extract_hidden_states.py \
     --data_dir "${data_dirs[$rem]}" \
-    --data_version QC_no10_first_24h \
+    --data_version QC_no10_noX_first_24h \
     --model_loc "${hm}/clif-mdls-archive/${models[$quo]}" \
     --batch_sz $((2 ** 5))
