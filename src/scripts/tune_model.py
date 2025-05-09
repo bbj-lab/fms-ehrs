@@ -124,11 +124,12 @@ def main(
         n_trials=n_trials,
     )
 
-    best_ckpt = sorted(
-        output_dir.joinpath(f"run-{best_trial.run_id}").glob("checkpoint-*")
-    ).pop()
-    best_mdl_loc = model_dir.joinpath("{m}-{j}-hp".format(m=model_version, j=jid))
-    AutoModelForCausalLM.from_pretrained(best_ckpt).save_pretrained(best_mdl_loc)
+    if os.getenv("RANK", "0") == "0":
+        best_ckpt = sorted(
+            output_dir.joinpath(f"run-{best_trial.run_id}").glob("checkpoint-*")
+        ).pop()
+        best_mdl_loc = model_dir.joinpath("{m}-{j}-hp".format(m=model_version, j=jid))
+        AutoModelForCausalLM.from_pretrained(best_ckpt).save_pretrained(best_mdl_loc)
 
     return best_mdl_loc
 

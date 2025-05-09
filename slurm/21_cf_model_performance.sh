@@ -19,20 +19,11 @@ case "${SLURM_ARRAY_TASK_ID}" in
 esac
 
 models=(
-    "${hm}/clif-mdls-archive/llama-orig-58789721"
-    "${hm}/clif-mdls-archive/llama-large-58788825"
-    "${hm}/clif-mdls-archive/llama-med-58788824"
-    "${hm}/clif-mdls-archive/llama-small-58741567"
-    "${hm}/clif-mdls-archive/llama-smol-58761427"
-    "${hm}/clif-mdls-archive/llama-tiny-58761428"
-    "${hm}/clif-mdls-archive/llama-teensy-58741565"
-    "${hm}/clif-mdls-archive/llama-wee-58996725"
-    "${hm}/clif-mdls-archive/llama-bitsy-58996726"
-    "${hm}/clif-mdls-archive/llama-micro-58996720"
+    llama1b-original-59772926-hp
 )
 
 python3 ../src/scripts/aggregate_model_preds.py \
     --data_dir "${data_dir}" \
     --out_dir "${hm}/figs" \
-    --data_version QC_day_stays_first_24h \
-    --models "${models[@]}"
+    --data_version QC_no10_first_24h \
+    --models "${models[@]/#/${hm}/clif-mdls-archive/}"
