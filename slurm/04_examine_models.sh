@@ -11,6 +11,6 @@ source preamble.sh
 python3 ../src/scripts/examine_models.py \
     --projector_type PCA \
     --data_dir "${hm}/clif-data" \
-    --data_version QC_day_stays \
+    --data_version "${data_version:-QC_noX}" \
     --ref_mdl_loc "${hm}/clif-mdls-archive/llama1b-57928921-run1" \
     --out_dir "${hm}"
