@@ -69,7 +69,7 @@ class ClifTokenizer:
         self.drop_deciles = bool(drop_deciles)
         self.drop_nulls_nans = bool(drop_nulls_nans)
 
-    def load_tables(self):
+    def load_tables(self) -> None:
         """lazy-load all parquet tables from the directory `self.data_dir`"""
         self.tbl = {
             (
@@ -78,7 +78,7 @@ class ClifTokenizer:
             for p in self.data_dir.glob("*.parquet")
         }
 
-    def set_quants(self, v: np.array, c: str, label: str = None):
+    def set_quants(self, v: np.array, c: str, label: str = None) -> None:
         """store training quantile information in the self.vocab object"""
         designator = f"{label}_{c}" if label is not None else c
         if not self.vocab.has_aux(designator) and self.vocab.is_training:
@@ -91,7 +91,7 @@ class ClifTokenizer:
                 σ = np.nanstd(v) + np.finfo(float).eps
                 self.vocab.set_aux(designator, μ + σ * np.arange(-3, 4))
 
-    def get_quants(self, v: np.array, c: str, label: str = None):
+    def get_quants(self, v: np.array, c: str, label: str = None) -> pl.Expr:
         """obtain corresponding quantiles using self.vocab object"""
         designator = f"{label}_{c}" if label is not None else c
         return pl.lit(
@@ -147,7 +147,7 @@ class ClifTokenizer:
             self.process_single_category(x, label) for x in df.partition_by("category")
         )
 
-    def process_tables(self):
+    def process_tables(self) -> None:
 
         self.tbl["patient"] = (
             self.tbl["patient"]
@@ -391,7 +391,7 @@ class ClifTokenizer:
             .cast({"times": pl.List(pl.Datetime(time_unit="ms"))})
         )
 
-    def run_times_qc(self):
+    def run_times_qc(self) -> None:
         alt_times = (
             self.tbl["vitals"]
             .group_by("hospitalization_id")
@@ -610,7 +610,7 @@ class ClifTokenizer:
         else:
             return tokens_timelines
 
-    def print_aux(self):
+    def print_aux(self) -> None:
         self.vocab.print_aux()
 
 
@@ -619,7 +619,7 @@ def summarize(
     tokens_timelines: Frame,
     k: int = 20,
     logger: logging.Logger = None,
-):
+) -> None:
     """provide posthoc summary statistics"""
 
     post = logger.info if logger is not None else print

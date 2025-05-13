@@ -7,6 +7,7 @@
 #SBATCH --time=1:00:00
 
 source preamble.sh
+export data_version=TEST
 
 echo "Processing MIMIC data..."
 python3 ../src/scripts/tokenize_train_val_test_split.py \
