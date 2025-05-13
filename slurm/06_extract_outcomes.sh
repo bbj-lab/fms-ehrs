@@ -24,5 +24,5 @@ esac
 
 python3 ../src/scripts/extract_outcomes.py \
     --data_dir "$data_dir" \
-    --ref_version QC_no10_noX \
-    --data_version QC_no10_noX_first_24h
+    --ref_version "${data_version:-QC_noX}" \
+    --data_version "${data_version:-QC_noX}_first_24h"
