@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export data_version=QC_noX
+export data_version=QC_noX_sigmas
 
 j02=$(sbatch --parsable 02_tokenize_train_val_test_split.sh)
 
