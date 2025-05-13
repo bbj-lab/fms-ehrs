@@ -6,7 +6,6 @@ learn the tokenizer on the training set and apply it to the validation and test 
 
 import os
 import pathlib
-import typing
 
 import fire as fi
 
@@ -25,14 +24,8 @@ def main(
     data_version_in: str = "raw",
     data_version_out: str = "day_stays",
     vocab_path: os.PathLike = None,
-    max_padded_len: int = 1024,
-    day_stay_filter: bool = True,
     include_24h_cut: bool = True,
-    valid_admission_window: tuple[str, str] = None,
-    lab_time: typing.Literal["collect", "result"] = "result",
-    quantizer: typing.Literal["deciles", "sigmas"] = "deciles",
-    drop_deciles: bool = False,
-    drop_nulls_nans: bool = False,
+    **kwargs,
 ):
     data_dir = pathlib.Path(data_dir).expanduser().resolve()
     splits = ("train", "val", "test")
@@ -62,14 +55,8 @@ def main(
                     else None
                 )
             ),
-            max_padded_len=max_padded_len,
-            day_stay_filter=day_stay_filter,
             cut_at_24h=cut_at_24h,
-            valid_admission_window=valid_admission_window,
-            quantizer=quantizer,
-            lab_time=lab_time,
-            drop_deciles=drop_deciles,
-            drop_nulls_nans=drop_nulls_nans,
+            **kwargs,
         )
         tokens_timelines = tkzr.get_tokens_timelines()
         logger.info("train...")
@@ -91,14 +78,8 @@ def main(
                         f"{data_version_out}-tokenized", "train", "vocab.gzip"
                     )
                 ),
-                max_padded_len=max_padded_len,
-                day_stay_filter=day_stay_filter,
                 cut_at_24h=cut_at_24h,
-                valid_admission_window=valid_admission_window,
-                quantizer=quantizer,
-                lab_time=lab_time,
-                drop_deciles=drop_deciles,
-                drop_nulls_nans=drop_nulls_nans,
+                **kwargs,
             )
             tokens_timelines = tkzr.get_tokens_timelines()
             logger.info(f"{s}...")
