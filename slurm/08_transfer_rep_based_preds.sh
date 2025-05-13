@@ -20,7 +20,7 @@ models=(
 python3 ../src/scripts/transfer_rep_based_preds.py \
     --data_dir_orig "${hm}/clif-data" \
     --data_dir_new "${hm}/clif-data-ucmc" \
-    --data_version QC_no10_noX_first_24h \
+    --data_version "${data_version:-QC_noX}_first_24h" \
     --model_loc "${hm}/clif-mdls-archive/${models[$SLURM_ARRAY_TASK_ID]}" \
     --classifier logistic_regression \
     --save_preds

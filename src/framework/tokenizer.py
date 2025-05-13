@@ -36,6 +36,7 @@ class ClifTokenizer:
         cut_at_24h: bool = False,
         valid_admission_window: tuple[str, str] = None,
         lab_time: typing.Literal["collect", "result"] = "result",
+        quantizer: typing.Literal["deciles", "sigmas"] = "deciles",
         drop_deciles: bool = False,
         drop_nulls_nans: bool = False,
     ):
@@ -45,12 +46,16 @@ class ClifTokenizer:
         """
         self.data_dir = pathlib.Path(data_dir).expanduser()
         self.tbl = dict()
+        self.quantizer = quantizer
+        self.q_tokens = (
+            tuple(map(lambda i: f"Q{i}", range(10)))
+            if self.quantizer == "deciles"
+            else ("Q3-", "Q2-", "Q1-", "Q0-", "Q0+", "Q1+", "Q2+", "Q3+")
+        )
         self.special = ("TL_START", "TL_END", "PAD", "TRUNC", None, "nan")
         if vocab_path is None:
             self.vocab_path = None
-            self.vocab = Vocabulary(
-                tuple(map(lambda i: f"Q{i}", range(10))) + self.special
-            )
+            self.vocab = Vocabulary(self.q_tokens + self.special)
             self.vocab.is_training = True
         else:
             self.vocab_path = pathlib.Path(vocab_path).expanduser()
@@ -73,6 +78,36 @@ class ClifTokenizer:
             for p in self.data_dir.glob("*.parquet")
         }
 
+    def set_quants(self, v: np.array, c: str, label: str = None):
+        """store training quantile information in the self.vocab object"""
+        designator = f"{label}_{c}" if label is not None else c
+        if not self.vocab.has_aux(designator) and self.vocab.is_training:
+            if self.quantizer == "deciles":
+                self.vocab.set_aux(
+                    designator, np.nanquantile(v, np.arange(0.1, 1.0, 0.1))
+                )
+            elif self.quantizer == "sigmas":
+                μ = np.nanmean(v)
+                σ = np.nanstd(v) + np.finfo(float).eps
+                self.vocab.set_aux(designator, μ + σ * np.arange(-3, 4))
+
+    def get_quants(self, v: np.array, c: str, label: str = None):
+        """obtain corresponding quantiles using self.vocab object"""
+        designator = f"{label}_{c}" if label is not None else c
+        return pl.lit(
+            (
+                pl.Series(
+                    np.where(
+                        np.isfinite(v),
+                        np.digitize(v, bins=self.vocab.get_aux(designator)),
+                        self.vocab("nan"),
+                    )
+                )
+                if self.vocab.has_aux(designator)
+                else self.vocab(None)
+            ),
+        ).cast(pl.Int64)
+
     def process_single_category(self, x: Frame, label: str) -> Frame:
         """
         Quantize a sub-table consisting of a single category
@@ -90,26 +125,11 @@ class ClifTokenizer:
         """
         v = x.select("value").to_numpy().ravel()
         c = x.select("category").row(0)[0]
-        if not self.vocab.has_aux(f"{label}_{c}") and self.vocab.is_training:
-            self.vocab.set_aux(
-                f"{label}_{c}", np.nanquantile(v, np.arange(0.1, 1.0, 0.1))
-            )
+        self.set_quants(v=v, c=c, label=label)
         return (
             x.with_columns(
                 token=pl.lit(self.vocab(f"{label}_{c}")).cast(pl.Int64),
-                token_quantile=pl.lit(
-                    (
-                        pl.Series(
-                            np.where(
-                                np.isfinite(v),
-                                np.digitize(v, bins=self.vocab.get_aux(f"{label}_{c}")),
-                                self.vocab("nan"),
-                            )
-                        )
-                        if self.vocab.has_aux(f"{label}_{c}")
-                        else self.vocab(None)
-                    ),
-                ).cast(pl.Int64),
+                token_quantile=self.get_quants(v=v, c=c, label=label),
             )
             .drop_nulls("token")
             .with_columns(
@@ -205,32 +225,15 @@ class ClifTokenizer:
 
         # tokenize age_at_admission here
         c = "age_at_admission"
-        v = self.tbl["hospitalization"].select("age_at_admission").to_numpy().ravel()
-        if not self.vocab.has_aux(c) and self.vocab.is_training:
-            self.vocab.set_aux(c, np.nanquantile(v, np.arange(0.1, 1.0, 0.1)))
+        v = self.tbl["hospitalization"].select(c).to_numpy().ravel()
+        self.set_quants(v=v, c=c)
         self.tbl["hospitalization"] = (
             self.tbl["hospitalization"]
+            .with_columns(age_at_admission=self.get_quants(v=v, c=c))
             .with_columns(
-                age_at_admission=pl.lit(
-                    (
-                        pl.Series(
-                            np.where(
-                                np.isfinite(v),
-                                np.digitize(v, bins=self.vocab.get_aux(c)),
-                                self.vocab("nan"),
-                            )
-                        )
-                        if self.vocab.has_aux(c)
-                        else self.vocab(None)
-                    ),
-                )
+                admission_tokens=pl.concat_list(c, "admission_type_name"),
             )
-            .with_columns(
-                admission_tokens=pl.concat_list(
-                    "age_at_admission", "admission_type_name"
-                ),
-            )
-            .drop("age_at_admission", "admission_type_name")
+            .drop(c, "admission_type_name")
         )
 
         self.tbl["adt"] = (
@@ -684,7 +687,7 @@ if __name__ == "__main__":
         max_padded_len=1024,
         day_stay_filter=True,  # cut_at_24h=True
         valid_admission_window=("2110-01-01", "2111-12-31"),
-        drop_deciles=True,
+        quantizer="sigmas",
         drop_nulls_nans=True,
     )
     tt = tokens_timelines = tkzr.get_tokens_timelines()

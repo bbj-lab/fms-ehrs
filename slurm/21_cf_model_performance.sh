@@ -3,7 +3,7 @@
 #SBATCH --job-name=cf-mdls
 #SBATCH --output=./output/%j-%x.stdout
 #SBATCH --partition=tier2q
-#SBATCH --time=3:00:00
+#SBATCH --time=1:00:00
 ##SBATCH --dependency=afterok:59000155_[0-6]
 #SBATCH --array=0-1
 
@@ -25,5 +25,5 @@ models=(
 python3 ../src/scripts/aggregate_model_preds.py \
     --data_dir "${data_dir}" \
     --out_dir "${hm}/figs" \
-    --data_version QC_no10_first_24h \
+    --data_version "${data_version:-QC_noX}_first_24h" \
     --models "${models[@]/#/${hm}/clif-mdls-archive/}"
