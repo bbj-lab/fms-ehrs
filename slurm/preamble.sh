@@ -1,7 +1,11 @@
 #!/bin/bash
 
-# sources standard scripts
-# exports paths
+# sources standard scripts, exports paths
+
+if [ -v SLURM_ARRAY_JOB_ID ]; then
+    echo "SLURM_ARRAY_JOB_ID=${SLURM_ARRAY_JOB_ID}"
+    echo "SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
+fi
 
 hm="/gpfs/data/bbj-lab/users/$(whoami)"
 name=$(scontrol show job "$SLURM_JOBID" |
