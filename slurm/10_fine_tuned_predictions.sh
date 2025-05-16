@@ -1,16 +1,13 @@
 #!/bin/bash
 
 #SBATCH --job-name=eval-ft-mdl
-#SBATCH --output=./output/%j-%x.stdout
+#SBATCH --output=./output/%A_%a-%x.stdout
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:1
 #SBATCH --time=24:00:00
 #SBATCH --array=0-79
 
 source preamble.sh
-
-echo "SLURM_ARRAY_JOB_ID=${SLURM_ARRAY_JOB_ID}"
-echo "SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
 
 div=2
 quo=$((SLURM_ARRAY_TASK_ID / div))

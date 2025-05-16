@@ -1,9 +1,11 @@
 #!/bin/bash
 
-#SBATCH --job-name=proc-log-probs
+#SBATCH --job-name=cluster-reps
 #SBATCH --output=./output/%j-%x.stdout
-#SBATCH --partition=tier2q
-#SBATCH --time=1:00:00
+#SBATCH --partition=tier3q
+#SBATCH --mem=100GB
+#SBATCH --cpus-per-task=24
+#SBATCH --time=3:00:00
 
 source preamble.sh
 
@@ -13,10 +15,10 @@ models=(
 )
 
 for m in "${models[@]}"; do
-    python3 ../src/scripts/process_log_probs.py \
+    python3 ../src/scripts/embed_reps.py \
         --data_dir_orig "${hm}/clif-data" \
         --data_dir_new "${hm}/clif-data-ucmc" \
         --data_version "${m##*-}_first_24h" \
         --model_loc "${hm}/clif-mdls-archive/$m" \
-        --out_dir "${hm}/figs"
+        --mapper umap
 done

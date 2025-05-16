@@ -66,23 +66,28 @@ flowchart TD
         N23["23"]
         N24["24"]
  end
+ subgraph s7["Embedding reps"]
+        N25["25"]
+        N26["26"]
+ end
     N1 --> N2
     N2 --> N6 & N3
     N6 --> N20 & N8 & N9 & N12 & N24
     N3 --> N4 & N5 & N9 & N11
-    N5 --> N7
+    N4 --> N23
+    N5 --> N7 & N25
     N7 --> N8
     N8 --> N21
     N9 --> N10 & N13
     N10 --> N16 & N17 & N22
-    N17 --> N18
-    N18 --> N19
     N11 --> N12 & N14
     N12 --> N13
     N13 --> N14
     N14 --> N15
-    N4 --> N23
+    N17 --> N18
+    N18 --> N19
     N23 --> N24
+    N25 --> N26
 ```
 
 ## What the code does
@@ -145,7 +150,9 @@ Our pipeline extracts model-specific representations for each hospitalization
 event that our useful for predicting a number of subsequent outcomes.
 
 ## Usage notes
+
 Queue slurm jobs with dependencies as follows:
+
 ```sh
 j01=$(sbatch --parsable 01_create_train_val_test_split.sh)
 j02=$(sbatch --parsable --depend=afterok:${j01} 02_tokenize_train_val_test_split.sh)

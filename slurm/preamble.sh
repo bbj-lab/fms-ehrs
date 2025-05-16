@@ -8,10 +8,10 @@ if [ -v SLURM_ARRAY_JOB_ID ]; then
 fi
 
 hm="/gpfs/data/bbj-lab/users/$(whoami)"
-name=$(scontrol show job "$SLURM_JOBID" |
-    grep -m 1 "Command=" |
-    cut -d "=" -f2 |
-    xargs -I {} basename {} .sh)
+name=$(scontrol show job "$SLURM_JOBID" \
+    | grep -m 1 "Command=" \
+    | cut -d "=" -f2 \
+    | xargs -I {} basename {} .sh)
 export hm name
 
 source ~/.bashrc 2> /dev/null
