@@ -7,6 +7,7 @@
 #SBATCH --time=1:00:00
 
 source preamble.sh
+export data_version=with_ecg
 
 echo "Processing MIMIC data..."
 python3 ../src/scripts/tokenize_train_val_test_split.py \
@@ -16,8 +17,7 @@ python3 ../src/scripts/tokenize_train_val_test_split.py \
     --max_padded_len 1024 \
     --day_stay_filter True \
     --include_24h_cut True \
-    --drop_nulls_nans True \
-    --quantizer sigmas
+    --drop_nulls_nans True
 
 echo "Using vocab from MIMIC to process UChicago data..."
 python3 ../src/scripts/tokenize_train_val_test_split.py \
@@ -29,5 +29,4 @@ python3 ../src/scripts/tokenize_train_val_test_split.py \
     --day_stay_filter True \
     --include_24h_cut True \
     --valid_admission_window "('2020-03-01','2022-03-01')" \
-    --drop_nulls_nans True \
-    --quantizer sigmas
+    --drop_nulls_nans True
