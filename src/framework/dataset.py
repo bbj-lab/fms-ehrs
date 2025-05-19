@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-provide datasets for training, validation, and inference
+provide datasets for training and validation
 """
 
 import itertools
@@ -14,7 +14,6 @@ import numpy as np
 import polars as pl
 import torch as t
 
-from src.framework.util import rt_padding_to_left
 from src.framework.vocabulary import Vocabulary
 
 Frame: typing.TypeAlias = pl.DataFrame | pl.LazyFrame
@@ -39,12 +38,15 @@ class Datasets:
         self.shuffle_buffer_size = shuffle_buffer_size
         self.t_rng = t.Generator().manual_seed(42)
         self.np_rng = np.random.default_rng(42)
-        self.splits = ("train", "val", "test")
+        self.splits = ("train", "val")
         self.data_dirs = {
             s: self.data_dir.joinpath(f"{self.data_version}-tokenized", s)
             for s in self.splits
         }
         self.vocab = Vocabulary().load(self.data_dirs["train"].joinpath("vocab.gzip"))
+        self.uint_dtype = (
+            t.uint8 if len(self.vocab) <= t.iinfo(t.uint8).max else t.uint16
+        )
         self.dataset = (
             ds.load_dataset(
                 "parquet",
@@ -67,18 +69,26 @@ class Datasets:
                     "seq_len",
                     "padded",
                 ],
-                features=ds.Features({"input_ids": ds.Sequence(ds.Value("uint8"))}),
+                features=ds.Features(
+                    {
+                        "input_ids": ds.Sequence(
+                            ds.Value(str(self.uint_dtype).split(".")[-1])
+                        )
+                    }
+                ),
             )
             .with_format("torch")
         )
         self.n_train: int = self.dataset["train"].num_rows
         self.n_val: int = self.dataset["val"].num_rows
-        self.n_test: int = self.dataset["test"].num_rows
 
     def generate_padding(self, poisson_rate: float = 7.0):
-        tk: int = self.vocab("PAD")
-        size = t.poisson(t.tensor(poisson_rate), generator=self.t_rng).to(t.uint8)
-        return t.full(size=(size.item(),), fill_value=tk, dtype=t.uint8)
+        size = t.poisson(t.tensor(poisson_rate), generator=self.t_rng).to(
+            self.uint_dtype
+        )
+        return t.full(
+            size=(size.item(),), fill_value=self.vocab("PAD"), dtype=self.uint_dtype
+        )
 
     def chunk_iterable(self, it):
         ret: t.Tensor = t.Tensor(size=(0,))
@@ -89,7 +99,7 @@ class Datasets:
                 ret = t.concat((ret, x[:ndiff]))
                 x = x[ndiff:]
                 if ret.size(dim=0) == self.max_seq_length:
-                    yield {"input_ids": ret.to(t.uint8)}
+                    yield {"input_ids": ret.to(self.uint_dtype)}
                     ret = t.Tensor(size=(0,))
 
     def get_train_dataset(self, n_epochs: int = 10):
@@ -106,7 +116,13 @@ class Datasets:
                         generator=self.np_rng, buffer_size=self.shuffle_buffer_size
                     )
                 ),
-                features=ds.Features({"input_ids": ds.Sequence(ds.Value("uint8"))}),
+                features=ds.Features(
+                    {
+                        "input_ids": ds.Sequence(
+                            ds.Value(str(self.uint_dtype).split(".")[-1])
+                        )
+                    }
+                ),
             )
         else:
             raise ValueError(
@@ -119,21 +135,18 @@ class Datasets:
         elif self.collation == "packed":
             return ds.IterableDataset.from_generator(
                 lambda: self.chunk_iterable(self.dataset["val"]),
-                features=ds.Features({"input_ids": ds.Sequence(ds.Value("uint8"))}),
+                features=ds.Features(
+                    {
+                        "input_ids": ds.Sequence(
+                            ds.Value(str(self.uint_dtype).split(".")[-1])
+                        )
+                    }
+                ),
             )
         else:
             raise ValueError(
                 "collation should be `padded` or `packed`, not ", self.collation
             )
 
-    def get_test_dataset(self):
-        return self.dataset["test"]
-
     def get_context_length(self):
-        return self.dataset["test"].select(range(1))["input_ids"].shape[1]
-
-    def get_test_set_for_predictions(self):
-        return self.dataset["test"].map(
-            lambda x: {"input_ids": rt_padding_to_left(x["padded"], self.vocab("PAD"))},
-            remove_columns=["padded"],
-        )
+        return self.dataset["train"].select(range(1))["input_ids"].shape[1]

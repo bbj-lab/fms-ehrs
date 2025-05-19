@@ -8,6 +8,7 @@
 #SBATCH --array=0-3
 
 source preamble.sh
+export data_version=with_ecg
 
 names=(original med small smol)
 hidden_sizes=(2048 1024 512 256)
@@ -16,7 +17,7 @@ intermediate_sizes=(8192 2048 1024 512)
 torchrun --nproc_per_node=8 \
     ../src/scripts/tune_model.py \
     --n_epochs 10 \
-    --n_trials 5 \
+    --n_trials 3 \
     --data_dir "${hm}/clif-data" \
     --data_version "${data_version:-QC_noX}" \
     --model_dir "${hm}/clif-mdls" \

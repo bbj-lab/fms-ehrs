@@ -39,6 +39,7 @@ class ClifTokenizer:
         quantizer: typing.Literal["deciles", "sigmas"] = "deciles",
         drop_deciles: bool = False,
         drop_nulls_nans: bool = False,
+        n_top_reports: int = 100,
     ):
         """
         if no vocabulary is provided, we are in training mode; otherwise, the
@@ -68,6 +69,7 @@ class ClifTokenizer:
         self.lab_time = lab_time
         self.drop_deciles = bool(drop_deciles)
         self.drop_nulls_nans = bool(drop_nulls_nans)
+        self.n_top_reports = n_top_reports
 
     def load_tables(self) -> None:
         """lazy-load all parquet tables from the directory `self.data_dir`"""
@@ -371,7 +373,6 @@ class ClifTokenizer:
         # include a token for prone position; this is relatively rare
         self.tbl["position"] = (
             self.tbl["position"]
-            .collect()
             .filter(pl.col("position_category") == "prone")
             .with_columns(
                 event_time=pl.col("recorded_dttm").cast(pl.Datetime(time_unit="ms"))
@@ -389,7 +390,67 @@ class ClifTokenizer:
                 ),
             )
             .cast({"times": pl.List(pl.Datetime(time_unit="ms"))})
+            .collect()
         )
+
+        # process machine measurements from ECG's if available
+        if "measurements" in self.tbl:
+            self.tbl["measurements"] = self.tbl["measurements"].with_columns(
+                reports=pl.concat_list(
+                    *[
+                        pl.col(f"report_{i}").str.strip_chars(" .").str.to_uppercase()
+                        for i in range(18)
+                    ]
+                ).list.eval(pl.element().drop_nulls()),
+                event_time=pl.col("event_dttm").cast(pl.Datetime(time_unit="ms")),
+            )
+
+            if (
+                not self.vocab.has_aux("machine_measurements")
+                and self.vocab.is_training
+            ):
+                self.vocab.set_aux(
+                    "machine_measurements",
+                    set(
+                        self.tbl["measurements"]
+                        .select(pl.col("reports").explode())
+                        .group_by("reports")
+                        .len()
+                        .sort("len")
+                        .tail(self.n_top_reports)
+                        .collect()
+                        .to_series()
+                        .to_list()
+                    ),
+                )
+
+            self.tbl["measurements"] = (
+                self.tbl["measurements"]
+                .with_columns(
+                    pl.col("reports")
+                    .list.eval(
+                        pl.element().filter(
+                            pl.element().is_in(
+                                self.vocab.get_aux("machine_measurements")
+                            )
+                        )
+                    )
+                    .list.eval(
+                        pl.element().map_elements(self.vocab, return_dtype=pl.Int64)
+                    )
+                    .alias("tokens")
+                )
+                .with_columns(
+                    pl.struct(["event_time", pl.col("tokens").list.len()])
+                    .map_elements(
+                        lambda row: [row["event_time"]] * row["tokens"],
+                        return_dtype=pl.List(pl.Datetime),
+                    )
+                    .alias("times")
+                )
+                .cast({"times": pl.List(pl.Datetime(time_unit="ms"))})
+                .collect()
+            )
 
     def run_times_qc(self) -> None:
         alt_times = (
