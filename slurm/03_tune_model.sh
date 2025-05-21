@@ -24,7 +24,7 @@ torchrun --nproc_per_node=8 \
     --model_version "llama1b-${names[$SLURM_ARRAY_TASK_ID]}" \
     --model_name "meta-llama/Llama-3.2-1B" \
     --wandb_project "${data_version:-QC_noX}" \
-    --jid "${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}" \
+    --jid "'${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}'" \
     --hidden_size "${hidden_sizes[$SLURM_ARRAY_TASK_ID]}" \
     --intermediate_size "${intermediate_sizes[$SLURM_ARRAY_TASK_ID]}" \
     --num_hidden_layers $((SLURM_ARRAY_TASK_ID == 0 ? 2 ** 4 : 2 ** 3)) \

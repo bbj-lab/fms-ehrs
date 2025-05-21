@@ -63,7 +63,8 @@ res=$(
         --per_device_eval_batch_size 4 \
         --gradient_accumulation_steps 2 \
         --outcome "$outcome" \
-        --wandb_project "$wandb_project"
+        --wandb_project "$wandb_project" \
+        --jid "'${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}'"
 )
 
 echo "$res"

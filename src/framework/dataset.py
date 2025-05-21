@@ -45,7 +45,7 @@ class Datasets:
         }
         self.vocab = Vocabulary().load(self.data_dirs["train"].joinpath("vocab.gzip"))
         self.uint_dtype = (
-            t.uint8 if len(self.vocab) <= t.iinfo(t.uint8).max else t.uint16
+            t.uint8 if len(self.vocab) <= t.iinfo(t.uint8).max else t.int64
         )
         self.dataset = (
             ds.load_dataset(

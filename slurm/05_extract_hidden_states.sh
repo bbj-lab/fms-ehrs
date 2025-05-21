@@ -2,10 +2,10 @@
 
 #SBATCH --job-name=extract-states
 #SBATCH --output=./output/%A_%a-%x.stdout
-#SBATCH --partition=gpuq
+#SBATCH --partition=sxmq
 #SBATCH --gres=gpu:4
 #SBATCH --time=1-00:00:00
-#SBATCH --array=0-3
+#SBATCH --array=0-1
 
 source preamble.sh
 
@@ -18,8 +18,7 @@ data_dirs=(
     "${hm}/clif-data-ucmc"
 )
 models=(
-    llama1b-original-59946215-hp-QC_noX
-    llama1b-original-59946344-hp-QC_noX_sigmas
+    llama1b-smol-59946181-hp-QC_noX
 )
 
 torchrun --nproc_per_node=4 \
