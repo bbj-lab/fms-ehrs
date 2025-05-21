@@ -241,7 +241,11 @@ for v in versions:
         inf = infm[v][i].reshape((-1, n_cols))
         tt = np.array(
             [
-                d[:10] if (d := vocab.reverse[t]) is not None else "None"
+                (
+                    (d if len(d) <= 14 else f"{d[:8]}..{d[-5:]}")
+                    if (d := vocab.reverse[t]) is not None
+                    else "None"
+                )
                 for t in tl[v][i]
             ]
         ).reshape((-1, n_cols))
