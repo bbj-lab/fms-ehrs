@@ -194,10 +194,16 @@ fig = go.Figure(
 )
 fig.update_layout(
     title="Diagnostic outcomes by cluster (MIMIC)",
-    xaxis=dict(title="ICD codes", showgrid=False, zeroline=False),
+    xaxis=dict(
+        title="ICD codes",
+        showgrid=False,
+        zeroline=False,
+        type="category",
+        tickmode="linear",
+    ),
     yaxis=dict(title="clusters", showgrid=False, zeroline=False, autorange="reversed"),
     height=900,
-    width=2700,
+    width=3500,
 )
 fig.write_image(
     out_dir.joinpath("dbscan-clusters-dx-{m}-m100.pdf".format(m=model_loc.stem))

@@ -155,19 +155,34 @@ class ClifTokenizer:
             self.tbl["patient"]
             .group_by("patient_id")
             .agg(
-                pl.col("race_category").str.to_lowercase().first(),
-                pl.col("ethnicity_category").str.to_lowercase().first(),
-                pl.col("sex_category").str.to_lowercase().first(),
+                pl.col("race_category")
+                .str.to_lowercase()
+                .str.replace_all(" ", "_")
+                .first(),
+                pl.col("ethnicity_category")
+                .str.to_lowercase()
+                .str.replace_all(" ", "_")
+                .first(),
+                pl.col("sex_category")
+                .str.to_lowercase()
+                .str.replace_all(" ", "_")
+                .first(),
             )
             .with_columns(
                 pl.col("race_category").map_elements(
-                    self.vocab, return_dtype=pl.Int64, skip_nulls=False
+                    lambda x: self.vocab("RACE_{}".format(x)),
+                    return_dtype=pl.Int64,
+                    skip_nulls=False,
                 ),
                 pl.col("ethnicity_category").map_elements(
-                    self.vocab, return_dtype=pl.Int64, skip_nulls=False
+                    lambda x: self.vocab("ETHN_{}".format(x)),
+                    return_dtype=pl.Int64,
+                    skip_nulls=False,
                 ),
                 pl.col("sex_category").map_elements(
-                    self.vocab, return_dtype=pl.Int64, skip_nulls=False
+                    lambda x: self.vocab("SEX_{}".format(x)),
+                    return_dtype=pl.Int64,
+                    skip_nulls=False,
                 ),
             )
             .with_columns(
@@ -193,8 +208,14 @@ class ClifTokenizer:
                 .cast(pl.Datetime(time_unit="ms"))
                 .alias("event_end"),
                 pl.col("age_at_admission").first(),
-                pl.col("admission_type_name").str.to_lowercase().first(),
-                pl.col("discharge_category").str.to_lowercase().first(),
+                pl.col("admission_type_name")
+                .str.to_lowercase()
+                .str.replace_all(" ", "_")
+                .first(),
+                pl.col("discharge_category")
+                .str.to_lowercase()
+                .str.replace_all(" ", "_")
+                .first(),
             )
             .filter(
                 pl.col("event_start").is_between(
@@ -206,10 +227,14 @@ class ClifTokenizer:
             )
             .with_columns(
                 pl.col("admission_type_name").map_elements(
-                    self.vocab, return_dtype=pl.Int64, skip_nulls=False
+                    lambda x: self.vocab("ADMN_{}".format(x)),
+                    return_dtype=pl.Int64,
+                    skip_nulls=False,
                 ),
                 pl.col("discharge_category").map_elements(
-                    self.vocab, return_dtype=pl.Int64, skip_nulls=False
+                    lambda x: self.vocab("DSCG_{}".format(x)),
+                    return_dtype=pl.Int64,
+                    skip_nulls=False,
                 ),
             )
             .select(
@@ -242,14 +267,13 @@ class ClifTokenizer:
             self.tbl["adt"]
             .with_columns(
                 event_time=pl.col("in_dttm").cast(pl.Datetime(time_unit="ms")),
-                event_end=pl.col("out_dttm").cast(pl.Datetime(time_unit="ms")),
                 category=pl.col("location_category").str.to_lowercase(),
             )
             .with_columns(
                 tokens=pl.col("category")
                 .str.to_lowercase()
                 .map_elements(
-                    lambda x: [self.vocab(x)],
+                    lambda x: [self.vocab("ADT_{}".format(x))],
                     return_dtype=pl.List(pl.Int64),
                     skip_nulls=False,
                 ),
@@ -335,11 +359,21 @@ class ClifTokenizer:
             .filter(pl.col("value").is_null())
             .filter(~pl.col("categorical_value").is_null())
             .with_columns(
-                pl.col("category").map_elements(
-                    self.vocab, return_dtype=pl.Int64, skip_nulls=False
+                pl.col("category")
+                .str.to_lowercase()
+                .str.replace_all(" ", "_")
+                .map_elements(
+                    lambda x: self.vocab("ASMT_cat_{}".format(x)),
+                    return_dtype=pl.Int64,
+                    skip_nulls=False,
                 ),
-                pl.col("categorical_value").map_elements(
-                    self.vocab, return_dtype=pl.Int64, skip_nulls=False
+                pl.col("categorical_value")
+                .str.to_lowercase()
+                .str.replace_all(" ", "_")
+                .map_elements(
+                    lambda x: self.vocab("ASMT_val_{}".format(x)),
+                    return_dtype=pl.Int64,
+                    skip_nulls=False,
                 ),
             )
             .with_columns(
@@ -356,10 +390,20 @@ class ClifTokenizer:
             .with_columns(
                 pl.col("mode_category")
                 .str.to_lowercase()
-                .map_elements(self.vocab, return_dtype=pl.Int64, skip_nulls=False),
+                .str.replace_all(" ", "_")
+                .map_elements(
+                    lambda x: self.vocab("RESP_mode_{}".format(x)),
+                    return_dtype=pl.Int64,
+                    skip_nulls=False,
+                ),
                 pl.col("device_category")
                 .str.to_lowercase()
-                .map_elements(self.vocab, return_dtype=pl.Int64, skip_nulls=False),
+                .str.replace_all(" ", "_")
+                .map_elements(
+                    lambda x: self.vocab("RESP_devc_{}".format(x)),
+                    return_dtype=pl.Int64,
+                    skip_nulls=False,
+                ),
                 event_time=pl.col("recorded_dttm").cast(pl.Datetime(time_unit="ms")),
             )
             .with_columns(
@@ -379,7 +423,7 @@ class ClifTokenizer:
             )
             .with_columns(
                 tokens=pl.col("position_category").map_elements(
-                    lambda x: [self.vocab(x)],
+                    lambda x: [self.vocab("POSN_{}".format(x))],
                     return_dtype=pl.List(pl.Int64),
                     skip_nulls=False,
                 ),
@@ -406,11 +450,11 @@ class ClifTokenizer:
             )
 
             if (
-                not self.vocab.has_aux("machine_measurements")
+                not self.vocab.has_aux("ECG_machine_measurements")
                 and self.vocab.is_training
             ):
                 self.vocab.set_aux(
-                    "machine_measurements",
+                    "ECG_machine_measurements",
                     set(
                         self.tbl["measurements"]
                         .select(pl.col("reports").explode())
@@ -436,7 +480,10 @@ class ClifTokenizer:
                         )
                     )
                     .list.eval(
-                        pl.element().map_elements(self.vocab, return_dtype=pl.Int64)
+                        pl.element().map_elements(
+                            lambda x: self.vocab("ECG_{}".replace(" ", "_").format(x)),
+                            return_dtype=pl.Int64,
+                        )
                     )
                     .alias("tokens")
                 )
