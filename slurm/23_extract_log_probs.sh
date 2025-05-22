@@ -5,7 +5,7 @@
 #SBATCH --partition=sxmq
 #SBATCH --gres=gpu:4
 #SBATCH --time=24:00:00
-#SBATCH --array=0-3
+#SBATCH --array=0-1
 
 source preamble.sh
 
@@ -18,9 +18,9 @@ data_dirs=(
     "${hm}/clif-data-ucmc"
 )
 models=(
-    llama1b-original-59946215-hp-QC_noX
-    llama1b-original-59946344-hp-QC_noX_sigmas
+    llama1b-57928921-run1
 )
+splits=(train val)
 
 torchrun --nproc_per_node=4 \
     --rdzv_backend c10d \
@@ -28,6 +28,7 @@ torchrun --nproc_per_node=4 \
     --rdzv-endpoint=localhost:0 \
     ../src/scripts/extract_log_probs.py \
     --data_dir "${data_dirs[$rem]}" \
-    --data_version "${models[$quo]##*-}_first_24h" \
+    --data_version QC_day_stays_first_24h \
     --model_loc "${hm}/clif-mdls-archive/${models[$quo]}" \
-    --batch_sz $((2 ** 5))
+    --batch_sz $((2 ** 5)) \
+    --splits "${splits[@]}"

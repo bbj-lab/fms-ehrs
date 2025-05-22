@@ -30,6 +30,7 @@ parser.add_argument(
     default="../../clif-mdls-archive/llama-med-58788824",
 )
 parser.add_argument("--batch_sz", type=int, default=2**8)
+parser.add_argument("splits", nargs="*", default=["test"])
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -79,42 +80,44 @@ if is_parallel:
 # iterate over splits and run inference using model
 stop_tokens = t.tensor([vocab("PAD"), vocab("TRUNC"), vocab("TL_END")]).to(device)
 
-s = "test"
-n = dataset[s].num_rows
-tl_len = dataset[s].select(range(1))["input_ids"].shape[-1]
-log_probs = np.full(
-    shape=(n, tl_len),
-    fill_value=np.nan,
-)  # could use `np.empty` here, but perhaps safer this way
+for s in args.splits:
+    n = dataset[s].num_rows
+    tl_len = dataset[s].select(range(1))["input_ids"].shape[-1]
+    log_probs = np.full(
+        shape=(n, tl_len),
+        fill_value=np.nan,
+    )  # could use `np.empty` here, but perhaps safer this way
 
-for batch_idx in tqdm(t.split(t.arange(n), args.batch_sz)):
-    batch = dataset[s]["input_ids"][batch_idx].to(device)
-    with t.inference_mode():
-        x = model.forward(input_ids=batch, output_hidden_states=True)
-    log_probs_realized = (
-        t.gather(
-            t.nn.functional.log_softmax(x.logits, dim=-1),  # n_obs × tl_len × n_vocab
-            -1,
-            batch.unsqueeze(-1),
-        )  # gather log prob for realized token
-        .squeeze()
-        .cpu()
-        .numpy()
-    )
-    first_stop_idx = (
-        t.argmax(t.isin(batch, stop_tokens).int(), axis=1, keepdim=True)
-        .cpu()
-        .numpy()
-        .ravel()
-    )
-    for i, j in enumerate(first_stop_idx):
-        if j > 0:
-            log_probs_realized[i, j:] = np.nan
-    log_probs[batch_idx] = log_probs_realized
+    for batch_idx in tqdm(t.split(t.arange(n), args.batch_sz)):
+        batch = dataset[s]["input_ids"][batch_idx].to(device)
+        with t.inference_mode():
+            x = model.forward(input_ids=batch, output_hidden_states=True)
+        log_probs_realized = (
+            t.gather(
+                t.nn.functional.log_softmax(
+                    x.logits, dim=-1
+                ),  # n_obs × tl_len × n_vocab
+                -1,
+                batch.unsqueeze(-1),
+            )  # gather log prob for realized token
+            .squeeze()
+            .cpu()
+            .numpy()
+        )
+        first_stop_idx = (
+            t.argmax(t.isin(batch, stop_tokens).int(), axis=1, keepdim=True)
+            .cpu()
+            .numpy()
+            .ravel()
+        )
+        for i, j in enumerate(first_stop_idx):
+            if j > 0:
+                log_probs_realized[i, j:] = np.nan
+        log_probs[batch_idx] = log_probs_realized
 
-np.save(
-    data_dirs[s].joinpath("log_probs-{m}.npy".format(m=model_loc.stem)),
-    log_probs,
-)  # save out result
+    np.save(
+        data_dirs[s].joinpath("log_probs-{m}.npy".format(m=model_loc.stem)),
+        log_probs,
+    )  # save out result
 
 logger.info("---fin")
