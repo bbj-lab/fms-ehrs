@@ -80,10 +80,9 @@ class SlurmLogger(logging.Logger):
         return log_io
 
 
-def get_logger() -> SlurmLogger:
+def get_logger() -> SlurmLogger | logging.Logger:
     logging.setLoggerClass(SlurmLogger)
-    logger = logging.getLogger("fms-ehrs-reps")
-    return logger
+    return logging.getLogger("fms-ehrs-reps")
 
 
 if __name__ == "__main__":

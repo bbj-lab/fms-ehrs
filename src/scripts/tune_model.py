@@ -128,7 +128,9 @@ def main(
         best_ckpt = sorted(
             output_dir.joinpath(f"run-{best_trial.run_id}").glob("checkpoint-*")
         ).pop()
-        best_mdl_loc = model_dir.joinpath("{m}-{j}-hp".format(m=model_version, j=jid))
+        best_mdl_loc = model_dir.joinpath(
+            "{m}-{j}-hp-{d}".format(m=model_version, j=jid, d=data_version)
+        )
         AutoModelForCausalLM.from_pretrained(best_ckpt).save_pretrained(best_mdl_loc)
 
     return best_mdl_loc

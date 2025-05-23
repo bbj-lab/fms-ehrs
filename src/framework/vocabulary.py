@@ -91,6 +91,9 @@ class Vocabulary:
     def __len__(self) -> int:
         return len(self.lookup)
 
+    def __getitem__(self, word):
+        return self.__call__(word)
+
     @property
     def is_training(self) -> bool:
         return self._is_training
@@ -134,3 +137,5 @@ if __name__ == "__main__":
     print(v2.lookup)
     print(v2.reverse)
     print(v2.aux)
+
+    assert v2(42) == v2[42]

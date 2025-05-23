@@ -1,16 +1,13 @@
 #!/bin/bash
 
 #SBATCH --job-name=add-lr-over-time
-#SBATCH --output=./output/%j-%x.stdout
+#SBATCH --output=./output/%A_%a-%x.stdout
 #SBATCH --partition=tier3q
 #SBATCH --mem=1TB
 #SBATCH --time=3:00:00
 #SBATCH --array=0-1
 
 source preamble.sh
-
-echo "SLURM_ARRAY_JOB_ID=${SLURM_ARRAY_JOB_ID}"
-echo "SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
 
 case "${SLURM_ARRAY_TASK_ID}" in
     0) data_dir="${hm}/clif-data" ;;

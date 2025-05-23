@@ -9,6 +9,8 @@ import collections
 import pathlib
 
 import numpy as np
+import pandas as pd
+import plotly.express as px
 import polars as pl
 
 from src.framework.logger import get_logger
@@ -29,24 +31,24 @@ parser.add_argument("--data_dir_orig", type=pathlib.Path, default="../../clif-da
 parser.add_argument("--name_orig", type=str, default="MIMIC")
 parser.add_argument("--data_dir_new", type=pathlib.Path, default="../../clif-data-ucmc")
 parser.add_argument("--name_new", type=str, default="UCMC")
-parser.add_argument("--data_version", type=str, default="QC_day_stays_first_24h")
+parser.add_argument("--data_version", type=str, default="QC_noX_first_24h")
 parser.add_argument(
     "--model_loc",
     type=pathlib.Path,
-    default="../../clif-mdls-archive/llama-med-58788824",
+    default="../../clif-mdls-archive/llama1b-original-59946215-hp-QC_noX",
 )
-parser.add_argument("--out_dir", type=pathlib.Path, default="../../")
+parser.add_argument("--out_dir", type=pathlib.Path, default="../../figs")
 parser.add_argument(
     "--samp_orig",
     type=str,
     nargs="*",
-    default=["24237326", "24370390", "24968777", "26774648", "29173149"],
+    default=["20826893", "27726633", "26624012", "24410460", "29173149"],
 )
 parser.add_argument(
     "--samp_new",
     type=str,
     nargs="*",
-    default=["14640279", "2023232", "6017554", "6503727", "8797520"],
+    default=["27055120", "792481", "12680680", "9468768", "8797520"],
 )
 args, unknowns = parser.parse_known_args()
 
@@ -72,6 +74,24 @@ data_dirs["new"] = {
     s: data_dir_new.joinpath(f"{args.data_version}-tokenized", s) for s in splits
 }
 
+outl = {
+    v: np.load(
+        data_dirs[v]["test"].joinpath(
+            "features-outliers-{m}.npy".format(m=model_loc.stem)
+        )
+    )
+    for v in versions
+}
+
+anom = {
+    v: np.load(
+        data_dirs[v]["test"].joinpath(
+            "features-anomaly-score-{m}.npy".format(m=model_loc.stem)
+        )
+    )
+    for v in versions
+}
+
 vocab = Vocabulary().load(data_dirs["orig"]["train"].joinpath("vocab.gzip"))
 
 infm = {
@@ -81,6 +101,9 @@ infm = {
     / -np.log(2)
     for v in versions
 }
+
+ent = {v: np.nanmean(infm[v], axis=1) for v in versions}
+inf_sum = {v: np.nansum(infm[v], axis=1) for v in versions}
 
 tl = {
     v: np.array(
@@ -218,7 +241,11 @@ for v in versions:
         inf = infm[v][i].reshape((-1, n_cols))
         tt = np.array(
             [
-                d[:10] if (d := vocab.reverse[t]) is not None else "None"
+                (
+                    (d if len(d) <= 14 else f"{d[:8]}..{d[-5:]}")
+                    if (d := vocab.reverse[t]) is not None
+                    else "None"
+                )
                 for t in tl[v][i]
             ]
         ).reshape((-1, n_cols))
@@ -230,6 +257,24 @@ for v in versions:
                 "tokens-{v}-{s}-{m}-hist.pdf".format(v=v, s=s, m=model_loc.stem)
             ),
         )
+
+
+for v in versions:
+    fig = px.scatter(
+        pd.DataFrame({"anomaly score": anom[v], "information": inf_sum[v]}),
+        x="information",
+        y="anomaly score",
+        trendline="ols",
+        color_discrete_sequence=["#DE7C00"],
+    )
+    fig.data[1].line.color = "#789D4A"
+    fig.update_layout(
+        title="Anomaly score vs. sum of information", template="plotly_white"
+    )
+    fig.update_traces(marker=dict(size=3))
+    fig.write_image(
+        out_dir.joinpath("anom-ent-{m}-{v}-hist.pdf".format(m=model_loc.stem, v=v))
+    )
 
 
 logger.info("---fin")

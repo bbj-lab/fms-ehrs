@@ -15,7 +15,7 @@ indent_size = 4
 quote_type = double
 
 [*.sh]
-shell_variant = posix     # like -ln=posix
+shell_variant = bash
 binary_next_line = true   # like -bn
 switch_case_indent = true # like -ci
 space_redirects = true
