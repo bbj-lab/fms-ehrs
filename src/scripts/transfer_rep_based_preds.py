@@ -35,6 +35,7 @@ parser.add_argument(
     default="logistic_regression",
 )
 parser.add_argument("--save_preds", action="store_true")
+parser.add_argument("--drop_icu_adm", action="store_true")
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -47,7 +48,9 @@ data_dir_orig, data_dir_new, model_loc = map(
 
 splits = ("train", "val", "test")
 versions = ("orig", "new")
-outcomes = ("same_admission_death", "long_length_of_stay", "icu_admission", "imv_event")
+outcomes = ("same_admission_death", "long_length_of_stay", "imv_event") + (
+    ("icu_admission",) if not args.drop_icu_adm else ()
+)
 
 data_dirs = collections.defaultdict(dict)
 outliers = collections.defaultdict(dict)
