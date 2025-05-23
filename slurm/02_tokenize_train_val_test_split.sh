@@ -7,7 +7,8 @@
 #SBATCH --time=1:00:00
 
 source preamble.sh
-export data_version=with_ecg
+
+[ -z "${data_version}" ] && export data_version=W+
 
 echo "Processing MIMIC data..."
 python3 ../src/scripts/tokenize_train_val_test_split.py \

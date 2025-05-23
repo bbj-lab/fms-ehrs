@@ -8,7 +8,8 @@
 #SBATCH --array=0-3
 
 source preamble.sh
-export data_version=with_ecg
+
+[ -z "${data_version}" ] && export data_version=with_ecg
 
 names=(original med small smol)
 hidden_sizes=(2048 1024 512 256)
