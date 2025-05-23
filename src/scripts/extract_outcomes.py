@@ -36,6 +36,11 @@ def main(
         ref_dirs[s] = data_dir.joinpath(f"{ref_version}-tokenized", s)
 
     vocab = Vocabulary().load(ref_dirs["train"].joinpath("vocab.gzip"))
+    expired_token = (
+        vocab("expired") if "expired" in vocab.lookup else vocab("DSCG_expired")
+    )
+    icu_token = vocab("icu") if "icu" in vocab.lookup else vocab("ADT_icu")
+    imv_token = vocab("imv") if "imv" in vocab.lookup else vocab("RESP_devc_imv")
 
     for s in splits:
         outcomes = (
@@ -44,9 +49,9 @@ def main(
                 length_of_stay=(
                     pl.col("times").list.get(-1) - pl.col("times").list.get(0)
                 ).dt.total_hours(),
-                same_admission_death=pl.col("tokens").list.contains(vocab("expired")),
-                icu_admission=pl.col("tokens").list.contains(vocab("icu")),
-                imv_event=pl.col("tokens").list.contains(vocab("imv")),
+                same_admission_death=pl.col("tokens").list.contains(expired_token),
+                icu_admission=pl.col("tokens").list.contains(icu_token),
+                imv_event=pl.col("tokens").list.contains(imv_token),
             )
             .with_columns(
                 long_length_of_stay=pl.col("length_of_stay") > 24 * 7  # 7 days in hours
@@ -63,8 +68,8 @@ def main(
         (
             pl.scan_parquet(data_dirs[s].joinpath("tokens_timelines.parquet"))
             .with_columns(
-                icu_admission_24h=pl.col("tokens").list.contains(vocab("icu")),
-                imv_event_24h=pl.col("tokens").list.contains(vocab("imv")),
+                icu_admission_24h=pl.col("tokens").list.contains(icu_token),
+                imv_event_24h=pl.col("tokens").list.contains(imv_token),
             )
             .join(
                 outcomes,

@@ -39,6 +39,7 @@ class ClifTokenizer:
         quantizer: typing.Literal["deciles", "sigmas"] = "deciles",
         drop_deciles: bool = False,
         drop_nulls_nans: bool = False,
+        n_top_reports: int = 100,
     ):
         """
         if no vocabulary is provided, we are in training mode; otherwise, the
@@ -68,6 +69,7 @@ class ClifTokenizer:
         self.lab_time = lab_time
         self.drop_deciles = bool(drop_deciles)
         self.drop_nulls_nans = bool(drop_nulls_nans)
+        self.n_top_reports = n_top_reports
 
     def load_tables(self) -> None:
         """lazy-load all parquet tables from the directory `self.data_dir`"""
@@ -153,19 +155,34 @@ class ClifTokenizer:
             self.tbl["patient"]
             .group_by("patient_id")
             .agg(
-                pl.col("race_category").str.to_lowercase().first(),
-                pl.col("ethnicity_category").str.to_lowercase().first(),
-                pl.col("sex_category").str.to_lowercase().first(),
+                pl.col("race_category")
+                .str.to_lowercase()
+                .str.replace_all(" ", "_")
+                .first(),
+                pl.col("ethnicity_category")
+                .str.to_lowercase()
+                .str.replace_all(" ", "_")
+                .first(),
+                pl.col("sex_category")
+                .str.to_lowercase()
+                .str.replace_all(" ", "_")
+                .first(),
             )
             .with_columns(
                 pl.col("race_category").map_elements(
-                    self.vocab, return_dtype=pl.Int64, skip_nulls=False
+                    lambda x: self.vocab("RACE_{}".format(x)),
+                    return_dtype=pl.Int64,
+                    skip_nulls=False,
                 ),
                 pl.col("ethnicity_category").map_elements(
-                    self.vocab, return_dtype=pl.Int64, skip_nulls=False
+                    lambda x: self.vocab("ETHN_{}".format(x)),
+                    return_dtype=pl.Int64,
+                    skip_nulls=False,
                 ),
                 pl.col("sex_category").map_elements(
-                    self.vocab, return_dtype=pl.Int64, skip_nulls=False
+                    lambda x: self.vocab("SEX_{}".format(x)),
+                    return_dtype=pl.Int64,
+                    skip_nulls=False,
                 ),
             )
             .with_columns(
@@ -191,8 +208,14 @@ class ClifTokenizer:
                 .cast(pl.Datetime(time_unit="ms"))
                 .alias("event_end"),
                 pl.col("age_at_admission").first(),
-                pl.col("admission_type_name").str.to_lowercase().first(),
-                pl.col("discharge_category").str.to_lowercase().first(),
+                pl.col("admission_type_name")
+                .str.to_lowercase()
+                .str.replace_all(" ", "_")
+                .first(),
+                pl.col("discharge_category")
+                .str.to_lowercase()
+                .str.replace_all(" ", "_")
+                .first(),
             )
             .filter(
                 pl.col("event_start").is_between(
@@ -204,10 +227,14 @@ class ClifTokenizer:
             )
             .with_columns(
                 pl.col("admission_type_name").map_elements(
-                    self.vocab, return_dtype=pl.Int64, skip_nulls=False
+                    lambda x: self.vocab("ADMN_{}".format(x)),
+                    return_dtype=pl.Int64,
+                    skip_nulls=False,
                 ),
                 pl.col("discharge_category").map_elements(
-                    self.vocab, return_dtype=pl.Int64, skip_nulls=False
+                    lambda x: self.vocab("DSCG_{}".format(x)),
+                    return_dtype=pl.Int64,
+                    skip_nulls=False,
                 ),
             )
             .select(
@@ -240,14 +267,13 @@ class ClifTokenizer:
             self.tbl["adt"]
             .with_columns(
                 event_time=pl.col("in_dttm").cast(pl.Datetime(time_unit="ms")),
-                event_end=pl.col("out_dttm").cast(pl.Datetime(time_unit="ms")),
                 category=pl.col("location_category").str.to_lowercase(),
             )
             .with_columns(
                 tokens=pl.col("category")
                 .str.to_lowercase()
                 .map_elements(
-                    lambda x: [self.vocab(x)],
+                    lambda x: [self.vocab("ADT_{}".format(x))],
                     return_dtype=pl.List(pl.Int64),
                     skip_nulls=False,
                 ),
@@ -333,11 +359,21 @@ class ClifTokenizer:
             .filter(pl.col("value").is_null())
             .filter(~pl.col("categorical_value").is_null())
             .with_columns(
-                pl.col("category").map_elements(
-                    self.vocab, return_dtype=pl.Int64, skip_nulls=False
+                pl.col("category")
+                .str.to_lowercase()
+                .str.replace_all(" ", "_")
+                .map_elements(
+                    lambda x: self.vocab("ASMT_cat_{}".format(x)),
+                    return_dtype=pl.Int64,
+                    skip_nulls=False,
                 ),
-                pl.col("categorical_value").map_elements(
-                    self.vocab, return_dtype=pl.Int64, skip_nulls=False
+                pl.col("categorical_value")
+                .str.to_lowercase()
+                .str.replace_all(" ", "_")
+                .map_elements(
+                    lambda x: self.vocab("ASMT_val_{}".format(x)),
+                    return_dtype=pl.Int64,
+                    skip_nulls=False,
                 ),
             )
             .with_columns(
@@ -354,10 +390,20 @@ class ClifTokenizer:
             .with_columns(
                 pl.col("mode_category")
                 .str.to_lowercase()
-                .map_elements(self.vocab, return_dtype=pl.Int64, skip_nulls=False),
+                .str.replace_all(" ", "_")
+                .map_elements(
+                    lambda x: self.vocab("RESP_mode_{}".format(x)),
+                    return_dtype=pl.Int64,
+                    skip_nulls=False,
+                ),
                 pl.col("device_category")
                 .str.to_lowercase()
-                .map_elements(self.vocab, return_dtype=pl.Int64, skip_nulls=False),
+                .str.replace_all(" ", "_")
+                .map_elements(
+                    lambda x: self.vocab("RESP_devc_{}".format(x)),
+                    return_dtype=pl.Int64,
+                    skip_nulls=False,
+                ),
                 event_time=pl.col("recorded_dttm").cast(pl.Datetime(time_unit="ms")),
             )
             .with_columns(
@@ -371,14 +417,13 @@ class ClifTokenizer:
         # include a token for prone position; this is relatively rare
         self.tbl["position"] = (
             self.tbl["position"]
-            .collect()
             .filter(pl.col("position_category") == "prone")
             .with_columns(
                 event_time=pl.col("recorded_dttm").cast(pl.Datetime(time_unit="ms"))
             )
             .with_columns(
                 tokens=pl.col("position_category").map_elements(
-                    lambda x: [self.vocab(x)],
+                    lambda x: [self.vocab("POSN_{}".format(x))],
                     return_dtype=pl.List(pl.Int64),
                     skip_nulls=False,
                 ),
@@ -389,7 +434,70 @@ class ClifTokenizer:
                 ),
             )
             .cast({"times": pl.List(pl.Datetime(time_unit="ms"))})
+            .collect()
         )
+
+        # process machine measurements from ECG's if available
+        if "measurements" in self.tbl:
+            self.tbl["measurements"] = self.tbl["measurements"].with_columns(
+                reports=pl.concat_list(
+                    *[
+                        pl.col(f"report_{i}").str.strip_chars(" .").str.to_uppercase()
+                        for i in range(18)
+                    ]
+                ).list.eval(pl.element().drop_nulls()),
+                event_time=pl.col("event_dttm").cast(pl.Datetime(time_unit="ms")),
+            )
+
+            if (
+                not self.vocab.has_aux("ECG_machine_measurements")
+                and self.vocab.is_training
+            ):
+                self.vocab.set_aux(
+                    "ECG_machine_measurements",
+                    set(
+                        self.tbl["measurements"]
+                        .select(pl.col("reports").explode())
+                        .group_by("reports")
+                        .len()
+                        .sort("len")
+                        .tail(self.n_top_reports)
+                        .collect()
+                        .to_series()
+                        .to_list()
+                    ),
+                )
+
+            self.tbl["measurements"] = (
+                self.tbl["measurements"]
+                .with_columns(
+                    pl.col("reports")
+                    .list.eval(
+                        pl.element().filter(
+                            pl.element().is_in(
+                                self.vocab.get_aux("machine_measurements")
+                            )
+                        )
+                    )
+                    .list.eval(
+                        pl.element().map_elements(
+                            lambda x: self.vocab("ECG_{}".replace(" ", "_").format(x)),
+                            return_dtype=pl.Int64,
+                        )
+                    )
+                    .alias("tokens")
+                )
+                .with_columns(
+                    pl.struct(["event_time", pl.col("tokens").list.len()])
+                    .map_elements(
+                        lambda row: [row["event_time"]] * row["tokens"],
+                        return_dtype=pl.List(pl.Datetime),
+                    )
+                    .alias("times")
+                )
+                .cast({"times": pl.List(pl.Datetime(time_unit="ms"))})
+                .collect()
+            )
 
     def run_times_qc(self) -> None:
         alt_times = (

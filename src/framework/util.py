@@ -303,32 +303,8 @@ def plot_histograms(
                 marker_color=colors[(i + 1) % len(colors)],
             )
         )
-        # fig.add_trace(
-        #     go.Histogram(
-        #         x=arr[np.isfinite(arr)].ravel(),
-        #         nbinsx=nbins,
-        #         name=name,
-        #         opacity=0.5,
-        #         marker_color=colors[(i + 1) % len(colors)],
-        #     )
-        # )
+
     fig.update_layout(barmode="overlay", template="plotly_white", title=title, **kwargs)
-    # df = pd.DataFrame(
-    #     [(n, x) for n, arr in named_arrs.items() for x in arr[np.isfinite(arr)]],
-    #     columns=["name", "value"],
-    # )
-    #
-    # fig = px.histogram(
-    #     df,
-    #     x="value",
-    #     color="name",
-    #     nbins=nbins,
-    #     opacity=0.5,
-    #     color_discrete_sequence=colors[1:],
-    #     barmode="overlay",
-    #     template="plotly_white",
-    #     title=title,
-    # )
 
     if savepath is None:
         fig.show()

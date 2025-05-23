@@ -1,16 +1,13 @@
 #!/bin/bash
 
 #SBATCH --job-name=sft
-#SBATCH --output=./output/%j-%x.stdout
+#SBATCH --output=./output/%A_%a-%x.stdout
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:8
 #SBATCH --time=1-00:00:00
 #SBATCH --array=0-39
 
 source preamble.sh
-
-echo "SLURM_ARRAY_JOB_ID=${SLURM_ARRAY_JOB_ID}"
-echo "SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
 
 div=4
 quo=$((SLURM_ARRAY_TASK_ID / div))
@@ -66,7 +63,8 @@ res=$(
         --per_device_eval_batch_size 4 \
         --gradient_accumulation_steps 2 \
         --outcome "$outcome" \
-        --wandb_project "$wandb_project"
+        --wandb_project "$wandb_project" \
+        --jid "'${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}'"
 )
 
 echo "$res"
