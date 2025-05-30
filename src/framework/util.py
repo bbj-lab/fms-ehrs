@@ -10,6 +10,7 @@ import os
 import pathlib
 import typing
 
+import joblib as jl
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -416,6 +417,28 @@ def imshow_text(values: np.array, text: np.array, title: str = "", savepath=None
         fig.write_image(pathlib.Path(savepath).expanduser().resolve())
 
 
+def boostrap_roc_auc_ci(
+    y_true: np.array,
+    y_score: np.array,
+    *,
+    n_samples: int = 1000,
+    alpha: float = 0.05,
+    rng: np.random._generator.Generator = np.random.default_rng(seed=42),
+    n_jobs: int = -1,
+):
+    score = lambda rng_i: skl_mets.roc_auc_score(
+        y_true.ravel()[
+            smp := rng_i.choice(len(y_true), size=len(y_true), replace=True)
+        ],
+        y_score.ravel()[smp],
+        average="macro",
+    )
+    scores = jl.Parallel(n_jobs=n_jobs)(
+        jl.delayed(score)(rng_i) for rng_i in rng.spawn(n_samples)
+    )
+    return np.quantile(scores, q=[alpha / 2, 1 - (alpha / 2)])
+
+
 def set_pd_options():
     pd.options.display.float_format = "{:,.3f}".format
     pd.options.display.max_columns = None
@@ -456,3 +479,5 @@ if __name__ == "__main__":
     vals = np_rng.poisson(lam=20, size=n_tot).reshape((-1, n_col))
     text = np.arange(n_tot).astype(str).reshape((-1, n_col))
     imshow_text(values=vals, text=text)
+
+    boostrap_roc_auc_ci(y_true, y_pred)

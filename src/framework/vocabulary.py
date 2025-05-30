@@ -31,7 +31,7 @@ class Vocabulary:
         assert len(set(words)) == len(words)
         self.lookup = {v: i for i, v in enumerate(words)}
         self.reverse = dict(enumerate(words))
-        self.aux = {}
+        self.aux = dict()
         self._is_training = is_training
 
     def __call__(self, word: Hashable | None) -> int | None:
