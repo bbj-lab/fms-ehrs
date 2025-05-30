@@ -2,14 +2,14 @@
 
 #SBATCH --job-name=tfr-sft
 #SBATCH --output=./output/%A_%a-%x.stdout
-#SBATCH --partition=sxmq
+#SBATCH --partition=gpuq
 #SBATCH --gres=gpu:8
 #SBATCH --time=1-00:00:00
-#SBATCH --array=0-3
+#SBATCH --array=0-11
 
 source preamble.sh
 
-case "${SLURM_ARRAY_TASK_ID}" in
+case $((SLURM_ARRAY_TASK_ID / 3)) in
     0)
         outcome=same_admission_death
         wandb_project=ucmc-sft-clsfr-mort
@@ -31,9 +31,12 @@ case "${SLURM_ARRAY_TASK_ID}" in
         model=mdl-llama1b-57928921-run1-58165531-clsfr-imv_event
         ;;
     *)
-        echo "Invalid SLURM_ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}"
+        echo "Invalid SLURM_ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}" && exit
         ;;
 esac
+
+training_fractions=(0.1 0.2 0.5)
+training_fraction=${training_fractions[$((SLURM_ARRAY_TASK_ID % 3))]}
 
 res=$(
     torchrun --nproc_per_node=8 \
@@ -49,7 +52,9 @@ res=$(
         --gradient_accumulation_steps 2 \
         --outcome "$outcome" \
         --wandb_project "$wandb_project" \
-        --tune True
+        --tune True \
+        --training_fraction "$training_fraction" \
+        --jid "'${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}'"
 )
 
 echo "$res"
