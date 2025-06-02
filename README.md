@@ -219,4 +219,9 @@ rsync -avht \
     ~/Downloads
 ```
 
+Save environment:
+```
+pip list --format=freeze > requirements.txt
+```
+
 -->

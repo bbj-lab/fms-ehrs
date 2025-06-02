@@ -421,22 +421,66 @@ def boostrap_roc_auc_ci(
     y_true: np.array,
     y_score: np.array,
     *,
-    n_samples: int = 1000,
+    n_samples: int = 10_000,
     alpha: float = 0.05,
     rng: np.random._generator.Generator = np.random.default_rng(seed=42),
     n_jobs: int = -1,
 ):
+    """
+    Calculates a bootstrapped percentile interval for AUC as described in §13.3
+    of Efron & Tibshirani's "An Introduction to the Bootstrap" (Chapman & Hall,
+    Boca Raton, 1993)
+    """
     score = lambda rng_i: skl_mets.roc_auc_score(
-        y_true.ravel()[
-            smp := rng_i.choice(len(y_true), size=len(y_true), replace=True)
-        ],
-        y_score.ravel()[smp],
-        average="macro",
+        y_true[samp := rng_i.choice(len(y_true), size=len(y_true), replace=True)],
+        y_score[samp],
     )
     scores = jl.Parallel(n_jobs=n_jobs)(
         jl.delayed(score)(rng_i) for rng_i in rng.spawn(n_samples)
     )
     return np.quantile(scores, q=[alpha / 2, 1 - (alpha / 2)])
+
+
+def permutation_test_roc_auc_pval(
+    y_true: np.array,
+    y_score0: np.array,
+    y_score1: np.array,
+    *,
+    n_samples: int = 10_000,
+    rng: np.random._generator.Generator = np.random.default_rng(seed=42),
+    n_jobs: int = -1,
+    alternative: typing.Literal["one-sided", "two-sided"] = "one-sided",
+):
+    """
+    Tests the null hypothesis that `y_score0` & `y_score1` are equally good
+    predictions of y_true (in terms of AUC) using a permutation test with
+    paired bootstrapping; the one-sided alternative is that y_score1 is a better
+    predictor than y_score0; the two-sided alternative is that they're different
+    """
+    auc0 = skl_mets.roc_auc_score(y_true, y_score0)
+    auc1 = skl_mets.roc_auc_score(y_true, y_score1)
+    diff_obs = auc1 - auc0
+
+    def diff_i(rng_i: np.random._generator.Generator) -> float:
+        swap = rng_i.integers(2, size=len(y_true)).astype(bool)
+        samp = rng_i.choice(len(y_true), size=len(y_true), replace=True)
+        auc0_i = skl_mets.roc_auc_score(
+            y_true[samp], np.where(swap, y_score0, y_score1)[samp]
+        )
+        auc1_i = skl_mets.roc_auc_score(
+            y_true[samp], np.where(~swap, y_score0, y_score1)[samp]
+        )
+        return auc1_i - auc0_i
+
+    diffs = jl.Parallel(n_jobs=n_jobs)(
+        jl.delayed(diff_i)(rng_i) for rng_i in rng.spawn(n_samples)
+    )
+
+    return (
+        np.mean(diffs > diff_obs)
+        if alternative == "one-sided"
+        else np.mean(np.abs(diffs) > abs(diff_obs))
+    )
 
 
 def set_pd_options():
@@ -455,7 +499,7 @@ if __name__ == "__main__":
     y_seed = np_rng.uniform(size=1000)
     y_true = (y_seed > 0.4).astype(int)
     y_pred = np.clip(y_seed + np_rng.normal(scale=0.2, size=1000), a_min=0, a_max=1)
-    y_pred2 = np.clip(y_seed + np_rng.normal(scale=0.2, size=1000), a_min=0, a_max=1)
+    y_pred2 = np.clip(y_seed + np_rng.normal(scale=0.15, size=1000), a_min=0, a_max=1)
     y_pred3 = np.clip(y_seed + np_rng.normal(scale=0.5, size=1000), a_min=0, a_max=1)
     log_classification_metrics(y_true, y_pred, logger)
 
@@ -480,4 +524,9 @@ if __name__ == "__main__":
     text = np.arange(n_tot).astype(str).reshape((-1, n_col))
     imshow_text(values=vals, text=text)
 
-    boostrap_roc_auc_ci(y_true, y_pred)
+    print(f"{boostrap_roc_auc_ci(y_true, y_pred)=}")
+
+    print(f"{permutation_test_roc_auc_pval(y_true, y_pred, y_pred2)=}")
+    print(
+        f"{permutation_test_roc_auc_pval(y_true, y_pred, y_pred2, alternative='two-sided')=}"
+    )

@@ -53,7 +53,7 @@ data_dirs = {
 embd = {
     v: np.load(
         data_dirs[v].joinpath(
-            "features-{typ}-{m}-n100.npy".format(typ=args.mapper, m=model_loc.stem)
+            "features-{typ}-{m}.npy".format(typ=args.mapper, m=model_loc.stem)
         )
     )
     for v in versions
