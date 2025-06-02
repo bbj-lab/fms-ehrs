@@ -7,6 +7,7 @@ import argparse
 import pathlib
 
 import numpy as np
+import pacmap
 import sklearn as skl
 import umap
 
@@ -25,7 +26,7 @@ parser.add_argument(
     type=pathlib.Path,
     default="../../clif-mdls-archive/llama1b-original-59946215-hp-QC_noX",
 )
-parser.add_argument("--mapper", choices=["umap", "isomap"], default="umap")
+parser.add_argument("--mapper", choices=["umap", "isomap", "pacmap"], default="umap")
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -54,18 +55,22 @@ match args.mapper:
         mapper = skl.manifold.Isomap(n_jobs=-1, n_components=2, n_neighbors=100)
     case "umap":
         mapper = umap.UMAP(n_jobs=-1, n_components=2, n_neighbors=100)
+    case "pacmap":
+        mapper = pacmap.PaCMAP(
+            n_components=2, n_neighbors=None, save_tree=True, random_state=42
+        )
     case _:
         raise Exception(f"{args.mapper=} unsupported")
 
 np.save(
     data_dirs["orig"].joinpath(
-        "features-{typ}-{m}-n100.npy".format(typ=args.mapper, m=model_loc.stem)
+        "features-{typ}-{m}.npy".format(typ=args.mapper, m=model_loc.stem)
     ),
     mapper.fit_transform(features["orig"]),
 )
 np.save(
     data_dirs["new"].joinpath(
-        "features-{typ}-{m}-n100.npy".format(typ=args.mapper, m=model_loc.stem)
+        "features-{typ}-{m}.npy".format(typ=args.mapper, m=model_loc.stem)
     ),
     mapper.transform(features["new"]),
 )
