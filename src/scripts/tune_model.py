@@ -98,7 +98,7 @@ def main(
         gradient_accumulation_steps=2,  # simulate larger batch sizes
         learning_rate=2e-4,  # 2e-4 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
         num_train_epochs=1,
-        save_total_limit=2,
+        save_total_limit=1,
         metric_for_best_model="eval_loss",
         load_best_model_at_end=True,
         greater_is_better=False,
@@ -132,8 +132,9 @@ def main(
             "{m}-{j}-hp-{d}".format(m=model_version, j=jid, d=data_version)
         )
         AutoModelForCausalLM.from_pretrained(best_ckpt).save_pretrained(best_mdl_loc)
+        return best_mdl_loc
 
-    return best_mdl_loc
+    return None
 
 
 if __name__ == "__main__":

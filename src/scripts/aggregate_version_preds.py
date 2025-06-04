@@ -12,7 +12,7 @@ import pickle
 import re
 
 from src.framework.logger import get_logger
-from src.framework.util import (
+from src.framework.plotting import (
     plot_calibration_curve,
     plot_precision_recall_curve,
     plot_roc_curve,

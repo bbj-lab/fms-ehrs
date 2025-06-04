@@ -9,7 +9,7 @@
 
 source preamble.sh
 
-[ -z "${data_version}" ] && export data_version=with_ecg
+[ -z "${data_version}" ] && export data_version=W++
 
 names=(original med small smol)
 hidden_sizes=(2048 1024 512 256)
@@ -22,7 +22,7 @@ torchrun --nproc_per_node=8 \
     --data_dir "${hm}/clif-data" \
     --data_version "${data_version:-QC_noX}" \
     --model_dir "${hm}/clif-mdls" \
-    --model_version "llama1b-${names[$SLURM_ARRAY_TASK_ID]}" \
+    --model_version "llama-${names[$SLURM_ARRAY_TASK_ID]}" \
     --model_name "meta-llama/Llama-3.2-1B" \
     --wandb_project "${data_version:-QC_noX}" \
     --jid "'${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}'" \
@@ -31,4 +31,4 @@ torchrun --nproc_per_node=8 \
     --num_hidden_layers $((SLURM_ARRAY_TASK_ID == 0 ? 2 ** 4 : 2 ** 3)) \
     --num_attention_heads $((SLURM_ARRAY_TASK_ID == 0 ? 2 ** 5 : 2 ** 3))
 
-# this leaves a tuned model at ${model_dir}/${model_version}-${jid}-hp-${data_version}
+# this leaves tuned models at ${model_dir}/${model_version}-${jid}-hp-${data_version}

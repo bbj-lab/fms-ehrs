@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=sft-cf
-#SBATCH --output=./output/%A_%a-%x.stdout
+#SBATCH --output=./output/%j-%x.stdout
 #SBATCH --partition=tier2q
 #SBATCH --time=2:00:00
 
