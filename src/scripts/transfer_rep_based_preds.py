@@ -15,8 +15,8 @@ import numpy as np
 import polars as pl
 import sklearn as skl
 
-from src.framework.logger import get_logger
-from src.framework.util import log_classification_metrics, set_pd_options
+from src.framework.logger import get_logger, log_classification_metrics
+from src.framework.util import set_pd_options
 
 set_pd_options()
 

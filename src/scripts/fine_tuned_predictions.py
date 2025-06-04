@@ -14,8 +14,8 @@ import numpy as np
 import torch as t
 from transformers import AutoModelForSequenceClassification, Trainer
 
-from src.framework.logger import get_logger
-from src.framework.util import log_classification_metrics, rt_padding_to_left
+from src.framework.logger import get_logger, log_classification_metrics
+from src.framework.util import rt_padding_to_left
 from src.framework.vocabulary import Vocabulary
 
 logger = get_logger()

@@ -9,7 +9,7 @@
 
 source preamble.sh
 
-[ -z "${data_version}" ] && export data_version=W
+[ -z "${data_version}" ] && export data_version=W++
 
 names=(original med small smol)
 hidden_sizes=(2048 1024 512 256)
