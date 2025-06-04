@@ -30,6 +30,8 @@ class Datasets:
         *,
         max_seq_length: int = 1024,
         shuffle_buffer_size: int = 1024,
+        i_part: int = None,
+        n_parts: int = None,
     ):
         self.data_version = data_version
         self.data_dir = pathlib.Path(data_dir)
@@ -47,6 +49,8 @@ class Datasets:
         self.uint_dtype = (
             t.uint8 if len(self.vocab) <= t.iinfo(t.uint8).max else t.int64
         )
+        self.i_part = i_part
+        self.n_parts = n_parts
         self.dataset = (
             ds.load_dataset(
                 "parquet",
@@ -79,6 +83,14 @@ class Datasets:
             )
             .with_format("torch")
         )
+        if self.i_part is not None or self.n_parts is not None:
+            assert 0 <= self.i_part < self.n_parts
+            for s in self.splits:
+                self.dataset[s] = self.dataset[s].select(
+                    np.array_split(np.arange(self.dataset[s].num_rows), self.n_parts)[
+                        self.i_part
+                    ]
+                )
         self.n_train: int = self.dataset["train"].num_rows
         self.n_val: int = self.dataset["val"].num_rows
 

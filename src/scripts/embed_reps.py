@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
-""" embed 24h-representations
+"""
+embed 24h-representations
 """
 
 import argparse

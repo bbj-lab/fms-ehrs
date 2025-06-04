@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
-""" process clusters of 24h-representations
+"""
+process clusters of 24h-representations
 """
 
 import argparse

@@ -4,7 +4,6 @@
 generate summary statistics for cohorts
 """
 
-
 import argparse
 import pathlib
 
