@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
-""" add some context to stddout files
+"""
+add some context to stddout files
 """
 
 import datetime

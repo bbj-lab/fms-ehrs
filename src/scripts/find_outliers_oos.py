@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-- determine if outliers @24h correlate with adverse events
+determine if outliers @24h correlate with adverse events
 """
 
 import argparse

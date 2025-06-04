@@ -4,7 +4,6 @@
 for a list of data versions, collect predictions and compare performance
 """
 
-
 import argparse
 import collections
 import pathlib

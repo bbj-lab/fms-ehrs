@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-fine-tune a pretrained model for sequence classification
+make predictions using a fine-tuned model for sequence classification
 """
 
 import os
