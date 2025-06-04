@@ -64,10 +64,9 @@ flowchart TD
   end
     N1 --> N2
     N2 --> N6 & N3
-    N6 --> N20 & N8 & N9 & N12 & N24
+    N6 --> N20 & N8 & N9 & N12
     N3 --> N4 & N5 & N9 & N11
-    N4 --> N23
-    N5 --> N7 & N25
+    N5 --> N7
     N7 --> N8
     N8 --> N21
     N9 --> N10 & N13
@@ -78,8 +77,6 @@ flowchart TD
     N14 --> N15
     N17 --> N18
     N18 --> N19
-    N23 --> N24
-    N25 --> N26
 ```
 
 ## What the code does
