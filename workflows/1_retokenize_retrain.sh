@@ -1,5 +1,7 @@
 #!/bin/bash
 
+export data_version=W++
+
 j02=$(
     sbatch --parsable \
         --chdir=../slurm \
@@ -12,3 +14,5 @@ j03=$(
         --chdir=../slurm \
         ../slurm/03_tune_model.sh
 )
+
+echo "$j02 $j03"

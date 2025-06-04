@@ -8,12 +8,12 @@
 
 source preamble.sh
 
-[ -z "${data_version}" ] && export data_version=W+
+[ -z "${data_version}" ] && export data_version=W
 
 echo "Processing MIMIC data..."
 python3 ../src/scripts/tokenize_train_val_test_split.py \
     --data_dir "${hm}/clif-data/" \
-    --data_version_in QC \
+    --data_version_in W \
     --data_version_out "${data_version:-QC_noX}" \
     --max_padded_len 1024 \
     --day_stay_filter True \

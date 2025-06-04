@@ -35,4 +35,5 @@ python3 ../src/scripts/redact_timelines.py \
     --model_loc "${hm}/clif-mdls-archive/llama1b-57928921-run1" \
     --k 5 \
     --method "${methods[$quo]}" \
-    --new_version "${new_versions[$quo]}"
+    --new_version "${new_versions[$quo]}" \
+    --aggregation sum

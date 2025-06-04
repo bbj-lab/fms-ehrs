@@ -2,7 +2,7 @@
 
 #SBATCH --job-name=proc-emb
 #SBATCH --output=./output/%j-%x.stdout
-#SBATCH --partition=tier3q
+#SBATCH --partition=tier2q
 #SBATCH --time=1:00:00
 
 source preamble.sh
