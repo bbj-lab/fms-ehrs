@@ -13,12 +13,10 @@ import pandas as pd
 import plotly.express as px
 import polars as pl
 
-from src.framework.logger import get_logger
+from src.framework.logger import get_logger, log_summary
+from src.framework.plotting import imshow_text, plot_histograms
 from src.framework.util import (
     extract_examples,
-    imshow_text,
-    log_summary,
-    plot_histograms,
 )
 from src.framework.vocabulary import Vocabulary
 

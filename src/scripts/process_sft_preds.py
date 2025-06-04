@@ -14,8 +14,8 @@ import pandas as pd
 import polars as pl
 import sklearn as skl
 
-from src.framework.logger import get_logger
-from src.framework.util import log_classification_metrics, set_pd_options
+from src.framework.logger import get_logger, log_classification_metrics
+from src.framework.util import set_pd_options
 from src.framework.vocabulary import Vocabulary
 
 set_pd_options()

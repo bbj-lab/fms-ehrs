@@ -11,6 +11,9 @@ import os
 import subprocess
 import sys
 
+import numpy as np
+from sklearn import metrics as skl_mets
+
 
 class SlurmLogger(logging.Logger):
     def __init__(self, name: str = "fms-ehrs-reps"):
@@ -85,6 +88,51 @@ def get_logger() -> SlurmLogger | logging.Logger:
     return logging.getLogger("fms-ehrs-reps")
 
 
+def log_summary(arr: np.array, logger: logging.Logger) -> None:
+    """log some summary stats for the array `arr`"""
+    logger.info("Array of shape: {}".format(arr.shape))
+    logger.info("Pct non-nan: {:.2f}".format(100 * np.isfinite(arr).mean()))
+    logger.info("Range: ({:.2f}, {:.2f})".format(np.nanmin(arr), np.nanmax(arr)))
+    logger.info("Mean: {:.2f}".format(np.nanmean(arr)))
+    for q in (0.5, 0.9, 0.99, 0.999, 0.9999):  # 0.0001, 0.001, 0.01, 0.1,
+        logger.info(
+            "{:05.2f}% quantile: {:.2f}".format(100 * q, np.nanquantile(arr, q))
+        )
+
+
+def log_classification_metrics(
+    y_true: np.array, y_score: np.array, logger: logging.Logger
+):
+    """evaluate a classifier under a variety of metrics"""
+    assert y_true.shape[0] == y_score.shape[0]
+
+    logger.info(
+        "roc_auc: {:.3f}".format(skl_mets.roc_auc_score(y_true=y_true, y_score=y_score))
+    )
+
+    for met in (
+        "accuracy",
+        "balanced_accuracy",
+        "precision",
+        "recall",
+    ):
+        logger.info(
+            "{}: {:.3f}".format(
+                met,
+                getattr(skl_mets, f"{met}_score")(
+                    y_true=y_true, y_pred=np.round(y_score)
+                ),
+            )
+        )
+
+
 if __name__ == "__main__":
+
+    from src.framework.stats import generate_classifier_preds
+
     logger = get_logger()
     logger.log_env()
+
+    y_true, y_preds = generate_classifier_preds(num_preds=1)
+    log_classification_metrics(y_true, y_preds[0], logger)
+    log_summary(y_preds[0], logger)
