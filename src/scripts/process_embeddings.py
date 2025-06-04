@@ -28,7 +28,7 @@ parser.add_argument(
     type=pathlib.Path,
     default="../../clif-mdls-archive/llama1b-original-59946215-hp-QC_noX",
 )
-parser.add_argument("--mapper", choices=["isomap", "umap"], default="umap")
+parser.add_argument("--mapper", choices=["isomap", "umap", "pacmap"], default="pacmap")
 parser.add_argument("--out_dir", type=pathlib.Path, default="../../figs")
 args, unknowns = parser.parse_known_args()
 
@@ -94,13 +94,29 @@ df = pd.concat(
     axis=0,
 )
 
+fig = px.scatter(
+    df,
+    x="dim1",
+    y="dim2",
+    color="version",
+)
+fig.update_layout(
+    title="{typ} embedding of 24hr representations".format(typ=args.mapper),
+    template="plotly_white",
+)
+fig.update_traces(marker=dict(size=1))
+fig.write_image(
+    out_dir.joinpath(
+        "emb-{typ}-{m}-by-ds.pdf".format(typ=args.mapper, m=model_loc.stem)
+    )
+)
+
 for out in outcomes[:2]:
     fig = px.scatter(
         df,
         x="dim1",
         y="dim2",
         color=out,
-        # symbol="version",
     )
     fig.update_layout(
         title="{typ} embedding of 24hr representations".format(typ=args.mapper),

@@ -133,7 +133,10 @@ class ClifTokenizer:
                 token=pl.lit(self.vocab(f"{label}_{c}")).cast(pl.Int64),
                 token_quantile=self.get_quants(v=v, c=c, label=label),
             )
-            .drop_nulls("token")
+            .filter(~pl.col("token").is_in([self.vocab(None), self.vocab("nan")]))
+            .filter(
+                ~pl.col("token_quantile").is_in([self.vocab(None), self.vocab("nan")])
+            )
             .with_columns(
                 tokens=pl.concat_list("token", "token_quantile").cast(
                     pl.List(pl.Int64)
@@ -795,7 +798,6 @@ if __name__ == "__main__":
         max_padded_len=1024,
         day_stay_filter=True,  # cut_at_24h=True
         valid_admission_window=("2110-01-01", "2111-12-31"),
-        quantizer="sigmas",
         drop_nulls_nans=True,
     )
     tt = tokens_timelines = tkzr.get_tokens_timelines()

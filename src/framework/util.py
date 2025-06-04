@@ -5,10 +5,12 @@ utility functions
 """
 
 import collections
+import copy
 import logging
 import os
 import pathlib
 import typing
+import warnings
 
 import joblib as jl
 import numpy as np
@@ -139,6 +141,7 @@ def plot_calibration_curve(
         xaxis=dict(range=[0, 1]),
         yaxis=dict(range=[0, 1]),
         template="plotly_white",
+        font_family="Computer Modern, CMU Serif",
     )
 
     if savepath is None:
@@ -193,6 +196,7 @@ def plot_roc_curve(named_results: Dictlike, savepath: Pathlike = None):
         xaxis=dict(range=[0, 1]),
         yaxis=dict(range=[0, 1]),
         template="plotly_white",
+        font_family="Computer Modern, CMU Serif",
     )
 
     if savepath is None:
@@ -240,6 +244,7 @@ def plot_precision_recall_curve(
         xaxis=dict(range=[0, 1]),
         yaxis=dict(range=[0, 1]),
         template="plotly_white",
+        font_family="Computer Modern, CMU Serif",
     )
 
     if savepath is None:
@@ -260,7 +265,12 @@ def plot_histogram(
         arr[np.isfinite(arr)].ravel(), nbins=nbins, labels={"value": "Value"}
     )
 
-    fig.update_layout(title=title, template="plotly_white", showlegend=False)
+    fig.update_layout(
+        title=title,
+        template="plotly_white",
+        showlegend=False,
+        font_family="Computer Modern, CMU Serif",
+    )
 
     if savepath is None:
         fig.show()
@@ -305,7 +315,13 @@ def plot_histograms(
             )
         )
 
-    fig.update_layout(barmode="overlay", template="plotly_white", title=title, **kwargs)
+    fig.update_layout(
+        barmode="overlay",
+        template="plotly_white",
+        title=title,
+        font_family="Computer Modern, CMU Serif",
+        **kwargs,
+    )
 
     if savepath is None:
         fig.show()
@@ -409,6 +425,7 @@ def imshow_text(values: np.array, text: np.array, title: str = "", savepath=None
         ),
         height=1800,
         width=900,
+        font_family="Computer Modern, CMU Serif",
     )
 
     if savepath is None:
@@ -425,16 +442,22 @@ def boostrap_roc_auc_ci(
     alpha: float = 0.05,
     rng: np.random._generator.Generator = np.random.default_rng(seed=42),
     n_jobs: int = -1,
+    **auc_kwargs,
 ):
     """
     Calculates a bootstrapped percentile interval for AUC as described in §13.3
     of Efron & Tibshirani's "An Introduction to the Bootstrap" (Chapman & Hall,
     Boca Raton, 1993)
     """
-    score = lambda rng_i: skl_mets.roc_auc_score(
-        y_true[samp := rng_i.choice(len(y_true), size=len(y_true), replace=True)],
-        y_score[samp],
-    )
+
+    def score(rng_i):
+        warnings.filterwarnings("ignore")
+        return skl_mets.roc_auc_score(
+            y_true[samp := rng_i.choice(len(y_true), size=len(y_true), replace=True)],
+            y_score[samp],
+            **auc_kwargs,
+        )
+
     scores = jl.Parallel(n_jobs=n_jobs)(
         jl.delayed(score)(rng_i) for rng_i in rng.spawn(n_samples)
     )
@@ -450,6 +473,7 @@ def permutation_test_roc_auc_pval(
     rng: np.random._generator.Generator = np.random.default_rng(seed=42),
     n_jobs: int = -1,
     alternative: typing.Literal["one-sided", "two-sided"] = "one-sided",
+    **auc_kwargs,
 ):
     """
     Tests the null hypothesis that `y_score0` & `y_score1` are equally good
@@ -457,18 +481,23 @@ def permutation_test_roc_auc_pval(
     paired bootstrapping; the one-sided alternative is that y_score1 is a better
     predictor than y_score0; the two-sided alternative is that they're different
     """
-    auc0 = skl_mets.roc_auc_score(y_true, y_score0)
-    auc1 = skl_mets.roc_auc_score(y_true, y_score1)
+    auc0 = skl_mets.roc_auc_score(y_true, y_score0, **auc_kwargs)
+    auc1 = skl_mets.roc_auc_score(y_true, y_score1, **auc_kwargs)
     diff_obs = auc1 - auc0
 
     def diff_i(rng_i: np.random._generator.Generator) -> float:
+        warnings.filterwarnings("ignore")
         swap = rng_i.integers(2, size=len(y_true)).astype(bool)
         samp = rng_i.choice(len(y_true), size=len(y_true), replace=True)
         auc0_i = skl_mets.roc_auc_score(
-            y_true[samp], np.where(swap, y_score0, y_score1)[samp]
+            y_true[samp],
+            np.where(swap.reshape(-1, 1), y_score0, y_score1)[samp],
+            **auc_kwargs,
         )
         auc1_i = skl_mets.roc_auc_score(
-            y_true[samp], np.where(~swap, y_score0, y_score1)[samp]
+            y_true[samp],
+            np.where(~swap.reshape(-1, 1), y_score0, y_score1)[samp],
+            **auc_kwargs,
         )
         return auc1_i - auc0_i
 
@@ -480,7 +509,64 @@ def permutation_test_roc_auc_pval(
         np.mean(diffs > diff_obs)
         if alternative == "one-sided"
         else np.mean(np.abs(diffs) > abs(diff_obs))
-    )
+    ).item()
+
+
+def redact_tokens_times(
+    tks_arr: typing.List[np.array],
+    tms_arr: typing.List[np.array],
+    inf_arr: np.array,
+    *,
+    k: int = None,
+    pct: float = None,
+    method: typing.Literal["top", "bottom", "random"] = "top",
+    aggregation: typing.Literal["max", "sum"] = "max",
+    rng: np.random._generator.Generator = np.random.default_rng(seed=42),
+) -> tuple[np.array, np.array]:
+    """given an array `tks_arr` of arrays of tokens and an array `tms_arr` of
+    arrays of times, and an array `inf_arr` containing the information content
+    up to a certain cutoff of the tokens in each timeline, iterate through the
+    timelines and drop all tokens corresponding to events containing the (`top`)
+    most informative, (`bottom`) least informative, or (`random`) randomly
+    chosen tokens (not including the prefix, which we always keep); we specify
+    the number of events either as fixed `k` for all timelines or as a `pct` of
+    the total number of events in each timeline; one and only one of these should
+    be specified
+    """
+    assert len(tks_arr) == len(tms_arr) == len(inf_arr)
+    assert (k is not None) ^ (pct is not None)
+    tks_new = copy.deepcopy(tks_arr)
+    tms_new = copy.deepcopy(tms_arr)
+    for i in range(len(tks_new)):
+        tks, tms = tks_arr[i], tms_arr[i]
+        tlen = min(len(tks), len(tms))
+        tks, tms = tks[:tlen], tms[:tlen]
+        tms_unq, idx = np.unique(tms, return_inverse=True)
+        if method in ("top", "bottom"):
+            infm = inf_arr[i, :tlen]
+            if aggregation == "max":
+                result = np.full(tms_unq.shape, -np.inf)
+                np.maximum.at(result, idx, infm)
+            elif aggregation == "sum":
+                result = np.zeros(shape=tms_unq.shape)
+                np.add.at(result, idx, infm)
+            else:
+                raise Exception(f"Check {aggregation=}")
+            srt = np.argsort(result)
+            if method == "top":
+                srt = srt[::-1]
+        elif method == "random":
+            srt = rng.permutation(len(tms_unq))
+        else:
+            raise Exception(f"Check {method=}")
+        srt = srt[srt != idx[0]]  # don't drop prefix
+        if k is not None:
+            to_drop = srt[:k]
+        elif pct is not None:
+            to_drop = srt[: int(pct * len(srt))]
+        tks_new[i] = tks[~np.isin(idx, to_drop)]
+        tms_new[i] = tms[~np.isin(idx, to_drop)]
+    return tks_new, tms_new
 
 
 def set_pd_options():
@@ -530,3 +616,37 @@ if __name__ == "__main__":
     print(
         f"{permutation_test_roc_auc_pval(y_true, y_pred, y_pred2, alternative='two-sided')=}"
     )
+
+    results = pd.DataFrame(
+        {
+            "pct": [0, 0.5, 1, 2.5, 5],
+            "same admission mortality": [0.914, 0.920, 0.922, 0.911, 0.892],
+            "long length of stay": [0.750, 0.766, 0.776, 0.751, 0.727],
+            "ICU admission": [0.615, 0.757, 0.805, 0.796, 0.766],
+            "IMV event": [0.675, 0.805, 0.796, 0.835, 0.808],
+        }
+    ).melt(id_vars="pct", var_name="outcome", value_name="AUC")
+
+    fig = px.line(
+        results,
+        x="pct",
+        y="AUC",
+        color="outcome",
+        title="Overall AUC (test set) vs. Fraction of local data used for finetuning",
+        color_discrete_sequence=colors[1:],
+        markers=True,
+    )
+    fig.update_layout(
+        xaxis_title="Percentage of local data used for finetuning",
+        yaxis_title="overall AUC (local test set)",
+        template="plotly_white",
+        # font_family="Computer Modern, CMU Serif",
+    )
+
+    fig.write_image(pathlib.Path("~/Downloads/sft_perf.pdf").expanduser().resolve())
+
+    tks = [np.arange(10)]
+    tms = [np.array([0] * 3 + [1] * 3 + [2] * 3 + [3])]
+    inf = np.array([0] * 3 + [3, 0, 0] + [2] * 3 + [1]).reshape(1, -1)
+    print(redact_tokens_times(tks, tms, inf, k=1))
+    print(redact_tokens_times(tks, tms, inf, k=1, aggregation="sum"))

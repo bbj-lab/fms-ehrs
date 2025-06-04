@@ -132,8 +132,9 @@ def main(
             "{m}-{j}-hp-{d}".format(m=model_version, j=jid, d=data_version)
         )
         AutoModelForCausalLM.from_pretrained(best_ckpt).save_pretrained(best_mdl_loc)
+        return best_mdl_loc
 
-    return best_mdl_loc
+    return None
 
 
 if __name__ == "__main__":
