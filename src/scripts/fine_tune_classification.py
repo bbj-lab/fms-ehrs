@@ -6,6 +6,7 @@ fine-tune a pretrained model for sequence classification
 
 import os
 import pathlib
+import sys
 import typing
 
 import datasets as ds
@@ -49,7 +50,8 @@ def main(
     ] = "same_admission_death",
     unif_rand_trunc: bool = False,
     tune: bool = False,
-):
+    training_fraction: float = 1.0,
+) -> pathlib.PurePath | None:
 
     model_loc, data_dir, out_dir = map(
         lambda d: pathlib.Path(d).expanduser().resolve(),
@@ -89,6 +91,12 @@ def main(
         )
     )
 
+    assert 0 <= training_fraction <= 1.0
+    if training_fraction < 1.0 - sys.float_info.epsilon:
+        tr = dataset["train"].shuffle(generator=np_rng)
+        n_tr = int(len(tr) * training_fraction)
+        dataset["train"] = dataset["train"].select(range(n_tr))
+
     def model_init(trial=None):
         return AutoModelForSequenceClassification.from_pretrained(model_loc)
 
@@ -124,7 +132,7 @@ def main(
         metric_for_best_model=metric_for_best_model,
         greater_is_better=greater_is_better,
         load_best_model_at_end=True,
-        eval_strategy="steps",
+        eval_strategy="epoch",
         save_strategy="best",
         ddp_find_unused_parameters=False,
     )
@@ -147,13 +155,18 @@ def main(
             n_trials=5,
         )
 
-        best_ckpt = sorted(
-            output_dir.joinpath(f"run-{best_trial.run_id}").glob("checkpoint-*")
-        ).pop()
-        best_mdl_loc = out_dir.joinpath("{m}-{j}-hp".format(m=model_loc.stem, j=jid))
-        AutoModelForSequenceClassification.from_pretrained(best_ckpt).save_pretrained(
-            best_mdl_loc
-        )
+        if os.getenv("RANK", "0") == "0":
+            best_ckpt = sorted(
+                output_dir.joinpath(f"run-{best_trial.run_id}").glob("checkpoint-*")
+            ).pop()
+            best_mdl_loc = out_dir.joinpath(
+                "{m}-{j}-hp".format(m=model_loc.stem, j=jid)
+            )
+            AutoModelForSequenceClassification.from_pretrained(
+                best_ckpt
+            ).save_pretrained(best_mdl_loc)
+
+            return best_mdl_loc
 
     else:
         trainer.train()
@@ -169,8 +182,7 @@ def main(
                 )
             )
         )
-
-    return best_mdl_loc
+        return best_mdl_loc
 
 
 if __name__ == "__main__":

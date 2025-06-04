@@ -62,14 +62,6 @@ flowchart TD
         N14["14"]
         N15["15"]
   end
- subgraph s6["Information quantification"]
-        N23["23"]
-        N24["24"]
- end
- subgraph s7["Embedding reps"]
-        N25["25"]
-        N26["26"]
- end
     N1 --> N2
     N2 --> N6 & N3
     N6 --> N20 & N8 & N9 & N12 & N24
@@ -217,6 +209,11 @@ Grab generated plots:
 rsync -avht \
     randi:/gpfs/data/bbj-lab/users/burkh4rt/figs \
     ~/Downloads
+```
+
+Save environment:
+```
+pip list --format=freeze > requirements.txt
 ```
 
 -->

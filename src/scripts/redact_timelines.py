@@ -7,14 +7,13 @@ via information or randomly
 """
 
 import argparse
-import copy
 import pathlib
-import typing
 
 import numpy as np
 import polars as pl
 
 from src.framework.logger import get_logger
+from src.framework.util import redact_tokens_times
 from src.framework.vocabulary import Vocabulary
 
 logger = get_logger()
@@ -31,17 +30,21 @@ parser.add_argument(
 )
 parser.add_argument(
     "--method",
-    choices=["top_k", "bottom_k", "random_k", "none"],
-    default="top_k",
+    choices=["top", "bottom", "random", None],
+    default=None,
 )
-parser.add_argument("--k", type=int, default=5)
+parser.add_argument(
+    "--aggregation",
+    choices=["max", "sum"],
+    default="max",
+)
+parser.add_argument("--k", type=int, default=None)
+parser.add_argument("--pct", type=float, default=None)
 parser.add_argument("--new_version", type=str, default="icu24h_top5-921_first_24h")
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
     logger.info(f"{k}: {v}")
-
-rng = np.random.default_rng(42)
 
 data_dir, model_loc = map(
     lambda d: pathlib.Path(d).expanduser().resolve(),
@@ -57,47 +60,6 @@ outcome_columns = (
     "icu_admission",
     "imv_event",
 )
-
-
-def redact_tokens_times(
-    tks_arr: np.array,
-    tms_arr: np.array,
-    inf_arr: np.array,
-    k: int = 5,
-    method: typing.Literal["top_k", "bottom_k", "random_k"] = "top_k",
-) -> tuple[np.array, np.array]:
-    """given an array `tks_arr` of arrays of tokens and an array `tms_arr` of
-    arrays of times, and an array `inf_arr` containing the information content
-    up to a certain cutoff of the tokens in each timeline, iterate through the
-    timelines and drop all tokens corresponding to times containing `k` (`top_k`)
-    most informative, (`bottom_k`) least informative, or (`random_k`) randomly
-    chosen tokens (not including the prefix, which we always keep)
-    """
-    assert len(tks_arr) == len(tms_arr) == len(inf_arr)
-    tks_new = copy.deepcopy(tks_arr)
-    tms_new = copy.deepcopy(tms_arr)
-    for i in range(len(tks_new)):
-        tks, tms = tks_arr[i], tms_arr[i]
-        tlen = min(len(tks), len(tms))
-        tks, tms = tks[:tlen], tms[:tlen]
-        tms_unq, idx = np.unique(tms, return_inverse=True)
-        if method in ("top_k", "bottom_k"):
-            infm = inf_arr[i, :tlen]
-            result = np.full(tms_unq.shape, -np.inf)
-            np.maximum.at(result, idx, infm)
-            srt = np.argsort(result)
-            if method == "top_k":
-                srt = srt[::-1]
-        elif method == "random_k":
-            srt = rng.permutation(len(tms_unq))
-        else:
-            raise Exception(f"Check {method=}")
-        srt = srt[srt != idx[0]]  # don't drop prefix
-        to_drop = srt[:k]
-        tks_new[i] = tks[~np.isin(idx, to_drop)]
-        tms_new[i] = tms[~np.isin(idx, to_drop)]
-    return tks_new, tms_new
-
 
 vocab = Vocabulary().load(
     data_dir.joinpath(f"{args.data_version}-tokenized", "train", "vocab.gzip")
@@ -123,13 +85,15 @@ for s in splits:
     inf_icu = infm[icu_adm]
     max_pad = len(tkn_icu[0])
 
-    if args.method and args.method != "none":
+    if args.method is not None:
         tkn_new, tms_new = redact_tokens_times(
             tks_arr=tkn_icu,
             tms_arr=tms_icu,
             inf_arr=inf_icu,
             k=args.k,
+            pct=args.pct,
             method=args.method,
+            aggregation=args.aggregation,
         )
         df = (
             df_icu.with_columns(

@@ -4,8 +4,7 @@
 #SBATCH --output=./output/%j-%x.stdout
 #SBATCH --partition=tier3q
 #SBATCH --mem=100GB
-#SBATCH --cpus-per-task=24
-#SBATCH --time=3:00:00
+#SBATCH --time=1-00:00:00
 
 source preamble.sh
 
@@ -20,5 +19,5 @@ for m in "${models[@]}"; do
         --data_dir_new "${hm}/clif-data-ucmc" \
         --data_version "${m##*-}_first_24h" \
         --model_loc "${hm}/clif-mdls-archive/$m" \
-        --mapper umap
+        --mapper pacmap
 done
