@@ -14,10 +14,23 @@ more python scripts that depend on an environment as described in the
 ```sh
 python3 -m venv venv
 source venv/bin/activate
-# install torch as appropriate for your system, e.g.:
 pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 pip3 install -r requirements.txt
 ```
+
+Alternatively, after installing torch, you can install directly from github:
+
+```sh
+pip install -e git+https://github.com/bbj-lab/clif-tokenizer.git@main
+```
+
+or
+
+```sh
+pip install -e "git+https://github.com/bbj-lab/clif-tokenizer.git@main#egg=fms-ehrs"
+```
+
+for an editable installation.
 
 The code is structured logically as follows, where the numerical prefixes
 correspond to the prefixes in the bash (`.sh`) files:
