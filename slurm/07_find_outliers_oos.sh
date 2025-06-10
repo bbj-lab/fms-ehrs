@@ -10,18 +10,24 @@ source preamble.sh
 
 if [ -z "${versions}" ]; then
     versions=(
-        icu24h
-        icu24h_top5-921
-        icu24h_bot5-921
-        icu24h_rnd5-921
+        W++
     )
 fi
 
+models=(
+    llama-original-60358922_0-hp-W++
+    llama-med-60358922_1-hp-W++
+    llama-small-60358922_2-hp-W++
+    llama-smol-60358922_3-hp-W++
+)
+
 for v in "${versions[@]}"; do
-    python3 ../src/scripts/find_outliers_oos.py \
-        --data_dir_orig "${hm}/clif-data" \
-        --data_dir_new "${hm}/clif-data-ucmc" \
-        --data_version "${v}_first_24h" \
-        --model_loc "${hm}/clif-mdls-archive/llama1b-57928921-run1" \
-        --out_dir "${hm}"
+    for m in "${models[@]}"; do
+        python3 ../fms_ehrs/scripts/find_outliers_oos.py \
+            --data_dir_orig "${hm}/clif-data" \
+            --data_dir_new "${hm}/clif-data-ucmc" \
+            --data_version "${v}_first_24h" \
+            --model_loc "${hm}/clif-mdls-archive/${m}" \
+            --out_dir "${hm}"
+    done
 done

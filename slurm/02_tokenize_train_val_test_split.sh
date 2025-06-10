@@ -11,7 +11,7 @@ source preamble.sh
 [ -z "${data_version}" ] && export data_version=W
 
 echo "Processing MIMIC data..."
-python3 ../src/scripts/tokenize_train_val_test_split.py \
+python3 ../fms_ehrs/scripts/tokenize_train_val_test_split.py \
     --data_dir "${hm}/clif-data/" \
     --data_version_in W \
     --data_version_out "${data_version:-QC_noX}" \
@@ -21,7 +21,7 @@ python3 ../src/scripts/tokenize_train_val_test_split.py \
     --drop_nulls_nans True
 
 echo "Using vocab from MIMIC to process UChicago data..."
-python3 ../src/scripts/tokenize_train_val_test_split.py \
+python3 ../fms_ehrs/scripts/tokenize_train_val_test_split.py \
     --data_dir "${hm}/clif-data-ucmc" \
     --data_version_in QC \
     --data_version_out "${data_version:-QC_noX}" \

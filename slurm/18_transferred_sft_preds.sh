@@ -25,7 +25,7 @@ models=(
     mdl-llama1b-57928921-run1-58165531-clsfr-imv_event-60275657_11-hp
 )
 
-python3 ../src/scripts/fine_tuned_predictions.py \
+python3 ../fms_ehrs/scripts/fine_tuned_predictions.py \
     --data_dir "${hm}/clif-data-ucmc" \
     --data_version QC_day_stays_first_24h \
     --model_loc "${hm}/clif-mdls-archive/${models[$SLURM_ARRAY_TASK_ID]}" \

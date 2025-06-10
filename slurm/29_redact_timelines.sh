@@ -29,7 +29,7 @@ new_versions=(
     icu24h_rnd5-921_first_24h
 )
 
-python3 ../src/scripts/redact_timelines.py \
+python3 ../fms_ehrs/scripts/redact_timelines.py \
     --data_dir "${data_dirs[$rem]}" \
     --data_version "QC_day_stays_first_24h" \
     --model_loc "${hm}/clif-mdls-archive/llama1b-57928921-run1" \

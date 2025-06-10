@@ -14,7 +14,7 @@ case "${SLURM_ARRAY_TASK_ID}" in
     *) echo "Invalid SLURM_ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}" ;;
 esac
 
-python3 ../src/scripts/visualize_tokenwise_predictions.py \
+python3 ../fms_ehrs/scripts/visualize_tokenwise_predictions.py \
     --data_dir "$data_dir" \
     --out_dir "$hm" \
     --data_version QC_day_stays_first_24h \

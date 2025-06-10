@@ -11,7 +11,7 @@ source preamble.sh
 
 m=llama1b-smol-59946181-hp-QC_noX
 
-python3 ../src/scripts/cluster_reps.py \
+python3 ../fms_ehrs/scripts/cluster_reps.py \
     --data_dir_orig "${hm}/clif-data" \
     --data_dir_new "${hm}/clif-data-ucmc" \
     --data_version "${m##*-}_first_24h" \
