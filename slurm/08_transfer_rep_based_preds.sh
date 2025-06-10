@@ -18,7 +18,7 @@ if [ -z "${versions}" ]; then
     )
 fi
 
-python3 ../src/scripts/transfer_rep_based_preds.py \
+python3 ../fms_ehrs/scripts/transfer_rep_based_preds.py \
     --data_dir_orig "${hm}/clif-data" \
     --data_dir_new "${hm}/clif-data-ucmc" \
     --data_version "${versions[$SLURM_ARRAY_TASK_ID]}_first_24h" \

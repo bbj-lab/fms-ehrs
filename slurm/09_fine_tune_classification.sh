@@ -52,7 +52,7 @@ esac
 
 res=$(
     torchrun --nproc_per_node=8 \
-        ../src/scripts/fine_tune_classification.py \
+        ../fms_ehrs/scripts/fine_tune_classification.py \
         --model_loc "${hm}/clif-mdls-archive/${models[$quo]}" \
         --data_dir "${hm}/clif-data" \
         --data_version QC_day_stays_first_24h \

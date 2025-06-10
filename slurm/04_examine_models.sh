@@ -8,7 +8,7 @@
 
 source preamble.sh
 
-python3 ../src/scripts/examine_models.py \
+python3 ../fms_ehrs/scripts/examine_models.py \
     --projector_type PCA \
     --data_dir "${hm}/clif-data" \
     --data_version "${data_version:-QC_noX}" \

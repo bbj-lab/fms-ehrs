@@ -15,7 +15,7 @@ case "${SLURM_ARRAY_TASK_ID}" in
     *) echo "Invalid SLURM_ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}" ;;
 esac
 
-python3 ../src/scripts/process_representation_trajectories.py \
+python3 ../fms_ehrs/scripts/process_representation_trajectories.py \
     --data_dir "$data_dir" \
     --data_version QC_day_stays_first_24h \
     --model_loc "${hm}/clif-mdls-archive/llama1b-57928921-run1" \

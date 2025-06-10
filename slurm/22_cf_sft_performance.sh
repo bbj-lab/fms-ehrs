@@ -81,7 +81,7 @@ case ${quo} in
         ;;
 esac
 
-python3 ../src/scripts/aggregate_sft_preds.py \
+python3 ../fms_ehrs/scripts/aggregate_sft_preds.py \
     --data_dir "${data_dirs[$rem]}" \
     --out_dir "${hm}/figs" \
     --data_version QC_day_stays_first_24h \

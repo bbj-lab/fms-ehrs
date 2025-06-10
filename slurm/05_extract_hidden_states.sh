@@ -17,22 +17,19 @@ data_dirs=(
     "${hm}/clif-data"
     "${hm}/clif-data-ucmc"
 )
-
-if [ -z "${versions}" ]; then
-    versions=(
-        icu24h
-        icu24h_top5-921
-        icu24h_bot5-921
-        icu24h_rnd5-921
-    )
-fi
+models=(
+    llama-original-60358922_0-hp-W++
+    llama-med-60358922_1-hp-W++
+    llama-small-60358922_2-hp-W++
+    llama-smol-60358922_3-hp-W++
+)
 
 torchrun --nproc_per_node=4 \
     --rdzv_backend c10d \
     --rdzv-id "$SLURM_ARRAY_TASK_ID" \
     --rdzv-endpoint=localhost:0 \
-    ../src/scripts/extract_hidden_states.py \
+    ../fms_ehrs/scripts/extract_hidden_states.py \
     --data_dir "${data_dirs[$rem]}" \
-    --data_version "${versions[$quo]}_first_24h" \
-    --model_loc "${hm}/clif-mdls-archive/llama1b-57928921-run1" \
+    --data_version "${models[$quo]##*-}_first_24h" \
+    --model_loc "${hm}/clif-mdls-archive/${models[$quo]}" \
     --batch_sz $((2 ** 5))

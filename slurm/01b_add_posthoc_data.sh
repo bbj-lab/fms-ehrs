@@ -7,7 +7,7 @@
 
 source preamble.sh
 
-python3 ../src/scripts/add_posthoc_data.py \
+python3 ../fms_ehrs/scripts/add_posthoc_data.py \
     --new_data_loc "${hm}/clif-data/scratch/en_ner_bc5cdr_md_umls.csv" \
     --new_data_name machine_measurements \
     --data_dir_out "${hm}/clif-data/" \

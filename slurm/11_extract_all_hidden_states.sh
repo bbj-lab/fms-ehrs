@@ -19,7 +19,7 @@ torchrun --nproc_per_node=8 \
     --rdzv_backend c10d \
     --rdzv-id "$SLURM_ARRAY_TASK_ID" \
     --rdzv-endpoint=localhost:0 \
-    ../src/scripts/extract_all_hidden_states.py \
+    ../fms_ehrs/scripts/extract_all_hidden_states.py \
     --data_dir "$data_dir" \
     --data_version QC_day_stays_first_24h \
     --model_loc "${hm}/clif-mdls-archive/llama1b-57928921-run1" \
