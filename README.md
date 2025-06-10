@@ -174,8 +174,8 @@ j03=$(sbatch --parsable --depend=afterok:${j02} 03_tune_model.sh)
 
 Format:
 ```
-isort src/
-black src/
+isort fms_ehrs/
+black fms_ehrs/
 shfmt -w slurm/
 prettier --write --print-width 81 --prose-wrap always *.md
 ```

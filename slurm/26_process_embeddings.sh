@@ -13,7 +13,7 @@ models=(
 )
 
 for m in "${models[@]}"; do
-    python3 ../src/scripts/process_embeddings.py \
+    python3 ../fms_ehrs/scripts/process_embeddings.py \
         --data_dir_orig "${hm}/clif-data" \
         --data_dir_new "${hm}/clif-data-ucmc" \
         --data_version "${m##*-}_first_24h" \

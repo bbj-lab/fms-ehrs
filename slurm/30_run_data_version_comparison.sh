@@ -19,7 +19,7 @@ versions=(
 )
 
 for d in "${data_dirs[@]}"; do
-    python3 ../src/scripts/aggregate_version_preds.py \
+    python3 ../fms_ehrs/scripts/aggregate_version_preds.py \
         --data_dir "$d" \
         --data_versions "${versions[@]}" \
         --model_loc "${hm}/clif-mdls-archive/llama1b-57928921-run1" \
