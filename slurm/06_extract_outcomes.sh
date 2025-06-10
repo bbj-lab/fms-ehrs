@@ -8,6 +8,7 @@
 #SBATCH --array=0-1
 
 source preamble.sh
+export data_version=W++
 
 case "${SLURM_ARRAY_TASK_ID}" in
     0)
@@ -20,7 +21,7 @@ case "${SLURM_ARRAY_TASK_ID}" in
 esac
 
 for data_version in with_ecg; do
-    python3 ../src/scripts/extract_outcomes.py \
+    python3 ../fms_ehrs/scripts/extract_outcomes.py \
         --data_dir "$data_dir" \
         --ref_version "${data_version:-QC_noX}" \
         --data_version "${data_version:-QC_noX}_first_24h"

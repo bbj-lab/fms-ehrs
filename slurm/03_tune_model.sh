@@ -16,7 +16,7 @@ hidden_sizes=(2048 1024 512 256)
 intermediate_sizes=(8192 2048 1024 512)
 
 torchrun --nproc_per_node=8 \
-    ../src/scripts/tune_model.py \
+    ../fms_ehrs/scripts/tune_model.py \
     --n_epochs 10 \
     --n_trials 3 \
     --data_dir "${hm}/clif-data" \

@@ -19,7 +19,7 @@ models=(
     llama1b-original-59772926-hp
 )
 
-python3 ../src/scripts/aggregate_model_preds.py \
+python3 ../fms_ehrs/scripts/aggregate_model_preds.py \
     --data_dir "${data_dir}" \
     --out_dir "${hm}/figs" \
     --data_version "${data_version:-QC_noX}_first_24h" \

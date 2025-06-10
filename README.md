@@ -14,10 +14,23 @@ more python scripts that depend on an environment as described in the
 ```sh
 python3 -m venv venv
 source venv/bin/activate
-# install torch as appropriate for your system, e.g.:
 pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 pip3 install -r requirements.txt
 ```
+
+Alternatively, after installing torch, you can install directly from github:
+
+```sh
+pip install -e git+https://github.com/bbj-lab/clif-tokenizer.git@main
+```
+
+or
+
+```sh
+pip install -e "git+https://github.com/bbj-lab/clif-tokenizer.git@main#egg=fms-ehrs"
+```
+
+for an editable installation.
 
 The code is structured logically as follows, where the numerical prefixes
 correspond to the prefixes in the bash (`.sh`) files:
@@ -63,20 +76,11 @@ flowchart TD
         N14["14"]
         N15["15"]
   end
- subgraph s6["Information quantification"]
-        N23["23"]
-        N24["24"]
- end
- subgraph s7["Embedding reps"]
-        N25["25"]
-        N26["26"]
- end
     N1 --> N2
     N2 --> N6 & N3
-    N6 --> N20 & N8 & N9 & N12 & N24
+    N6 --> N20 & N8 & N9 & N12
     N3 --> N4 & N5 & N9 & N11
-    N4 --> N23
-    N5 --> N7 & N25
+    N5 --> N7
     N7 --> N8
     N8 --> N21
     N9 --> N10 & N13
@@ -87,8 +91,6 @@ flowchart TD
     N14 --> N15
     N17 --> N18
     N18 --> N19
-    N23 --> N24
-    N25 --> N26
 ```
 
 ## What the code does
@@ -172,8 +174,8 @@ j03=$(sbatch --parsable --depend=afterok:${j02} 03_tune_model.sh)
 
 Format:
 ```
-isort src/
-black src/
+isort fms_ehrs/
+black fms_ehrs/
 shfmt -w slurm/
 prettier --write --print-width 81 --prose-wrap always *.md
 ```
