@@ -23,13 +23,13 @@ logger.log_env()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data_dir", type=pathlib.Path, default="../../clif-data")
-parser.add_argument("--data_version", type=str, default="QC_day_stays_first_24h")
+parser.add_argument("--data_version", type=str, default="W++_first_24h")
 parser.add_argument(
     "--model_loc",
     type=pathlib.Path,
-    default="../../clif-mdls-archive/llama-med-58788824",
+    default="../../clif-mdls-archive/llama-smol-60358922_3-hp-W++",
 )
-parser.add_argument("--batch_sz", type=int, default=2**8)
+parser.add_argument("--batch_sz", type=int, default=2**5)
 parser.add_argument("splits", nargs="*", default=["test"])
 args, unknowns = parser.parse_known_args()
 
@@ -100,7 +100,7 @@ for s in args.splits:
                 -1,
                 batch.unsqueeze(-1),
             )  # gather log prob for realized token
-            .squeeze()
+            .squeeze(-1)  # batch_idx may be a singleton
             .cpu()
             .numpy()
         )
