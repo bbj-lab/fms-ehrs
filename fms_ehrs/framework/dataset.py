@@ -114,11 +114,11 @@ class Datasets:
                     yield {"input_ids": ret.to(self.uint_dtype)}
                     ret = t.Tensor(size=(0,))
 
-    def get_train_dataset(self, n_epochs: int = 10):
+    def get_train_dataset(self, n_epochs: int = 10, iterable: bool = True):
         if self.collation == "padded":
-            return self.dataset["train"].shuffle(generator=self.np_rng)
+            x = self.dataset["train"].shuffle(generator=self.np_rng)
         elif self.collation == "packed":
-            return ds.IterableDataset.from_generator(
+            x = ds.IterableDataset.from_generator(
                 lambda: self.chunk_iterable(
                     ds.IterableDataset.from_generator(
                         lambda: itertools.chain.from_iterable(
@@ -140,12 +140,13 @@ class Datasets:
             raise ValueError(
                 "collation should be `padded` or `packed`, not ", self.collation
             )
+        return x if iterable else ds.Dataset.from_list(list(x))
 
-    def get_val_dataset(self):
+    def get_val_dataset(self, iterable: bool = True):
         if self.collation == "padded":
-            return self.dataset["val"]
+            x = self.dataset["val"]
         elif self.collation == "packed":
-            return ds.IterableDataset.from_generator(
+            x = ds.IterableDataset.from_generator(
                 lambda: self.chunk_iterable(self.dataset["val"]),
                 features=ds.Features(
                     {
@@ -159,6 +160,26 @@ class Datasets:
             raise ValueError(
                 "collation should be `padded` or `packed`, not ", self.collation
             )
+        return x if iterable else ds.Dataset.from_list(list(x))
 
     def get_context_length(self):
         return self.dataset["train"].select(range(1))["input_ids"].shape[1]
+
+
+if __name__ == "__main__":
+
+    if os.uname().nodename.startswith("cri"):
+        hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/")
+    else:
+        # change following line to develop locally
+        hm = pathlib.Path("~/Documents/chicago/CLIF/")
+
+    data_dir = hm.parent.joinpath(hm.stem + "-tokenized").expanduser()
+    data = Datasets(
+        data_version="clif-development-sample",
+        data_dir=hm,
+        collation="packed",
+        i_part=42,
+        n_parts=100,
+    )
+    tr = data.get_train_dataset(n_epochs=1, iterable=False)
