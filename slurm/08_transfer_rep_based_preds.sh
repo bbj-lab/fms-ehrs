@@ -9,20 +9,17 @@
 
 source preamble.sh
 
-if [ -z "${versions}" ]; then
-    versions=(
-        icu24h
-        icu24h_top5-921
-        icu24h_bot5-921
-        icu24h_rnd5-921
-    )
-fi
+models=(
+    llama-original-60358922_0-hp-W++
+    llama-med-60358922_1-hp-W++
+    llama-small-60358922_2-hp-W++
+    llama-smol-60358922_3-hp-W++
+)
 
 python3 ../fms_ehrs/scripts/transfer_rep_based_preds.py \
     --data_dir_orig "${hm}/clif-data" \
     --data_dir_new "${hm}/clif-data-ucmc" \
-    --data_version "${versions[$SLURM_ARRAY_TASK_ID]}_first_24h" \
-    --model_loc "${hm}/clif-mdls-archive/llama1b-57928921-run1" \
+    --data_version "${models[$SLURM_ARRAY_TASK_ID]##*-}_first_24h" \
+    --model_loc "${hm}/clif-mdls-archive/${models[$SLURM_ARRAY_TASK_ID]}" \
     --classifier logistic_regression \
-    --save_preds \
-    --drop_icu_adm
+    --save_preds
