@@ -32,12 +32,15 @@ def main(
     model_loc: os.PathLike = None,
     small_batch_sz: int = 2**4,
     big_batch_sz: int = 2**12,
-    test_only: bool = True,
+    test_only: bool = False,
+    out_dir: os.PathLike = None,
 ):
 
-    data_dir, model_loc = map(
+    out_dir = out_dir if out_dir else data_dir
+
+    data_dir, model_loc, out_dir = map(
         lambda d: pathlib.Path(d).expanduser().resolve(),
-        (data_dir, model_loc),
+        (data_dir, model_loc, out_dir),
     )
 
     # prepare parallelism
@@ -53,8 +56,11 @@ def main(
     # load and prep data
     splits = ("train", "val", "test")
     data_dirs = dict()
+    out_dirs = dict()
     for s in splits:
         data_dirs[s] = data_dir.joinpath(f"{data_version}-tokenized", s)
+        out_dirs[s] = out_dir.joinpath(f"{data_version}-tokenized", s)
+        out_dirs[s].mkdir(exist_ok=True)
 
     vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
     splits = ("test",) if test_only else splits
@@ -100,7 +106,7 @@ def main(
                         feats[i, j:] = np.nan
                 features[s][small_batch - batch_num * big_batch_sz] = feats
             np.save(
-                data_dirs[s].joinpath(
+                out_dirs[s].joinpath(
                     "all-features-{m}-batch{n}.npy".format(
                         m=model_loc.stem, n=batch_num
                     )

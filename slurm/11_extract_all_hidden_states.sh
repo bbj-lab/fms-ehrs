@@ -2,26 +2,40 @@
 
 #SBATCH --job-name=all-states
 #SBATCH --output=./output/%A_%a-%x.stdout
-#SBATCH --partition=sxmq
-#SBATCH --gres=gpu:8
+#SBATCH --partition=gpuq
+#SBATCH --gres=gpu:2
 #SBATCH --time=24:00:00
-#SBATCH --array=0-1
+#SBATCH --array=0-7
 
 source preamble.sh
 
-case "${SLURM_ARRAY_TASK_ID}" in
-    0) data_dir="${hm}/clif-data" ;;
-    1) data_dir="${hm}/clif-data-ucmc" ;;
-    *) echo "Invalid SLURM_ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}" ;;
-esac
+div=2
+quo=$((SLURM_ARRAY_TASK_ID / div))
+rem=$((SLURM_ARRAY_TASK_ID % div))
 
-torchrun --nproc_per_node=8 \
+data_dirs=(
+    "${hm}/clif-data"
+    "${hm}/clif-data-ucmc"
+)
+out_dirs=(
+    "/scratch/burkh4rt/clif-data"
+    "/scratch/burkh4rt/clif-data-ucmc"
+)
+models=(
+    llama-original-60358922_0-hp-W++
+    llama-med-60358922_1-hp-W++
+    llama-small-60358922_2-hp-W++
+    llama-smol-60358922_3-hp-W++
+)
+
+torchrun --nproc_per_node=2 \
     --rdzv_backend c10d \
     --rdzv-id "$SLURM_ARRAY_TASK_ID" \
     --rdzv-endpoint=localhost:0 \
     ../fms_ehrs/scripts/extract_all_hidden_states.py \
-    --data_dir "$data_dir" \
-    --data_version QC_day_stays_first_24h \
-    --model_loc "${hm}/clif-mdls-archive/llama1b-57928921-run1" \
+    --data_dir "${data_dirs[$rem]}" \
+    --out_dir "${out_dirs[$rem]}" \
+    --data_version "${models[$quo]##*-}_first_24h" \
+    --model_loc "${hm}/clif-mdls-archive/${models[$quo]}" \
     --small_batch_sz $((2 ** 4)) \
     --big_batch_sz $((2 ** 12))
