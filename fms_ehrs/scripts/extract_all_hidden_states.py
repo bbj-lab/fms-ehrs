@@ -60,7 +60,7 @@ def main(
     for s in splits:
         data_dirs[s] = data_dir.joinpath(f"{data_version}-tokenized", s)
         out_dirs[s] = out_dir.joinpath(f"{data_version}-tokenized", s)
-        out_dirs[s].mkdir(exist_ok=True)
+        out_dirs[s].mkdir(exist_ok=True, parents=True)
 
     vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
     splits = ("test",) if test_only else splits

@@ -186,3 +186,4 @@ if __name__ == "__main__":
     inf = np.array([0] * 3 + [3, 0, 0] + [2] * 3 + [1]).reshape(1, -1)
     print(redact_tokens_times(tks, tms, inf, k=1))
     print(redact_tokens_times(tks, tms, inf, k=1, aggregation="sum"))
+    print(redact_tokens_times(tks, tms, inf, k=1, method="random"))

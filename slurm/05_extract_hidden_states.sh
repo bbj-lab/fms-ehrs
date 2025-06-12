@@ -5,7 +5,7 @@
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:4
 #SBATCH --time=1-00:00:00
-#SBATCH --array=0-31
+#SBATCH --array=20
 
 source preamble.sh
 

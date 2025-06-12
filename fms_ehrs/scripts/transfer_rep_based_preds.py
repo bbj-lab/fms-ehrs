@@ -36,6 +36,7 @@ parser.add_argument(
 )
 parser.add_argument("--save_preds", action="store_true")
 parser.add_argument("--drop_icu_adm", action="store_true")
+parser.add_argument("--breakdown_outliers", action="store_true")
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -53,24 +54,27 @@ outcomes = ("same_admission_death", "long_length_of_stay", "imv_event") + (
 )
 
 data_dirs = collections.defaultdict(dict)
-outliers = collections.defaultdict(dict)
 features = collections.defaultdict(dict)
 qualifiers = collections.defaultdict(lambda: collections.defaultdict(dict))
 labels = collections.defaultdict(lambda: collections.defaultdict(dict))
+
+if args.breakdown_outliers:
+    outliers = collections.defaultdict(dict)
 
 for v in versions:
     for s in splits:
         data_dirs[v][s] = (data_dir_orig if v == "orig" else data_dir_new).joinpath(
             f"{args.data_version}-tokenized", s
         )
-        outliers[v][s] = (
-            np.load(
-                data_dirs[v][s].joinpath(
-                    "features-outliers-{m}.npy".format(m=model_loc.stem)
-                )
-            )  # "Returns -1 for outliers and 1 for inliers"
-            == -1
-        )
+        if args.breakdown_outliers:
+            outliers[v][s] = (
+                np.load(
+                    data_dirs[v][s].joinpath(
+                        "features-outliers-{m}.npy".format(m=model_loc.stem)
+                    )
+                )  # "Returns -1 for outliers and 1 for inliers"
+                == -1
+            )
         features[v][s] = np.load(
             data_dirs[v][s].joinpath("features-{m}.npy".format(m=model_loc.stem))
         )
@@ -166,19 +170,20 @@ for outcome in outcomes:
         )
         log_classification_metrics(y_true=y_true, y_score=y_score, logger=logger)
 
-        out_test = (outliers[v]["test"])[q_test]
-        logger.info("on outliers".upper().ljust(49, "-"))
-        log_classification_metrics(
-            y_true=y_true[out_test],
-            y_score=y_score[out_test],
-            logger=logger,
-        )
-        logger.info("on inliers".upper().ljust(49, "-"))
-        log_classification_metrics(
-            y_true=y_true[~out_test],
-            y_score=y_score[~out_test],
-            logger=logger,
-        )
+        if args.breakdown_outliers:
+            out_test = (outliers[v]["test"])[q_test]
+            logger.info("on outliers".upper().ljust(49, "-"))
+            log_classification_metrics(
+                y_true=y_true[out_test],
+                y_score=y_score[out_test],
+                logger=logger,
+            )
+            logger.info("on inliers".upper().ljust(49, "-"))
+            log_classification_metrics(
+                y_true=y_true[~out_test],
+                y_score=y_score[~out_test],
+                logger=logger,
+            )
 
 if args.save_preds:
     for v in versions:
