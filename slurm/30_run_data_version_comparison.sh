@@ -11,17 +11,36 @@ data_dirs=(
     "${hm}/clif-data"
     "${hm}/clif-data-ucmc"
 )
-versions=(
-    icu24h_first_24h
-    icu24h_top5-921_first_24h
-    icu24h_bot5-921_first_24h
-    icu24h_rnd5-921_first_24h
+methods=(
+    none
+    top
+    bottom
+    random
+)
+models=(
+    llama-original-60358922_0-hp-W++
+    llama-med-60358922_1-hp-W++
+    llama-small-60358922_2-hp-W++
+    llama-smol-60358922_3-hp-W++
 )
 
 for d in "${data_dirs[@]}"; do
-    python3 ../fms_ehrs/scripts/aggregate_version_preds.py \
-        --data_dir "$d" \
-        --data_versions "${versions[@]}" \
-        --model_loc "${hm}/clif-mdls-archive/llama1b-57928921-run1" \
-        --out_dir "${hm}/figs"
+    for mo in "${models[@]}"; do
+
+        versions=()
+        handles=()
+
+        for me in "${methods[@]}"; do
+            versions+=("W++_first_24h_${mo}_${me}_20pct")
+            handles+=("$(echo "$mo" | cut -d'-' -f2)_${me}")
+        done
+
+        python3 ../fms_ehrs/scripts/aggregate_version_preds.py \
+            --data_dir "$d" \
+            --data_versions "${versions[@]}" \
+            --handles "${handles[@]}" \
+            --model_loc "${hm}/clif-mdls-archive/${mo}" \
+            --out_dir "${hm}/figs"
+
+    done
 done
