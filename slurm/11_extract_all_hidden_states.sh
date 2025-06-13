@@ -5,7 +5,7 @@
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:2
 #SBATCH --time=24:00:00
-#SBATCH --array=0-7
+#SBATCH --array=0-1
 
 source preamble.sh
 
@@ -21,12 +21,6 @@ out_dirs=(
     "/scratch/burkh4rt/clif-data"
     "/scratch/burkh4rt/clif-data-ucmc"
 )
-models=(
-    llama-original-60358922_0-hp-W++
-    llama-med-60358922_1-hp-W++
-    llama-small-60358922_2-hp-W++
-    llama-smol-60358922_3-hp-W++
-)
 
 torchrun --nproc_per_node=2 \
     --rdzv_backend c10d \
@@ -35,7 +29,8 @@ torchrun --nproc_per_node=2 \
     ../fms_ehrs/scripts/extract_all_hidden_states.py \
     --data_dir "${data_dirs[$rem]}" \
     --out_dir "${out_dirs[$rem]}" \
-    --data_version "${models[$quo]##*-}_first_24h" \
-    --model_loc "${hm}/clif-mdls-archive/${models[$quo]}" \
+    --data_version "W++_first_24h" \
+    --model_loc "${hm}/clif-mdls-archive/llama-med-60358922_1-hp-W++" \
     --small_batch_sz $((2 ** 4)) \
-    --big_batch_sz $((2 ** 12))
+    --big_batch_sz $((2 ** 12)) \
+    --test_only True
