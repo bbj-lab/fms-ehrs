@@ -5,7 +5,7 @@
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:4
 #SBATCH --time=1-00:00:00
-#SBATCH --array=20
+#SBATCH --array=0-31
 
 source preamble.sh
 
@@ -33,6 +33,13 @@ methods=(
     bottom
     random
 )
+pcts=(
+    10
+    20
+    30
+    40
+)
+
 models=(
     llama-original-60358922_0-hp-W++
     llama-med-60358922_1-hp-W++

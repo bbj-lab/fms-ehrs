@@ -10,10 +10,13 @@ import pathlib
 import numpy as np
 from plotly import express as px
 from plotly import graph_objects as go
+from plotly import io as pio
 from sklearn import calibration as skl_cal
 from sklearn import metrics as skl_mets
 
 from fms_ehrs.framework.util import Dictlike, Pathlike
+
+pio.kaleido.scope.mathjax = None
 
 mains = ("#EAAA00", "#DE7C00", "#789D4A", "#275D38", "#007396", "#56315F", "#A4343A")
 lights = ("#F3D03E", "#ECA154", "#A9C47F", "#9CAF88", "#3EB1C8", "#86647A", "#B46A55")
