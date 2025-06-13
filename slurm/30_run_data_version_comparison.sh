@@ -4,6 +4,7 @@
 #SBATCH --output=./output/%j-%x.stdout
 #SBATCH --partition=tier2q
 #SBATCH --time=1:00:00
+#SBATCH --depend=afterok:60708969
 
 source preamble.sh
 
@@ -18,26 +19,26 @@ methods=(
     random
 )
 pct=(10 20 30 40)
+model=llama-med-60358922_1-hp-W++
 
 for d in "${data_dirs[@]}"; do
-    for p in "${pct[@]}"; do
 
-        versions=("W++_first_24h_llama-original-60358922_0-hp-W++_none_20pct")
-        handles=("none")
-
-        for me in "${methods[@]:1}"; do
-            versions+=("W++_first_24h_llama-original-60358922_0-hp-W++_${me}_${p}pct")
+    versions=("W++_first_24h_${model}_none_20pct")
+    handles=("none")
+    for me in "${methods[@]:1}"; do
+        for p in "${pct[@]}"; do
+            versions+=("W++_first_24h_${model}_${me}_${p}pct")
             handles+=("${me}_${p}pct")
         done
-
-        python3 ../fms_ehrs/scripts/aggregate_version_preds.py \
-            --data_dir "$d" \
-            --data_versions "${versions[@]}" \
-            --handles "${handles[@]}" \
-            --model_loc "${hm}/clif-mdls-archive/llama-original-60358922_0-hp-W++" \
-            --out_dir "${hm}/figs"
-
     done
+
+    python3 ../fms_ehrs/scripts/aggregate_version_preds.py \
+        --data_dir "$d" \
+        --data_versions "${versions[@]}" \
+        --handles "${handles[@]}" \
+        --model_loc "${hm}/clif-mdls-archive/${model}" \
+        --out_dir "${hm}/figs"
+
 done
 
 #models=(
