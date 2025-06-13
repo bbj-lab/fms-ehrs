@@ -30,7 +30,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--method",
-    choices=["top", "bottom", "random", None],
+    choices=["top", "bottom", "random", "none", None],
     default=None,
 )
 parser.add_argument(
@@ -85,7 +85,7 @@ for s in splits:
     inf_icu = infm[icu_adm]
     max_pad = len(tkn_icu[0])
 
-    if args.method is not None:
+    if args.method is not None and args.method != "none":
         tkn_new, tms_new = redact_tokens_times(
             tks_arr=tkn_icu,
             tms_arr=tms_icu,

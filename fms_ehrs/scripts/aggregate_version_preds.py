@@ -8,7 +8,6 @@ import argparse
 import collections
 import pathlib
 import pickle
-import re
 
 from fms_ehrs.framework.logger import get_logger
 from fms_ehrs.framework.plotting import (
@@ -34,6 +33,17 @@ parser.add_argument(
         "icu24h_rnd5-921_first_24h",
     ],
 )
+parser.add_argument(
+    "--handles",
+    type=str,
+    nargs="*",
+    default=[
+        "orig",
+        "top5",
+        "bot5",
+        "rnd5",
+    ],
+)
 parser.add_argument("--out_dir", type=pathlib.Path, default="../../figs")
 parser.add_argument(
     "--classifier",
@@ -56,6 +66,7 @@ data_dir, out_dir, model_loc = map(
 )
 
 outcomes = ("same_admission_death", "long_length_of_stay", "imv_event")
+lookup = dict(zip(args.data_versions, args.handles))
 
 results = collections.OrderedDict()
 for v in args.data_versions:
@@ -71,23 +82,26 @@ for v in args.data_versions:
 
 for outcome in outcomes:
     named_results = collections.OrderedDict()
-    for m, v in results.items():
-        des = re.split("[-_]", m)[1] if m != "icu24h_first_24h" else "orig"
-        named_results[des] = {
+    for k, v in results.items():
+        named_results[lookup[k]] = {
             "y_true": v["labels"][outcome][v["qualifiers"][outcome]],
             "y_score": v["predictions"][outcome],
         }
     plot_calibration_curve(
         named_results,
-        savepath=out_dir.joinpath(f"cal-{outcome}-{data_dir.stem}.pdf"),
+        savepath=out_dir.joinpath(
+            f"cal-{outcome}-{data_dir.stem}-{model_loc.stem}.pdf"
+        ),
     )
     plot_roc_curve(
         named_results,
-        savepath=out_dir.joinpath(f"roc-{outcome}-{data_dir.stem}.pdf"),
+        savepath=out_dir.joinpath(
+            f"roc-{outcome}-{data_dir.stem}-{model_loc.stem}.pdf"
+        ),
     )
     plot_precision_recall_curve(
         named_results,
-        savepath=out_dir.joinpath(f"pr-{outcome}-{data_dir.stem}.pdf"),
+        savepath=out_dir.joinpath(f"pr-{outcome}-{data_dir.stem}-{model_loc.stem}.pdf"),
     )
 
 logger.info("---fin")

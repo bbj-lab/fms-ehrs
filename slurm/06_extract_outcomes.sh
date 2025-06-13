@@ -20,9 +20,7 @@ case "${SLURM_ARRAY_TASK_ID}" in
     *) echo "Invalid SLURM_ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}" ;;
 esac
 
-for data_version in with_ecg; do
-    python3 ../fms_ehrs/scripts/extract_outcomes.py \
-        --data_dir "$data_dir" \
-        --ref_version "${data_version:-QC_noX}" \
-        --data_version "${data_version:-QC_noX}_first_24h"
-done
+python3 ../fms_ehrs/scripts/extract_outcomes.py \
+    --data_dir "$data_dir" \
+    --ref_version "${data_version:-QC_noX}" \
+    --data_version "${data_version:-QC_noX}_first_24h"
