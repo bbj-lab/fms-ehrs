@@ -8,10 +8,7 @@
 source preamble.sh
 
 models=(
-    llama-original-60358922_0-hp-W++
     llama-med-60358922_1-hp-W++
-    llama-small-60358922_2-hp-W++
-    llama-smol-60358922_3-hp-W++
 )
 
 for m in "${models[@]}"; do
