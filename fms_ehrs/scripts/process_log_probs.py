@@ -29,11 +29,11 @@ parser.add_argument("--data_dir_orig", type=pathlib.Path, default="../../clif-da
 parser.add_argument("--name_orig", type=str, default="MIMIC")
 parser.add_argument("--data_dir_new", type=pathlib.Path, default="../../clif-data-ucmc")
 parser.add_argument("--name_new", type=str, default="UCMC")
-parser.add_argument("--data_version", type=str, default="QC_noX_first_24h")
+parser.add_argument("--data_version", type=str, default="W++_first_24h")
 parser.add_argument(
     "--model_loc",
     type=pathlib.Path,
-    default="../../clif-mdls-archive/llama1b-original-59946215-hp-QC_noX",
+    default="../../clif-mdls-archive/llama-med-60358922_1-hp-W++",
 )
 parser.add_argument("--out_dir", type=pathlib.Path, default="../../figs")
 parser.add_argument(
@@ -115,6 +115,19 @@ tl = {
         .to_series()
         .to_list()
     )
+    for v in versions
+}
+
+tm = {
+    v: pl.scan_parquet(
+        data_dirs[v]["test"].joinpath(
+            "tokens_timelines_outcomes.parquet",
+        )
+    )
+    .select("times")
+    .collect()
+    .to_series()
+    .to_list()
     for v in versions
 }
 
@@ -236,11 +249,18 @@ n_cols = 2**3
 for v in versions:
     for s in samp[v]:
         i = np.argmax(s == ids[v])
-        inf = infm[v][i].reshape((-1, n_cols))
+        tms_i = tm[v][i]
+        tms_unq, idx = np.unique(tms_i, return_inverse=True)
+        inf_i = np.nan_to_num(infm[v][i][: len(tms_i)])
+        event_inf = np.zeros(shape=tms_unq.shape)
+        np.add.at(event_inf, idx, inf_i)
+        ev_inf_i = np.concatenate(
+            [event_inf[idx], np.zeros(len(tl[v][i]) - len(tms_i))]
+        )
         tt = np.array(
             [
                 (
-                    (d if len(d) <= 14 else f"{d[:8]}..{d[-5:]}")
+                    (d if len(d) <= 12 else f"{d[:7]}..{d[-4:]}")
                     if (d := vocab.reverse[t]) is not None
                     else "None"
                 )
@@ -248,11 +268,19 @@ for v in versions:
             ]
         ).reshape((-1, n_cols))
         imshow_text(
-            values=inf,
+            values=np.nan_to_num(infm[v][i]).reshape((-1, n_cols)),
             text=tt,
             title=f"Information by token for patient {s} in {names[v]}",
             savepath=out_dir.joinpath(
                 "tokens-{v}-{s}-{m}-hist.pdf".format(v=v, s=s, m=model_loc.stem)
+            ),
+        )
+        imshow_text(
+            values=ev_inf_i.reshape((-1, n_cols)),
+            text=tt,
+            title=f"Information by event for patient {s} in {names[v]}",
+            savepath=out_dir.joinpath(
+                "events-{v}-{s}-{m}-hist.pdf".format(v=v, s=s, m=model_loc.stem)
             ),
         )
 

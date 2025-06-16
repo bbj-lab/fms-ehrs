@@ -187,3 +187,8 @@ if __name__ == "__main__":
     print(redact_tokens_times(tks, tms, inf, k=1))
     print(redact_tokens_times(tks, tms, inf, k=1, aggregation="sum"))
     print(redact_tokens_times(tks, tms, inf, k=1, method="random"))
+
+    tms_unq, idx = np.unique(tms, return_inverse=True)
+    result = np.zeros(shape=tms_unq.shape)
+    np.add.at(result, idx, inf.ravel())
+    print(result[idx])
