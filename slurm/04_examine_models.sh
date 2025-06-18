@@ -11,6 +11,6 @@ source preamble.sh
 python3 ../fms_ehrs/scripts/examine_models.py \
     --projector_type PCA \
     --data_dir "${hm}/clif-data" \
-    --data_version "${data_version:-QC_noX}" \
-    --ref_mdl_loc "${hm}/clif-mdls-archive/llama1b-57928921-run1" \
-    --out_dir "${hm}"
+    --data_version "${data_version:-W++}" \
+    --ref_mdl_loc "${hm}/clif-mdls-archive/llama-med-60358922_1-hp-W++" \
+    --out_dir "${hm}/figs"
