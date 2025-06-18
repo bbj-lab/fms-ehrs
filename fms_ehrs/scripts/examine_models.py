@@ -4,10 +4,8 @@
 load models and plot embeddings
 """
 
-import functools
 import os
 import pathlib
-import re
 import typing
 
 import fire as fi
@@ -21,6 +19,8 @@ from torch import arange as t_arange
 from transformers import AutoModelForCausalLM
 
 from fms_ehrs.framework.logger import get_logger
+from fms_ehrs.framework.plotting import colors
+from fms_ehrs.framework.tokenizer import token_type
 from fms_ehrs.framework.vocabulary import Vocabulary
 
 pio.kaleido.scope.mathjax = None
@@ -28,19 +28,6 @@ pio.kaleido.scope.mathjax = None
 logger = get_logger()
 logger.info("running {}".format(__file__))
 logger.log_env()
-
-
-@functools.cache
-def key_type(word: str) -> str:
-    if word is None:
-        return "OTHER"
-    if re.fullmatch(r"Q\d", word):
-        return "Q"
-    if (pre := word.split("_")[0]) in ("LAB", "VTL", "MED", "ASMT"):
-        return pre
-    if word in ("TL_START", "TL_END", "PAD", "TRUNC"):
-        return "SPECIAL"
-    return "OTHER"
 
 
 @logger.log_calls
@@ -95,7 +82,7 @@ def main(
         .with_columns(token=pl.Series(vocab.lookup.keys()))
         .with_columns(
             type=pl.col("token").map_elements(
-                key_type,
+                token_type,
                 return_dtype=pl.String,
                 skip_nulls=False,
             )
@@ -107,9 +94,11 @@ def main(
         x="dim1",
         y="dim2",
         color="type",
+        symbol="type",
         width=650,
         title="Token embedding",
         hover_name="token",
+        color_discrete_sequence=colors[1:],
     )
 
     for i, m in enumerate(addl_mdls):
@@ -120,7 +109,7 @@ def main(
             .with_columns(token=pl.Series(vocab.lookup.keys()))
             .with_columns(
                 type=pl.col("token").map_elements(
-                    key_type,
+                    token_type,
                     return_dtype=pl.String,
                     skip_nulls=False,
                 )
@@ -143,9 +132,14 @@ def main(
 
         fig.add_trace(addl_fig)
 
-    fig.write_html(
-        out_dir.joinpath("embedding_vis-{m}.html".format(m=ref_mdl_loc.stem))
+    fig.update_layout(
+        template="plotly_white",
+        font_family="CMU Serif",
     )
+
+    # fig.write_html(
+    #     out_dir.joinpath("embedding_vis-{m}.html".format(m=ref_mdl_loc.stem))
+    # )
     fig.write_image(
         out_dir.joinpath("embedding_vis-{m}.pdf".format(m=ref_mdl_loc.stem))
     )
@@ -172,9 +166,11 @@ def main(
         x="dim1",
         y="dim2",
         color="token",
+        symbol="token",
         width=650,
         title="Quantile embedding",
         hover_name="token",
+        color_discrete_sequence=colors[1:],
     )
 
     # connect Q0->Q1->Q2->...->Q9
@@ -196,7 +192,7 @@ def main(
             .with_columns(token=pl.Series(list(vocab.lookup.keys())[:10]))
             .with_columns(
                 type=pl.col("token").map_elements(
-                    key_type,
+                    token_type,
                     return_dtype=pl.String,
                     skip_nulls=False,
                 )
@@ -219,7 +215,12 @@ def main(
 
         fig.add_trace(addl_fig)
 
-    fig.write_html(out_dir.joinpath("embedding_q-{m}.html".format(m=ref_mdl_loc.stem)))
+    fig.update_layout(
+        template="plotly_white",
+        font_family="CMU Serif",
+    )
+
+    # fig.write_html(out_dir.joinpath("embedding_q-{m}.html".format(m=ref_mdl_loc.stem)))
     fig.write_image(out_dir.joinpath("embedding_q-{m}.pdf".format(m=ref_mdl_loc.stem)))
 
 

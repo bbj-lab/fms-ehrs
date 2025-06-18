@@ -4,10 +4,11 @@
 provides a simple tokenizing interface to take tabular CLIF data and convert
 it to tokenized timelines at the hospitalization_id level
 """
-
+import functools
 import logging
 import os
 import pathlib
+import re
 import typing
 
 import numpy as np
@@ -780,6 +781,33 @@ def summarize(
                 .head(k),
             )
         )
+
+
+@functools.cache
+def token_type(word: str) -> str:
+    if word in ClifTokenizer().special:
+        return "SPECIAL"
+    elif re.fullmatch(r"Q\d", word) or re.fullmatch(r"Q[0-3][+-]", word):
+        return "Q"
+    else:
+        return word.split("_")[0]
+
+
+standard_types = (
+    "Q",
+    "RACE",
+    "ETHN",
+    "SEX",
+    "ADMN",
+    "ADT",
+    "ASMT",
+    "LAB",
+    "MED",
+    "POSN",
+    "RESP",
+    "VTL",
+    "DSCG",
+)
 
 
 if __name__ == "__main__":
