@@ -121,7 +121,7 @@ def redact_tokens_times(
     k: int = None,
     pct: float = None,
     method: typing.Literal["top", "bottom", "random"] = "top",
-    aggregation: typing.Literal["max", "sum"] = "max",
+    aggregation: typing.Literal["max", "sum", "perplexity"] = "max",
     rng: np.random._generator.Generator = np.random.default_rng(seed=42),
 ) -> tuple[np.array, np.array]:
     """given an array `tks_arr` of arrays of tokens and an array `tms_arr` of
@@ -148,9 +148,12 @@ def redact_tokens_times(
             if aggregation == "max":
                 result = np.full(tms_unq.shape, -np.inf)
                 np.maximum.at(result, idx, infm)
-            elif aggregation == "sum":
+            elif aggregation in ("sum", "perplexity"):
                 result = np.zeros(shape=tms_unq.shape)
                 np.add.at(result, idx, infm)
+                if aggregation == "perplexity":
+                    result /= np.bincount(idx, minlength=tms_unq.shape[0])  # /= len
+                    np.exp2(result, out=result)  # exponentiates in-place
             else:
                 raise Exception(f"Check {aggregation=}")
             srt = np.argsort(result)
@@ -185,7 +188,7 @@ if __name__ == "__main__":
     tms = [np.array([0] * 3 + [1] * 3 + [2] * 3 + [3])]
     inf = np.array([0] * 3 + [3, 0, 0] + [2] * 3 + [1]).reshape(1, -1)
     print(redact_tokens_times(tks, tms, inf, k=1))
-    print(redact_tokens_times(tks, tms, inf, k=1, aggregation="sum"))
+    print(redact_tokens_times(tks, tms, inf, k=1, aggregation="perplexity"))
     print(redact_tokens_times(tks, tms, inf, k=1, method="random"))
 
     tms_unq, idx = np.unique(tms, return_inverse=True)

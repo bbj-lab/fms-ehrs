@@ -5,6 +5,7 @@ Do highly informative tokens correspond to bigger jumps in representation space?
 """
 
 import argparse
+import collections
 import pathlib
 
 import matplotlib as mpl
@@ -16,7 +17,7 @@ import polars as pl
 import statsmodels.formula.api as smf
 
 from fms_ehrs.framework.logger import get_logger
-from fms_ehrs.framework.plotting import colors
+from fms_ehrs.framework.plotting import colors, plot_histogram, plot_histograms
 from fms_ehrs.framework.tokenizer import token_type, standard_types
 from fms_ehrs.framework.vocabulary import Vocabulary
 
@@ -36,7 +37,9 @@ parser.add_argument(
     type=pathlib.Path,
     default="../../clif-mdls-archive/llama-med-60358922_1-hp-W++",
 )
-parser.add_argument("--aggregation", choices=["sum", "max"], default="sum")
+parser.add_argument(
+    "--aggregation", choices=["sum", "max", "perplexity"], default="sum"
+)
 parser.add_argument("--drop_prefix", action="store_true")
 parser.add_argument("--make_plots", action="store_true")
 args, unknowns = parser.parse_known_args()
@@ -111,6 +114,23 @@ if args.make_plots:
         dpi=600,
     )
 
+    plot_histogram(
+        df_t["information"].values,
+        savepath=out_dir.joinpath(
+            "tokens-infm-{m}-{d}.png".format(m=model_loc.stem, d=data_dir.stem)
+        ),
+    )
+
+    inf_by_type = collections.OrderedDict()
+    for t in standard_types:
+        inf_by_type[t] = df_t.loc[lambda df: df.type == t, "information"].values
+    plot_histograms(
+        inf_by_type,
+        savepath=out_dir.joinpath(
+            "tokens-infm-by-type-{m}-{d}.png".format(m=model_loc.stem, d=data_dir.stem)
+        ),
+    )
+
 """
 event-wise
 """
@@ -130,11 +150,14 @@ for i in range(len(tks_arr)):
     if args.aggregation == "max":
         event_info = np.full(tms_unq.shape, -np.inf)
         np.maximum.at(event_info, idx, inf_i)
-    elif args.aggregation == "sum":
+    elif args.aggregation in ("sum", "perplexity"):
         event_info = np.zeros(shape=tms_unq.shape)
         np.add.at(event_info, idx, inf_i)
         # equivalent to:
         # event_info = np.bincount(idx, weights=inf_i.ravel(), minlength=tms_unq.shape[0])
+        if args.aggregation == "perplexity":
+            event_info /= np.bincount(idx, minlength=tms_unq.shape[0])
+            np.exp2(event_info, out=event_info)
     else:
         raise Exception(f"Check {args.aggregation=}")
     event_jumps_sq = np.zeros(shape=tms_unq.shape)
@@ -167,10 +190,21 @@ if args.make_plots:
     ax.set_ylabel("jump_length")
     plt.savefig(
         out_dir.joinpath(
-            "events-jumps-vs-infm-{m}-{d}.png".format(m=model_loc.stem, d=data_dir.stem)
+            "events-jumps-vs-infm-{agg}-{m}-{d}.png".format(
+                agg=args.aggregation, m=model_loc.stem, d=data_dir.stem
+            )
         ),
         bbox_inches="tight",
         dpi=600,
+    )
+
+    plot_histogram(
+        df_e["information"].values,
+        savepath=out_dir.joinpath(
+            "events-infm-{agg}-{m}-{d}.png".format(
+                agg=args.aggregation, m=model_loc.stem, d=data_dir.stem
+            )
+        ),
     )
 
 logger.info("---fin")
