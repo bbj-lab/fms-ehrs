@@ -48,6 +48,9 @@ parser.add_argument(
     nargs="*",
     default=["27055120", "792481", "12680680", "9468768", "8797520"],
 )
+parser.add_argument(
+    "--aggregation", choices=["sum", "max", "perplexity"], default="sum"
+)
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -189,62 +192,6 @@ for v in versions:
         timelines=tl[v], criteria=infm[v], flags=flags[v], vocab=vocab, logger=logger
     )
 
-# 2-token events
-logger.info("Pairs |".ljust(79, "="))
-infm_pairs = {
-    v: np.lib.stride_tricks.sliding_window_view(infm[v], window_shape=2, axis=-1).mean(
-        axis=-1
-    )
-    for v in versions
-}
-
-plot_histograms(
-    named_arrs={names[v]: infm_pairs[v] for v in versions},
-    title="Histogram of pairwise information (per token)",
-    xaxis_title="bits",
-    yaxis_title="frequency",
-    savepath=out_dir.joinpath("log_probs_pairs-{m}-hist.pdf".format(m=model_loc.stem)),
-)
-for v in versions:
-    logger.info(f"{names[v]}:")
-    log_summary(infm_pairs[v], logger)
-    extract_examples(
-        timelines=tl[v],
-        criteria=infm_pairs[v],
-        flags=flags[v],
-        vocab=vocab,
-        lag=1,
-        logger=logger,
-    )
-
-# 3-token events
-logger.info("Triples |".ljust(79, "="))
-infm_trips = {
-    v: np.lib.stride_tricks.sliding_window_view(infm[v], window_shape=3, axis=-1).mean(
-        axis=-1
-    )
-    for v in versions
-}
-
-plot_histograms(
-    named_arrs={names[v]: infm_trips[v] for v in versions},
-    title="Histogram of triple information (per token)",
-    xaxis_title="bits",
-    yaxis_title="frequency",
-    savepath=out_dir.joinpath("log_probs_trips-{m}-hist.pdf".format(m=model_loc.stem)),
-)
-for v in versions:
-    logger.info(f"{names[v]}:")
-    log_summary(infm_trips[v], logger)
-    extract_examples(
-        timelines=tl[v],
-        criteria=infm_trips[v],
-        flags=flags[v],
-        vocab=vocab,
-        lag=2,
-        logger=logger,
-    )
-
 n_cols = 2**3
 for v in versions:
     for s in samp[v]:
@@ -252,10 +199,19 @@ for v in versions:
         tms_i = tm[v][i]
         tms_unq, idx = np.unique(tms_i, return_inverse=True)
         inf_i = np.nan_to_num(infm[v][i][: len(tms_i)])
-        event_inf = np.zeros(shape=tms_unq.shape)
-        np.add.at(event_inf, idx, inf_i)
+        if args.aggregation == "max":
+            event_info = np.full(tms_unq.shape, -np.inf)
+            np.maximum.at(event_info, idx, inf_i)
+        elif args.aggregation in ("sum", "perplexity"):
+            event_info = np.zeros(shape=tms_unq.shape)
+            np.add.at(event_info, idx, inf_i)
+            if args.aggregation == "perplexity":
+                event_info /= np.bincount(idx, minlength=tms_unq.shape[0])
+                np.exp2(event_info, out=event_info)
+        else:
+            raise Exception(f"Check {args.aggregation=}")
         ev_inf_i = np.concatenate(
-            [event_inf[idx], np.zeros(len(tl[v][i]) - len(tms_i))]
+            [event_info[idx], np.zeros(len(tl[v][i]) - len(tms_i))]
         )
         tt = np.array(
             [
@@ -280,7 +236,9 @@ for v in versions:
             text=tt,
             title=f"Information by event for patient {s} in {names[v]}",
             savepath=out_dir.joinpath(
-                "events-{v}-{s}-{m}-hist.pdf".format(v=v, s=s, m=model_loc.stem)
+                "events-{agg}-{v}-{s}-{m}-hist.pdf".format(
+                    agg=args.aggregation, v=v, s=s, m=model_loc.stem
+                )
             ),
         )
 

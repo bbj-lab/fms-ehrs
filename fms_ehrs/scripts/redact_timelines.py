@@ -35,7 +35,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--aggregation",
-    choices=["max", "sum"],
+    choices=["max", "sum", "perplexity"],
     default="max",
 )
 parser.add_argument("--k", type=int, default=None)

@@ -20,6 +20,6 @@ for d in "${data_dirs[@]}"; do
         --model_loc "${hm}/clif-mdls-archive/llama-med-60358922_1-hp-W++" \
         --out_dir "${hm}/figs" \
         --make_plots \
-        --aggregation sum
+        --aggregation perplexity
 
 done
