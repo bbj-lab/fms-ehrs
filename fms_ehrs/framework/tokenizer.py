@@ -793,7 +793,7 @@ def token_type(word: str) -> str:
         return word.split("_")[0]
 
 
-standard_types = (
+token_types = (
     "Q",
     "RACE",
     "ETHN",
@@ -807,6 +807,7 @@ standard_types = (
     "RESP",
     "VTL",
     "DSCG",
+    "SPECIAL",
 )
 
 

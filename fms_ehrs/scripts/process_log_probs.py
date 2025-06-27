@@ -15,9 +15,7 @@ import polars as pl
 
 from fms_ehrs.framework.logger import get_logger, log_summary
 from fms_ehrs.framework.plotting import imshow_text, plot_histograms
-from fms_ehrs.framework.util import (
-    extract_examples,
-)
+from fms_ehrs.framework.util import extract_examples, collate_events_info
 from fms_ehrs.framework.vocabulary import Vocabulary
 
 logger = get_logger()
@@ -189,51 +187,48 @@ for v in versions:
     logger.info(f"{names[v]}:")
     log_summary(infm[v], logger)
     extract_examples(
-        timelines=tl[v], criteria=infm[v], flags=flags[v], vocab=vocab, logger=logger
+        timelines=tl[v],
+        criteria=infm[v],
+        flags=flags[v],
+        vocab=vocab,
+        logger=logger,
+        k=100,
+        ids=ids[v],
     )
 
-n_cols = 2**3
+n_cols = 6
+max_len = 1002
 for v in versions:
     for s in samp[v]:
         i = np.argmax(s == ids[v])
         tms_i = tm[v][i]
-        tms_unq, idx = np.unique(tms_i, return_inverse=True)
-        inf_i = np.nan_to_num(infm[v][i][: len(tms_i)])
-        if args.aggregation == "max":
-            event_info = np.full(tms_unq.shape, -np.inf)
-            np.maximum.at(event_info, idx, inf_i)
-        elif args.aggregation in ("sum", "perplexity"):
-            event_info = np.zeros(shape=tms_unq.shape)
-            np.add.at(event_info, idx, inf_i)
-            if args.aggregation == "perplexity":
-                event_info /= np.bincount(idx, minlength=tms_unq.shape[0])
-                np.exp2(event_info, out=event_info)
-        else:
-            raise Exception(f"Check {args.aggregation=}")
+        event_info, idx = collate_events_info(
+            tms_i, np.nan_to_num(infm[v][i][: len(tms_i)]), args.aggregation
+        )
         ev_inf_i = np.concatenate(
             [event_info[idx], np.zeros(len(tl[v][i]) - len(tms_i))]
         )
         tt = np.array(
             [
                 (
-                    (d if len(d) <= 12 else f"{d[:7]}..{d[-4:]}")
+                    (d if len(d) <= 23 else f"{d[:13]}..{d[-7:]}")
                     if (d := vocab.reverse[t]) is not None
                     else "None"
                 )
                 for t in tl[v][i]
             ]
-        ).reshape((-1, n_cols))
+        )
         imshow_text(
-            values=np.nan_to_num(infm[v][i]).reshape((-1, n_cols)),
-            text=tt,
+            values=np.nan_to_num(infm[v][i])[:max_len].reshape((-1, n_cols)),
+            text=tt[:max_len].reshape((-1, n_cols)),
             title=f"Information by token for patient {s} in {names[v]}",
             savepath=out_dir.joinpath(
                 "tokens-{v}-{s}-{m}-hist.pdf".format(v=v, s=s, m=model_loc.stem)
             ),
         )
         imshow_text(
-            values=ev_inf_i.reshape((-1, n_cols)),
-            text=tt,
+            values=ev_inf_i[:max_len].reshape((-1, n_cols)),
+            text=tt[:max_len].reshape((-1, n_cols)),
             title=f"Information by event for patient {s} in {names[v]}",
             savepath=out_dir.joinpath(
                 "events-{agg}-{v}-{s}-{m}-hist.pdf".format(

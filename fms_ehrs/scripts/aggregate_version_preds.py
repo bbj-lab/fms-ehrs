@@ -55,6 +55,7 @@ parser.add_argument(
     type=pathlib.Path,
     default="../../clif-mdls-archive/llama1b-57928921-run1",
 )
+parser.add_argument("--suffix", type=str, default="")
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -80,6 +81,7 @@ for v in args.data_versions:
     ) as fp:
         results[v] = pickle.load(fp)
 
+suffix = ("-" + args.suffix) if args.suffix != "" else ""
 for outcome in outcomes:
     named_results = collections.OrderedDict()
     for k, v in results.items():
@@ -90,18 +92,20 @@ for outcome in outcomes:
     plot_calibration_curve(
         named_results,
         savepath=out_dir.joinpath(
-            f"cal-{outcome}-{data_dir.stem}-{model_loc.stem}.pdf"
+            f"cal-{outcome}-{data_dir.stem}-{model_loc.stem}{suffix}.pdf"
         ),
     )
     plot_roc_curve(
         named_results,
         savepath=out_dir.joinpath(
-            f"roc-{outcome}-{data_dir.stem}-{model_loc.stem}.pdf"
+            f"roc-{outcome}-{data_dir.stem}-{model_loc.stem}{suffix}.pdf"
         ),
     )
     plot_precision_recall_curve(
         named_results,
-        savepath=out_dir.joinpath(f"pr-{outcome}-{data_dir.stem}-{model_loc.stem}.pdf"),
+        savepath=out_dir.joinpath(
+            f"pr-{outcome}-{data_dir.stem}-{model_loc.stem}{suffix}.pdf"
+        ),
     )
 
 logger.info("---fin")

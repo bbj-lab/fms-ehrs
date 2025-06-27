@@ -75,7 +75,12 @@ def extract_examples(
     lag: int = 0,
     logger: logging.Logger = get_logger(),
     top_k: bool = True,
+    ids: np.array = None,
 ) -> None:
+    """
+    produce `k` decoded snippets of `timelines` with tokens decoded from `vocab`
+    that maximize the provided `criteria`; the snippets range +/- `w_sz`
+    """
     assert timelines.shape[0] == criteria.shape[0]
     assert timelines.shape[1] == criteria.shape[1] + lag
     if flags:
@@ -96,10 +101,12 @@ def extract_examples(
             s if (s := vocab.reverse[i]) is not None else "None"
             for i in timelines[i0][i1 : i1 + lag + 1]
         )
+        info_str = f"{i0=}, {i1=}"
         if flags:
-            logger.info(f"{i0=}, {i1=} | {flags[i0]}")
-        else:
-            logger.info(f"{i0=}, {i1=} ")
+            info_str += f" | {flags[i0]}"
+        if ids is not None:
+            info_str += f" | {ids[i0]=}"
+        logger.info(info_str)
         logger.info(f"{hit=} in {tkns}")
         logger.info(
             "->".join(
@@ -111,6 +118,31 @@ def extract_examples(
                 )
             )
         )
+
+
+def collate_events_info(
+    times: np.array,
+    info: np.array,
+    aggregation: typing.Literal["max", "sum", "perplexity"] = "sum",
+):
+    """given an array of `tokens` that occur at `times` and have context-
+    aware information `info`, groups these tokens into events and calculates
+    information for these events according to the given `aggregation`
+    """
+    assert times.size == info.size
+    times_uniq, times_idx = np.unique(times, return_inverse=True)
+    if aggregation == "max":
+        info_agg = np.full(times_uniq.shape, -np.inf)
+        np.maximum.at(info_agg, times_idx, info)
+    elif aggregation in ("sum", "perplexity"):
+        info_agg = np.zeros(shape=times_uniq.shape)
+        np.add.at(info_agg, times_idx, info)
+        if aggregation == "perplexity":
+            info_agg /= np.bincount(times_idx, minlength=times_uniq.shape[0])
+            np.exp2(info_agg, out=info_agg)  # exponentiates in-place
+    else:
+        raise Exception("Check aggregation.")
+    return info_agg, times_idx
 
 
 def redact_tokens_times(
@@ -141,36 +173,32 @@ def redact_tokens_times(
     for i in range(len(tks_new)):
         tks, tms = tks_arr[i], tms_arr[i]
         tlen = min(len(tks), len(tms))
-        tks, tms = tks[:tlen], tms[:tlen]
-        tms_unq, idx = np.unique(tms, return_inverse=True)
+        tks, tms, infm = tks[:tlen], tms[:tlen], inf_arr[i, :tlen]
         if method in ("top", "bottom"):
-            infm = inf_arr[i, :tlen]
-            if aggregation == "max":
-                result = np.full(tms_unq.shape, -np.inf)
-                np.maximum.at(result, idx, infm)
-            elif aggregation in ("sum", "perplexity"):
-                result = np.zeros(shape=tms_unq.shape)
-                np.add.at(result, idx, infm)
-                if aggregation == "perplexity":
-                    result /= np.bincount(idx, minlength=tms_unq.shape[0])  # /= len
-                    np.exp2(result, out=result)  # exponentiates in-place
-            else:
-                raise Exception(f"Check {aggregation=}")
+            result, idx = collate_events_info(tms, infm, aggregation)
             srt = np.argsort(result)
             if method == "top":
                 srt = srt[::-1]
         elif method == "random":
+            tms_unq, idx = np.unique(tms, return_inverse=True)
             srt = rng.permutation(len(tms_unq))
         else:
             raise Exception(f"Check {method=}")
         srt = srt[srt != idx[0]]  # don't drop prefix
-        if k is not None:
-            to_drop = srt[:k]
-        elif pct is not None:
-            to_drop = srt[: int(pct * len(srt))]
+        to_drop = srt[:k] if k is not None else srt[: int(pct * len(srt))]
         tks_new[i] = tks[~np.isin(idx, to_drop)]
         tms_new[i] = tms[~np.isin(idx, to_drop)]
     return tks_new, tms_new
+
+
+def count_top_q(values: list, q: float) -> typing.List[int]:
+    """
+    takes a ragged list of `values` and returns the number of values exceeding
+    the `q`th quantile in each sublist
+    """
+    values_flat = [v for val in values for v in val]
+    qv = np.nanquantile(values_flat, q=q)
+    return [sum(v >= qv for v in val) for val in values]
 
 
 def set_pd_options() -> None:
@@ -195,3 +223,7 @@ if __name__ == "__main__":
     result = np.zeros(shape=tms_unq.shape)
     np.add.at(result, idx, inf.ravel())
     print(result[idx])
+    # [0. 0. 0. 3. 3. 3. 6. 6. 6. 1.]
+
+    print(count_top_q([[2, 2, 2, 9], [0, 1], [], [3, 9, 9]], q=0.8))
+    # [1, 0, 0, 2]
