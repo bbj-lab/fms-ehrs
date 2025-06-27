@@ -14,11 +14,13 @@ import matplotlib.patches as mpl_pats
 import numpy as np
 import pandas as pd
 import polars as pl
+import seaborn as sns
 import statsmodels.formula.api as smf
 
 from fms_ehrs.framework.logger import get_logger
 from fms_ehrs.framework.plotting import colors, plot_histogram, plot_histograms
-from fms_ehrs.framework.tokenizer import token_type, standard_types
+from fms_ehrs.framework.tokenizer import token_type, token_types
+from fms_ehrs.framework.util import collate_events_info
 from fms_ehrs.framework.vocabulary import Vocabulary
 
 mpl.rcParams["font.family"] = "cmr10"
@@ -55,6 +57,7 @@ test_dir = data_dir.joinpath(f"{args.data_version}-tokenized", "test")
 vocab = Vocabulary().load(
     data_dir.joinpath(f"{args.data_version}-tokenized", "train", "vocab.gzip")
 )
+colorer = dict(zip(token_types, colors[1:]))
 
 jumps = np.load(test_dir.joinpath(f"all-jumps-{model_loc.stem}.npy"))
 inf_arr = np.load(test_dir.joinpath(f"log_probs-{model_loc.stem}.npy")) / -np.log(2)
@@ -86,20 +89,23 @@ lm_t = smf.ols(f"jump_length ~ 1 + information", data=df_t).fit()
 logger.info(lm_t.summary())
 
 if args.make_plots:
-    colorer = dict(zip(standard_types, colors[1:]))
 
     fig, ax = plt.subplots(figsize=(10, 8))
-    ax.scatter(
-        df_t["information"],
-        df_t["jump_length"],
-        s=1,
-        c=df_t.type.map(colorer.__getitem__).values,
-        alpha=0.5,
+
+    sns.kdeplot(
+        data=df_t,
+        x="information",
+        y="jump_length",
+        hue="type",
+        levels=1,
+        thresh=0.001,
+        ax=ax,
+        palette=colorer,
     )
 
     legend_elements = [
         mpl_pats.Patch(facecolor=colorer[t], edgecolor="none", label=t)
-        for t in standard_types
+        for t in token_types
     ]
     ax.legend(handles=legend_elements, title="Type", loc="lower right")
 
@@ -108,10 +114,9 @@ if args.make_plots:
     ax.set_ylabel("jump_length")
     plt.savefig(
         out_dir.joinpath(
-            "tokens-jumps-vs-infm-{m}-{d}.png".format(m=model_loc.stem, d=data_dir.stem)
+            "tokens-jumps-vs-infm-{m}-{d}.svg".format(m=model_loc.stem, d=data_dir.stem)
         ),
         bbox_inches="tight",
-        dpi=600,
     )
 
     plot_histogram(
@@ -122,7 +127,7 @@ if args.make_plots:
     )
 
     inf_by_type = collections.OrderedDict()
-    for t in standard_types:
+    for t in token_types:
         inf_by_type[t] = df_t.loc[lambda df: df.type == t, "information"].values
     plot_histograms(
         inf_by_type,
@@ -144,23 +149,10 @@ for i in range(len(tks_arr)):
     tks, tms = tks_arr[i], tms_arr[i]
     tlen = min(len(tks), len(tms))
     tks, tms = tks[:tlen], tms[:tlen]
-    tms_unq, idx = np.unique(tms, return_inverse=True)
     inf_i = np.nan_to_num(inf_arr[i, :tlen])
     jsq_i = np.nan_to_num(jsq[i, :tlen])
-    if args.aggregation == "max":
-        event_info = np.full(tms_unq.shape, -np.inf)
-        np.maximum.at(event_info, idx, inf_i)
-    elif args.aggregation in ("sum", "perplexity"):
-        event_info = np.zeros(shape=tms_unq.shape)
-        np.add.at(event_info, idx, inf_i)
-        # equivalent to:
-        # event_info = np.bincount(idx, weights=inf_i.ravel(), minlength=tms_unq.shape[0])
-        if args.aggregation == "perplexity":
-            event_info /= np.bincount(idx, minlength=tms_unq.shape[0])
-            np.exp2(event_info, out=event_info)
-    else:
-        raise Exception(f"Check {args.aggregation=}")
-    event_jumps_sq = np.zeros(shape=tms_unq.shape)
+    event_info, idx = collate_events_info(tms, inf_i, args.aggregation)
+    event_jumps_sq = np.zeros(shape=event_info.shape)
     np.add.at(event_jumps_sq, idx, jsq_i)
     event_jumps = np.sqrt(event_jumps_sq)
     # equivalent to:

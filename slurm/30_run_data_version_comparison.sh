@@ -4,7 +4,7 @@
 #SBATCH --output=./output/%j-%x.stdout
 #SBATCH --partition=tier2q
 #SBATCH --time=1:00:00
-#SBATCH --depend=afterok:60708969
+##SBATCH --depend=afterok:60708969
 
 source preamble.sh
 
