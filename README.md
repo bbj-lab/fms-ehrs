@@ -98,7 +98,7 @@ flowchart TD
 ### Data wrangling & tokenization
 
 The code operates on MIMIC tabular data converted to the
-[CLIF-2.0.0 format](https://clif-consortium.github.io/website/data-dictionary.html).
+[CLIF-2.0.0 format](https://clif-consortium.github.io/website/data-dictionary/data-dictionary-2.0.0.html).
 It gathers data associated to a given `hospitalization_id` and generates a
 sequence of integers corresponding to the stay. Each sequence begins with a start
 token, information about the patient, information about the stay itself, and then
