@@ -3,16 +3,16 @@
 #SBATCH --job-name=extract-states
 #SBATCH --output=./output/%A_%a-%x.stdout
 #SBATCH --partition=gpuq
-#SBATCH --gres=gpu:4
+#SBATCH --gres=gpu:2
 #SBATCH --time=1-00:00:00
-#SBATCH --array=0-23
+#SBATCH --array=0-31
 ##SBATCH --depend=afterok:60702515
 
 source preamble.sh
 
 ni=2
 nj=4
-nk=3
+nk=4
 i=$((SLURM_ARRAY_TASK_ID % ni))
 jk=$((SLURM_ARRAY_TASK_ID / ni))
 j=$((jk % nj))
@@ -36,19 +36,20 @@ methods=(
 )
 pcts=(
     10
+    20
     30
     40
 )
 
-torchrun --nproc_per_node=4 \
+torchrun --nproc_per_node=2 \
     --rdzv_backend c10d \
     --rdzv-id "$SLURM_ARRAY_TASK_ID" \
     --rdzv-endpoint=localhost:0 \
     ../fms_ehrs/scripts/extract_hidden_states.py \
     --data_dir "${data_dirs[$i]}" \
-    --data_version "W++_first_24h_llama-med-60358922_1-hp-W++_${methods[$j]}_${pcts[$k]}pct" \
+    --data_version "W++_first_24h_llama-med-60358922_1-hp-W++_${methods[$j]}_${pcts[$k]}pct_ppy" \
     --model_loc "${hm}/clif-mdls-archive/llama-med-60358922_1-hp-W++" \
-    --batch_sz $((2 ** 5))
+    --batch_sz "$((2 ** 5))"
 
 #models=(
 #    llama-original-60358922_0-hp-W++

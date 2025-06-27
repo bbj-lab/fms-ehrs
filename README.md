@@ -227,4 +227,15 @@ Save environment:
 pip list --format=freeze > requirements.txt
 ```
 
+Get fonts on randi:
+```
+mkdir -p ~/.local/share/fonts/CMU
+cd ~/.local/share/fonts/CMU
+wget https://mirrors.ctan.org/fonts/cm-unicode.zip
+unzip cm-unicode.zip
+find . -type f \( -iname "*.ttf" -o -iname "*.otf" \) -exec mv {} ~/.local/share/fonts/CMU/ \;
+fc-cache -f -v
+fc-list | grep -i cmu
+```
+
 -->

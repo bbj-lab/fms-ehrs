@@ -59,7 +59,9 @@ def plot_calibration_curve(
                 x=prob_pred,
                 y=prob_true,
                 mode="lines+markers",
-                name=name,
+                name="{} (Brier: {:.3f})".format(
+                    name, skl_mets.brier_score_loss(y_true=y_true, y_proba=y_score)
+                ),
                 marker=dict(color=colors[i % len(colors)]),
             )
         )
@@ -259,15 +261,21 @@ def plot_histograms(
         fig.write_image(pathlib.Path(savepath).expanduser().resolve())
 
 
-def imshow_text(values: np.array, text: np.array, title: str = "", savepath=None):
+def imshow_text(
+    values: np.array,
+    text: np.array,
+    title: str = "",
+    savepath=None,
+    autocolor_text: bool = False,
+):
     assert values.shape == text.shape
     fig = go.Figure(
         data=go.Heatmap(
             z=values,
             text=text,
             texttemplate="%{text}",
-            textfont={"size": 12, "color": "white"},
-            colorscale="Viridis",
+            textfont={"size": 12} | ({} if autocolor_text else {"color": "black"}),
+            colorscale=px.colors.sequential.Viridis[4:],
             reversescale=False,
             showscale=True,
             zsmooth=False,
@@ -282,9 +290,9 @@ def imshow_text(values: np.array, text: np.array, title: str = "", savepath=None
         yaxis=dict(
             showgrid=False, zeroline=False, showticklabels=False, autorange="reversed"
         ),
-        height=1800,
-        width=900,
-        font_family="Computer Modern, CMU Serif",
+        height=3000,
+        width=1000,
+        font_family="Computer Modern, CMU Serif, cmr10",
     )
 
     if savepath is None:
