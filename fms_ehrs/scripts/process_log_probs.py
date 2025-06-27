@@ -15,9 +15,7 @@ import polars as pl
 
 from fms_ehrs.framework.logger import get_logger, log_summary
 from fms_ehrs.framework.plotting import imshow_text, plot_histograms
-from fms_ehrs.framework.util import (
-    extract_examples,
-)
+from fms_ehrs.framework.util import extract_examples, collate_events_info
 from fms_ehrs.framework.vocabulary import Vocabulary
 
 logger = get_logger()
@@ -29,11 +27,11 @@ parser.add_argument("--data_dir_orig", type=pathlib.Path, default="../../clif-da
 parser.add_argument("--name_orig", type=str, default="MIMIC")
 parser.add_argument("--data_dir_new", type=pathlib.Path, default="../../clif-data-ucmc")
 parser.add_argument("--name_new", type=str, default="UCMC")
-parser.add_argument("--data_version", type=str, default="QC_noX_first_24h")
+parser.add_argument("--data_version", type=str, default="W++_first_24h")
 parser.add_argument(
     "--model_loc",
     type=pathlib.Path,
-    default="../../clif-mdls-archive/llama1b-original-59946215-hp-QC_noX",
+    default="../../clif-mdls-archive/llama-med-60358922_1-hp-W++",
 )
 parser.add_argument("--out_dir", type=pathlib.Path, default="../../figs")
 parser.add_argument(
@@ -47,6 +45,9 @@ parser.add_argument(
     type=str,
     nargs="*",
     default=["27055120", "792481", "12680680", "9468768", "8797520"],
+)
+parser.add_argument(
+    "--aggregation", choices=["sum", "max", "perplexity"], default="sum"
 )
 args, unknowns = parser.parse_known_args()
 
@@ -118,6 +119,19 @@ tl = {
     for v in versions
 }
 
+tm = {
+    v: pl.scan_parquet(
+        data_dirs[v]["test"].joinpath(
+            "tokens_timelines_outcomes.parquet",
+        )
+    )
+    .select("times")
+    .collect()
+    .to_series()
+    .to_list()
+    for v in versions
+}
+
 samp = {"orig": args.samp_orig, "new": args.samp_new}
 
 ids = {
@@ -173,86 +187,53 @@ for v in versions:
     logger.info(f"{names[v]}:")
     log_summary(infm[v], logger)
     extract_examples(
-        timelines=tl[v], criteria=infm[v], flags=flags[v], vocab=vocab, logger=logger
-    )
-
-# 2-token events
-logger.info("Pairs |".ljust(79, "="))
-infm_pairs = {
-    v: np.lib.stride_tricks.sliding_window_view(infm[v], window_shape=2, axis=-1).mean(
-        axis=-1
-    )
-    for v in versions
-}
-
-plot_histograms(
-    named_arrs={names[v]: infm_pairs[v] for v in versions},
-    title="Histogram of pairwise information (per token)",
-    xaxis_title="bits",
-    yaxis_title="frequency",
-    savepath=out_dir.joinpath("log_probs_pairs-{m}-hist.pdf".format(m=model_loc.stem)),
-)
-for v in versions:
-    logger.info(f"{names[v]}:")
-    log_summary(infm_pairs[v], logger)
-    extract_examples(
         timelines=tl[v],
-        criteria=infm_pairs[v],
+        criteria=infm[v],
         flags=flags[v],
         vocab=vocab,
-        lag=1,
         logger=logger,
+        k=100,
+        ids=ids[v],
     )
 
-# 3-token events
-logger.info("Triples |".ljust(79, "="))
-infm_trips = {
-    v: np.lib.stride_tricks.sliding_window_view(infm[v], window_shape=3, axis=-1).mean(
-        axis=-1
-    )
-    for v in versions
-}
-
-plot_histograms(
-    named_arrs={names[v]: infm_trips[v] for v in versions},
-    title="Histogram of triple information (per token)",
-    xaxis_title="bits",
-    yaxis_title="frequency",
-    savepath=out_dir.joinpath("log_probs_trips-{m}-hist.pdf".format(m=model_loc.stem)),
-)
-for v in versions:
-    logger.info(f"{names[v]}:")
-    log_summary(infm_trips[v], logger)
-    extract_examples(
-        timelines=tl[v],
-        criteria=infm_trips[v],
-        flags=flags[v],
-        vocab=vocab,
-        lag=2,
-        logger=logger,
-    )
-
-n_cols = 2**3
+n_cols = 6
+max_len = 1002
 for v in versions:
     for s in samp[v]:
         i = np.argmax(s == ids[v])
-        inf = infm[v][i].reshape((-1, n_cols))
+        tms_i = tm[v][i]
+        event_info, idx = collate_events_info(
+            tms_i, np.nan_to_num(infm[v][i][: len(tms_i)]), args.aggregation
+        )
+        ev_inf_i = np.concatenate(
+            [event_info[idx], np.zeros(len(tl[v][i]) - len(tms_i))]
+        )
         tt = np.array(
             [
                 (
-                    (d if len(d) <= 14 else f"{d[:8]}..{d[-5:]}")
+                    (d if len(d) <= 23 else f"{d[:13]}..{d[-7:]}")
                     if (d := vocab.reverse[t]) is not None
                     else "None"
                 )
                 for t in tl[v][i]
             ]
-        ).reshape((-1, n_cols))
+        )
         imshow_text(
-            values=inf,
-            text=tt,
+            values=np.nan_to_num(infm[v][i])[:max_len].reshape((-1, n_cols)),
+            text=tt[:max_len].reshape((-1, n_cols)),
             title=f"Information by token for patient {s} in {names[v]}",
             savepath=out_dir.joinpath(
                 "tokens-{v}-{s}-{m}-hist.pdf".format(v=v, s=s, m=model_loc.stem)
+            ),
+        )
+        imshow_text(
+            values=ev_inf_i[:max_len].reshape((-1, n_cols)),
+            text=tt[:max_len].reshape((-1, n_cols)),
+            title=f"Information by event for patient {s} in {names[v]}",
+            savepath=out_dir.joinpath(
+                "events-{agg}-{v}-{s}-{m}-hist.pdf".format(
+                    agg=args.aggregation, v=v, s=s, m=model_loc.stem
+                )
             ),
         )
 

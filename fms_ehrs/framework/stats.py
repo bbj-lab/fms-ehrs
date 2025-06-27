@@ -28,7 +28,7 @@ def boostrap_roc_auc_ci(
     Calculates a bootstrapped percentile interval for AUC as described in §13.3
     of Efron & Tibshirani's "An Introduction to the Bootstrap" (Chapman & Hall,
     Boca Raton, 1993), ignoring variance due to model-fitting (i.e. a 'liberal'
-    bootstrap)
+    bootstrap for variability in the test-set alone)
     """
 
     def score_i(rng_i: Generator) -> float:
@@ -61,7 +61,8 @@ def bootstrap_test_roc_auc_pval(
     `y_score1` are equally good predictions of y_true (in terms of AUC), as
     outlined in Algorithm 16.1 of Efron & Tibshirani's "An Introduction to the
     Bootstrap" (Chapman & Hall, Boca Raton, 1993), ignoring variance due to
-    model-fitting (i.e. a 'liberal' bootstrap)
+    model-fitting (i.e. a 'liberal' bootstrap for variability in the test-set
+    alone)
     """
     auc0 = skl_mets.roc_auc_score(y_true, y_score0, **auc_kwargs)
     auc1 = skl_mets.roc_auc_score(y_true, y_score1, **auc_kwargs)
