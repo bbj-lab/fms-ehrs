@@ -195,7 +195,7 @@ Run on randi:
 ```
 systemd-run --scope --user tmux new -s t2q
 srun -p tier2q \
-  --mem=25GB \
+  --mem=100GB \
   --time=8:00:00 \
   --job-name=adhoc \
   --pty bash -i
