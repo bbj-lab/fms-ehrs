@@ -44,6 +44,7 @@ parser.add_argument(
 )
 parser.add_argument("--drop_prefix", action="store_true")
 parser.add_argument("--make_plots", action="store_true")
+parser.add_argument("--skip_kde", action="store_true")
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -81,6 +82,7 @@ df_t = (
     )
     .assign(type=lambda df: df.token.map(lambda w: token_type(vocab.reverse[w])))
     .dropna()
+    .loc[lambda df: (df.jump_length > 0) & (df.information > 0)]
 )
 
 logger.info(f"Tokenwise associations for {len(df_t)} tokens...")
@@ -90,6 +92,24 @@ logger.info(lm_t.summary())
 
 if args.make_plots:
 
+    plot_histogram(
+        df_t["information"].values,
+        savepath=out_dir.joinpath(
+            "tokens-infm-{m}-{d}.png".format(m=model_loc.stem, d=data_dir.stem)
+        ),
+    )
+
+    inf_by_type = collections.OrderedDict()
+    for t in token_types:
+        inf_by_type[t] = df_t.loc[lambda df: df.type == t, "information"].values
+    plot_histograms(
+        inf_by_type,
+        savepath=out_dir.joinpath(
+            "tokens-infm-by-type-{m}-{d}.png".format(m=model_loc.stem, d=data_dir.stem)
+        ),
+    )
+
+if not args.skip_kde:
     fig, ax = plt.subplots(figsize=(10, 8))
 
     sns.kdeplot(
@@ -119,70 +139,60 @@ if args.make_plots:
         bbox_inches="tight",
     )
 
-    plot_histogram(
-        df_t["information"].values,
-        savepath=out_dir.joinpath(
-            "tokens-infm-{m}-{d}.png".format(m=model_loc.stem, d=data_dir.stem)
-        ),
-    )
-
-    inf_by_type = collections.OrderedDict()
-    for t in token_types:
-        inf_by_type[t] = df_t.loc[lambda df: df.type == t, "information"].values
-    plot_histograms(
-        inf_by_type,
-        savepath=out_dir.joinpath(
-            "tokens-infm-by-type-{m}-{d}.png".format(m=model_loc.stem, d=data_dir.stem)
-        ),
-    )
-
 """
 event-wise
 """
 
-jsq = np.column_stack([np.zeros(jumps.shape[0]), np.square(jumps)])
+jumps_padded = np.column_stack([np.zeros(jumps.shape[0]), jumps])
 
 info_list = list()
-jump_list = list()
+path_len_list = list()
+event_len_list = list()
 
 for i in range(len(tks_arr)):
     tks, tms = tks_arr[i], tms_arr[i]
     tlen = min(len(tks), len(tms))
     tks, tms = tks[:tlen], tms[:tlen]
     inf_i = np.nan_to_num(inf_arr[i, :tlen])
-    jsq_i = np.nan_to_num(jsq[i, :tlen])
+    j_i = np.nan_to_num(jumps_padded[i, :tlen])
     event_info, idx = collate_events_info(tms, inf_i, args.aggregation)
-    event_jumps_sq = np.zeros(shape=event_info.shape)
-    np.add.at(event_jumps_sq, idx, jsq_i)
-    event_jumps = np.sqrt(event_jumps_sq)
-    # equivalent to:
-    # event_jumps = np.sqrt(
-    #         np.bincount(idx, weights=jsq_i.ravel(), minlength=tms_unq.shape[0])
-    #     )
+    path_lens = np.bincount(idx, weights=j_i.ravel(), minlength=event_info.shape[0])
+    event_lens = np.bincount(idx, minlength=event_info.shape[0])
     if args.drop_prefix:
         event_info = np.delete(event_info, idx[0])
-        event_jumps = np.delete(event_jumps, idx[0])
+        path_lens = np.delete(path_lens, idx[0])
+        event_lens = np.delete(event_lens, idx[0])
     info_list += event_info.tolist()
-    jump_list += event_jumps.tolist()
+    path_len_list += path_lens.tolist()
+    event_len_list += event_lens.tolist()
 
-assert len(info_list) == len(jump_list)
+assert len(info_list) == len(path_len_list) == len(event_len_list)
 
-df_e = pd.DataFrame({"jump_length": jump_list, "information": info_list}).dropna()
+df_e = pd.DataFrame(
+    {
+        "path_length": path_len_list,
+        "information": info_list,
+        "event_length": event_len_list,
+    }
+).dropna()
 
-logger.info(f"Eventwise associations for {len(df_e)} tokens...")
-lm_e = smf.ols(f"jump_length ~ 1 + information", data=df_e).fit()
+logger.info(f"Eventwise associations for {len(df_e)} events...")
+lm_e = smf.ols(f"path_length ~ 1 + information", data=df_e).fit()
 logger.info(lm_e.summary())
+
+lm_el = smf.ols(f"information ~ 1 + event_length", data=df_e).fit()
+logger.info(lm_el.summary())
 
 if args.make_plots:
     fig, ax = plt.subplots(figsize=(10, 8))
-    ax.scatter(df_e["information"], df_e["jump_length"], s=1, c=colors[1], alpha=0.5)
+    ax.scatter(df_e["information"], df_e["path_length"], s=1, c=colors[1], alpha=0.5)
 
-    ax.set_title("Jump length vs. Information (Eventwise)")
+    ax.set_title("Path length vs. Information (Eventwise)")
     ax.set_xlabel("information")
-    ax.set_ylabel("jump_length")
+    ax.set_ylabel("path_length")
     plt.savefig(
         out_dir.joinpath(
-            "events-jumps-vs-infm-{agg}-{m}-{d}.png".format(
+            "path-lens-vs-infm-{agg}-{m}-{d}.png".format(
                 agg=args.aggregation, m=model_loc.stem, d=data_dir.stem
             )
         ),
@@ -197,6 +207,38 @@ if args.make_plots:
                 agg=args.aggregation, m=model_loc.stem, d=data_dir.stem
             )
         ),
+    )
+
+    fig, ax = plt.subplots(figsize=(10, 8))
+    ax.scatter(df_e["event_length"], df_e["information"], s=1, c=colors[1], alpha=0.5)
+
+    ax.set_title("Information vs. event length")
+    ax.set_xlabel("event_length")
+    ax.set_ylabel("information")
+    plt.savefig(
+        out_dir.joinpath(
+            "infm-vs-event-len-{agg}-{m}-{d}.png".format(
+                agg=args.aggregation, m=model_loc.stem, d=data_dir.stem
+            )
+        ),
+        bbox_inches="tight",
+        dpi=600,
+    )
+
+    fig, ax = plt.subplots(figsize=(10, 8))
+    ax.scatter(df_e["event_length"], df_e["path_length"], s=1, c=colors[1], alpha=0.5)
+
+    ax.set_title("Path length vs. event length")
+    ax.set_xlabel("event_length")
+    ax.set_ylabel("path_length")
+    plt.savefig(
+        out_dir.joinpath(
+            "path-vs-event-len-{agg}-{m}-{d}.png".format(
+                agg=args.aggregation, m=model_loc.stem, d=data_dir.stem
+            )
+        ),
+        bbox_inches="tight",
+        dpi=600,
     )
 
 logger.info("---fin")

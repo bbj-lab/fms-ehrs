@@ -49,6 +49,7 @@ parser.add_argument(
 parser.add_argument(
     "--aggregation", choices=["sum", "max", "perplexity"], default="sum"
 )
+parser.add_argument("--n_egs", type=int, default=10)
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -192,7 +193,7 @@ for v in versions:
         flags=flags[v],
         vocab=vocab,
         logger=logger,
-        k=100,
+        k=args.n_egs,
         ids=ids[v],
     )
 
@@ -203,7 +204,7 @@ for v in versions:
         i = np.argmax(s == ids[v])
         tms_i = tm[v][i]
         event_info, idx = collate_events_info(
-            tms_i, np.nan_to_num(infm[v][i][: len(tms_i)]), args.aggregation
+            np.array(tms_i), np.nan_to_num(infm[v][i][: len(tms_i)]), args.aggregation
         )
         ev_inf_i = np.concatenate(
             [event_info[idx], np.zeros(len(tl[v][i]) - len(tms_i))]
