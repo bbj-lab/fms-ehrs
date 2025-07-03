@@ -8,7 +8,7 @@
 source preamble.sh
 
 models=(
-    llama-med-60358922_1-hp-W++
+    llama-original-60358922_0-hp-W++
 )
 samp_orig=(
     "20826893"
