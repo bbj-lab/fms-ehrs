@@ -2,15 +2,15 @@
 
 #SBATCH --job-name=jumps-ev
 #SBATCH --output=./output/%j-%x.stdout
-#SBATCH --partition=tier2q
+#SBATCH --partition=tier3q
 #SBATCH --cpus-per-task=5
 #SBATCH --time=1:00:00
 
 source preamble.sh
 
 data_dirs=(
-    "/scratch/$(whoami)/clif-data"
-    "/scratch/$(whoami)/clif-data-ucmc"
+    "${hm}/clif-data"
+    "${hm}/clif-data-ucmc"
 )
 
 for d in "${data_dirs[@]}"; do
