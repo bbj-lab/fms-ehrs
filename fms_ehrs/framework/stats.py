@@ -14,7 +14,7 @@ from sklearn import metrics as skl_mets
 Generator: typing.TypeAlias = np.random._generator.Generator
 
 
-def boostrap_roc_auc_ci(
+def bootstrap_roc_auc_ci(
     y_true: np.array,
     y_score: np.array,
     *,
@@ -119,6 +119,54 @@ def generate_classifier_preds(
     return y_true, y_preds
 
 
+def bootstrap_ci(
+    y_true: np.array,
+    y_score: np.array,
+    *,
+    n_samples: int = 10_000,
+    alpha: float = 0.05,
+    rng: Generator = np.random.default_rng(seed=42),
+    objs: typing.Tuple[typing.Literal["roc_auc", "pr_auc", "brier"], ...] = (
+        "roc_auc",
+        "pr_auc",
+        "brier",
+    ),
+    n_jobs: int = -1,
+):
+    """
+    Calculates a bootstrapped percentile interval for objectives `objs` as
+    described in §13.3 of Efron & Tibshirani's "An Introduction to the Bootstrap"
+    (Chapman & Hall, Boca Raton, 1993), ignoring variance due to model-fitting
+    (i.e. a 'liberal' bootstrap for variability in the test-set alone)
+    """
+
+    def score_i(rng_i: Generator) -> dict[str, float]:
+        warnings.filterwarnings("ignore")
+        yti = y_true[
+            samp_i := rng_i.choice(len(y_true), size=len(y_true), replace=True)
+        ]
+        ysi = y_score[samp_i]
+        ret = dict()
+        if "roc_auc" in objs:
+            ret["roc_auc"] = skl_mets.roc_auc_score(yti, ysi)
+        if "pr_auc" in objs:
+            precs, recs, _ = skl_mets.precision_recall_curve(
+                yti, np.round(ysi, decimals=4), drop_intermediate=True
+            )
+            ret["pr_auc"] = skl_mets.auc(recs, precs)
+        if "brier" in objs:
+            ret["brier"] = skl_mets.brier_score_loss(yti, ysi)
+        return ret
+
+    with jl.Parallel(n_jobs=n_jobs) as par:
+        scores = par(jl.delayed(score_i)(rng_i) for rng_i in rng.spawn(n_samples))
+
+    return {
+        ob: np.quantile([s[ob] for s in scores], q=[alpha / 2, 1 - (alpha / 2)])
+        for ob in objs
+    }
+
+
 if __name__ == "__main__":
 
     np_rng = np.random.default_rng(42)
@@ -135,7 +183,7 @@ if __name__ == "__main__":
         print(
             "CI  for preds{} = {}".format(
                 i,
-                boostrap_roc_auc_ci(y_true=y_true, y_score=y_preds[i]).round(3),
+                bootstrap_roc_auc_ci(y_true=y_true, y_score=y_preds[i]).round(3),
             )
         )
 
@@ -157,3 +205,5 @@ if __name__ == "__main__":
             ),
         )
     )
+
+    print("all metrics: {}".format(bootstrap_ci(y_true=y_true, y_score=y_preds[0])))
