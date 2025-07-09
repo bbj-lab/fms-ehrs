@@ -102,6 +102,9 @@ infm = {
     for v in versions
 }
 
+for v in versions:
+    logger.info(f"{v=},{infm[v].mean()=}")
+
 ent = {v: np.nanmean(infm[v], axis=1) for v in versions}
 inf_sum = {v: np.nansum(infm[v], axis=1) for v in versions}
 
