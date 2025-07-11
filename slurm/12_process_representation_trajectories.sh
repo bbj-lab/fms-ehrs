@@ -9,7 +9,6 @@
 #SBATCH --array=0-1
 
 source preamble.sh
-export hm=/scratch/burkh4rt
 
 case "${SLURM_ARRAY_TASK_ID}" in
     0) data_dir="${hm}/clif-data" ;;
@@ -19,6 +18,6 @@ esac
 
 python3 ../fms_ehrs/scripts/process_representation_trajectories.py \
     --data_dir "$data_dir" \
-    --data_version W++_first_24h \
+    --data_version W++ \
     --model_loc "${hm}/clif-mdls-archive/llama-med-60358922_1-hp-W++" \
     --save_jumps True

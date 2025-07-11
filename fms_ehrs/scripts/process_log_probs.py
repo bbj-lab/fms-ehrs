@@ -9,13 +9,14 @@ import collections
 import pathlib
 
 import numpy as np
-import pandas as pd
-import plotly.express as px
+
+# import pandas as pd
+# import plotly.express as px
 import polars as pl
 
 from fms_ehrs.framework.logger import get_logger, log_summary
 from fms_ehrs.framework.plotting import imshow_text, plot_histograms
-from fms_ehrs.framework.util import extract_examples, collate_events_info
+from fms_ehrs.framework.util import collate_events_info, extract_examples
 from fms_ehrs.framework.vocabulary import Vocabulary
 
 logger = get_logger()
@@ -27,7 +28,7 @@ parser.add_argument("--data_dir_orig", type=pathlib.Path, default="../../clif-da
 parser.add_argument("--name_orig", type=str, default="MIMIC")
 parser.add_argument("--data_dir_new", type=pathlib.Path, default="../../clif-data-ucmc")
 parser.add_argument("--name_new", type=str, default="UCMC")
-parser.add_argument("--data_version", type=str, default="W++_first_24h")
+parser.add_argument("--data_version", type=str, default="W++")
 parser.add_argument(
     "--model_loc",
     type=pathlib.Path,
@@ -74,23 +75,14 @@ data_dirs["new"] = {
     s: data_dir_new.joinpath(f"{args.data_version}-tokenized", s) for s in splits
 }
 
-outl = {
-    v: np.load(
-        data_dirs[v]["test"].joinpath(
-            "features-outliers-{m}.npy".format(m=model_loc.stem)
-        )
-    )
-    for v in versions
-}
-
-anom = {
-    v: np.load(
-        data_dirs[v]["test"].joinpath(
-            "features-anomaly-score-{m}.npy".format(m=model_loc.stem)
-        )
-    )
-    for v in versions
-}
+# anom = {
+#     v: np.load(
+#         data_dirs[v]["test"].joinpath(
+#             "features-anomaly-score-{m}.npy".format(m=model_loc.stem)
+#         )
+#     )
+#     for v in versions
+# }
 
 vocab = Vocabulary().load(data_dirs["orig"]["train"].joinpath("vocab.gzip"))
 
@@ -103,7 +95,7 @@ infm = {
 }
 
 for v in versions:
-    logger.info(f"{v=},{infm[v].mean()=}")
+    logger.info(f"{v=},{np.nanmean(infm[v])=}")
 
 ent = {v: np.nanmean(infm[v], axis=1) for v in versions}
 inf_sum = {v: np.nansum(infm[v], axis=1) for v in versions}
@@ -112,7 +104,7 @@ tl = {
     v: np.array(
         pl.scan_parquet(
             data_dirs[v]["test"].joinpath(
-                "tokens_timelines_outcomes.parquet",
+                "tokens_timelines.parquet",
             )
         )
         .select("padded")
@@ -126,7 +118,7 @@ tl = {
 tm = {
     v: pl.scan_parquet(
         data_dirs[v]["test"].joinpath(
-            "tokens_timelines_outcomes.parquet",
+            "tokens_timelines.parquet",
         )
     )
     .select("times")
@@ -142,7 +134,7 @@ ids = {
     v: np.array(
         pl.scan_parquet(
             data_dirs[v]["test"].joinpath(
-                "tokens_timelines_outcomes.parquet",
+                "tokens_timelines.parquet",
             )
         )
         .select("hospitalization_id")
@@ -153,30 +145,30 @@ ids = {
     for v in versions
 }
 
-flags = {
-    v: (
-        pl.scan_parquet(
-            data_dirs[v]["test"].joinpath(
-                "tokens_timelines_outcomes.parquet",
-            )
-        )
-        .with_columns(
-            [
-                pl.when(pl.col(outcome))
-                .then(pl.lit(outcome))
-                .otherwise(None)
-                .alias(outcome)
-                for outcome in outcomes
-            ]
-        )
-        .with_columns(flags=pl.concat_str(outcomes, separator=", ", ignore_nulls=True))
-        .select("flags")
-        .collect()
-        .to_series()
-        .to_list()
-    )
-    for v in versions
-}
+# flags = {
+#     v: (
+#         pl.scan_parquet(
+#             data_dirs[v]["test"].joinpath(
+#                 "tokens_timelines_outcomes.parquet",
+#             )
+#         )
+#         .with_columns(
+#             [
+#                 pl.when(pl.col(outcome))
+#                 .then(pl.lit(outcome))
+#                 .otherwise(None)
+#                 .alias(outcome)
+#                 for outcome in outcomes
+#             ]
+#         )
+#         .with_columns(flags=pl.concat_str(outcomes, separator=", ", ignore_nulls=True))
+#         .select("flags")
+#         .collect()
+#         .to_series()
+#         .to_list()
+#     )
+#     for v in versions
+# }
 
 # single-token events
 logger.info("Singletons |".ljust(79, "="))
@@ -193,7 +185,7 @@ for v in versions:
     extract_examples(
         timelines=tl[v],
         criteria=infm[v],
-        flags=flags[v],
+        flags=flags[v] if "flags" in locals() else None,
         vocab=vocab,
         logger=logger,
         k=args.n_egs,
@@ -205,7 +197,7 @@ max_len = 1002
 for v in versions:
     for s in samp[v]:
         i = np.argmax(s == ids[v])
-        tms_i = tm[v][i]
+        tms_i = tm[v][i][:max_len]
         event_info, idx = collate_events_info(
             np.array(tms_i), np.nan_to_num(infm[v][i][: len(tms_i)]), args.aggregation
         )
@@ -242,22 +234,24 @@ for v in versions:
         )
 
 
-for v in versions:
-    fig = px.scatter(
-        pd.DataFrame({"anomaly score": anom[v], "information": inf_sum[v]}),
-        x="information",
-        y="anomaly score",
-        trendline="ols",
-        color_discrete_sequence=["#DE7C00"],
-    )
-    fig.data[1].line.color = "#789D4A"
-    fig.update_layout(
-        title="Anomaly score vs. sum of information", template="plotly_white"
-    )
-    fig.update_traces(marker=dict(size=3))
-    fig.write_image(
-        out_dir.joinpath("anom-ent-{m}-{v}-hist.pdf".format(m=model_loc.stem, v=v))
-    )
+# for v in versions:
+#     fig = px.scatter(
+#         pd.DataFrame({"anomaly score": anom[v], "information": inf_sum[v]}),
+#         x="information",
+#         y="anomaly score",
+#         trendline="ols",
+#         color_discrete_sequence=["#DE7C00"],
+#     )
+#     fig.data[1].line.color = "#789D4A"
+#     fig.update_layout(
+#         title="Anomaly score vs. sum of information",
+#         template="plotly_white",
+#         font_family="CMU Serif, Times New Roman, serif",
+#     )
+#     fig.update_traces(marker=dict(size=3))
+#     fig.write_image(
+#         out_dir.joinpath("anom-ent-{m}-{v}-hist.pdf".format(m=model_loc.stem, v=v))
+#     )
 
 
 logger.info("---fin")

@@ -60,7 +60,7 @@ def plot_calibration_curve(
                 y=prob_true,
                 mode="lines+markers",
                 name="{} (Brier: {:.3f})".format(
-                    name, skl_mets.brier_score_loss(y_true=y_true, y_proba=y_score)
+                    name, skl_mets.brier_score_loss(y_true=y_true, y_prob=y_score)
                 ),
                 marker=dict(color=colors[i % len(colors)]),
             )
@@ -73,7 +73,7 @@ def plot_calibration_curve(
         xaxis=dict(range=[0, 1]),
         yaxis=dict(range=[0, 1]),
         template="plotly_white",
-        font_family="Computer Modern, CMU Serif",
+        font_family="CMU Serif, Times New Roman, serif",
     )
 
     if savepath is None:
@@ -128,7 +128,7 @@ def plot_roc_curve(named_results: Dictlike, savepath: Pathlike = None):
         xaxis=dict(range=[0, 1]),
         yaxis=dict(range=[0, 1]),
         template="plotly_white",
-        font_family="Computer Modern, CMU Serif",
+        font_family="CMU Serif, Times New Roman, serif",
     )
 
     if savepath is None:
@@ -176,7 +176,7 @@ def plot_precision_recall_curve(
         xaxis=dict(range=[0, 1]),
         yaxis=dict(range=[0, 1]),
         template="plotly_white",
-        font_family="Computer Modern, CMU Serif",
+        font_family="CMU Serif, Times New Roman, serif",
     )
 
     if savepath is None:
@@ -201,7 +201,7 @@ def plot_histogram(
         title=title,
         template="plotly_white",
         showlegend=False,
-        font_family="Computer Modern, CMU Serif",
+        font_family="CMU Serif, Times New Roman, serif",
     )
 
     if savepath is None:
@@ -251,7 +251,7 @@ def plot_histograms(
         barmode="overlay",
         template="plotly_white",
         title=title,
-        font_family="Computer Modern, CMU Serif",
+        font_family="CMU Serif, Times New Roman, serif",
         **kwargs,
     )
 
@@ -285,6 +285,7 @@ def imshow_text(
     )
 
     fig.update_layout(
+        autosize=False,
         title=title,
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         yaxis=dict(
@@ -292,7 +293,7 @@ def imshow_text(
         ),
         height=3000,
         width=1000,
-        font_family="Computer Modern, CMU Serif, cmr10",
+        font_family="CMU Serif, Times New Roman, serif",
     )
 
     if savepath is None:
@@ -353,7 +354,7 @@ if __name__ == "__main__":
         xaxis_title="Percentage of local data used for finetuning",
         yaxis_title="overall AUC (local test set)",
         template="plotly_white",
-        # font_family="Computer Modern, CMU Serif",
+        font_family="CMU Serif, Times New Roman, serif",
     )
     fig.show()
     # fig.write_image(pathlib.Path("~/Downloads/sft_perf.pdf").expanduser().resolve())
