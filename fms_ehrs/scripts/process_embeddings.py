@@ -122,6 +122,7 @@ for out in outcomes[:2]:
     fig.update_layout(
         title="{typ} embedding of 24hr representations".format(typ=args.mapper),
         template="plotly_white",
+        font_family="CMU Serif, Times New Roman, serif",
     )
     fig.update_traces(marker=dict(size=1))
     fig.write_image(

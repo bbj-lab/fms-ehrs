@@ -16,7 +16,7 @@ data_dirs=(
 for d in "${data_dirs[@]}"; do
     python3 ../fms_ehrs/scripts/rep_changes_by_event.py \
         --data_dir "$d" \
-        --data_version "W++_first_24h" \
+        --data_version "W++" \
         --model_loc "${hm}/clif-mdls-archive/llama-med-60358922_1-hp-W++" \
         --aggregation "sum" \
         --big_batch_sz $((2 ** 12)) \

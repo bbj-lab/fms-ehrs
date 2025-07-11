@@ -4,6 +4,7 @@
 provides a simple tokenizing interface to take tabular CLIF data and convert
 it to tokenized timelines at the hospitalization_id level
 """
+import collections
 import functools
 import logging
 import os
@@ -793,23 +794,23 @@ def token_type(word: str) -> str:
         return word.split("_")[0]
 
 
-token_types = (
-    "Q",
-    "RACE",
-    "ETHN",
-    "SEX",
-    "ADMN",
-    "ADT",
-    "ASMT",
-    "LAB",
-    "MED",
-    "POSN",
-    "RESP",
-    "VTL",
-    "DSCG",
-    "SPECIAL",
+type_names = collections.OrderedDict(
+    Q="Q",
+    RACE="RACE",
+    ETHN="ETHNICITY",
+    SEX="SEX",
+    ADMN="ADMISSION",
+    ADT="TRANSFER",
+    ASMT="ASSESSMENT",
+    LAB="LAB",
+    MED="MEDICATION",
+    POSN="POSITION",
+    RESP="RESPIRATION",
+    VTL="VITALS",
+    DSCG="DISCHARGE",
+    SPECIAL="SPECIAL",
 )
-
+token_types = tuple(type_names.keys())
 
 if __name__ == "__main__":
 

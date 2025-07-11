@@ -14,9 +14,12 @@ more python scripts that depend on an environment as described in the
 ```sh
 python3 -m venv venv
 source venv/bin/activate
-pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-pip3 install -r requirements.txt
+pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+TMPDIR=/scratch/$(whoami) pip3 install -r requirements.txt
 ```
+
+For plots to render correctly, you may need to also run `kaleido_get_chrome` and
+install a working version of tex on your system.
 
 Alternatively, after installing torch, you can install directly from github:
 

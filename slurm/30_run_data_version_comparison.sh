@@ -2,7 +2,8 @@
 
 #SBATCH --job-name=cf-perf-data
 #SBATCH --output=./output/%j-%x.stdout
-#SBATCH --partition=tier3q
+#SBATCH --partition=tier2q
+#SBATCH --cpus-per-task=5
 #SBATCH --time=1:00:00
 ##SBATCH --depend=afterok:60708969
 

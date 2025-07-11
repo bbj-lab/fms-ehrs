@@ -9,11 +9,11 @@ import pathlib
 import typing
 
 import fire as fi
-from pacmap import PaCMAP
 import plotly.express as px
 import plotly.graph_objects as go
 import plotly.io as pio
 import polars as pl
+from pacmap import PaCMAP
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from torch import arange as t_arange
@@ -139,7 +139,7 @@ def main(
 
     fig.update_layout(
         template="plotly_white",
-        font_family="CMU Serif",
+        font_family="CMU Serif, Times New Roman, serif",
     )
 
     # fig.write_html(
@@ -217,7 +217,7 @@ def main(
 
     fig.update_layout(
         template="plotly_white",
-        font_family="CMU Serif",
+        font_family="CMU Serif, Times New Roman, serif",
     )
 
     # fig.write_html(out_dir.joinpath("embedding_q-{m}.html".format(m=ref_mdl_loc.stem)))
