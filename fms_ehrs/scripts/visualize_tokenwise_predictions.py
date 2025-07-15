@@ -131,6 +131,7 @@ for suffix in ("", "_urt", "_lr"):
         + suffix[1:].upper(),
         xaxis_title="# tokens",
         yaxis_title="Predicted admission mortality prob.",
+        font_family="CMU Serif, Times New Roman, serif",
     )
 
     fig.write_image(
