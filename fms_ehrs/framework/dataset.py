@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-provide datasets for training and validation
+provide datasets for training
 """
 
 import itertools

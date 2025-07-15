@@ -36,7 +36,7 @@ parser.add_argument(
 parser.add_argument(
     "--aggregation",
     choices=["max", "sum", "perplexity"],
-    default="max",
+    default="sum",
 )
 parser.add_argument("--k", type=int, default=None)
 parser.add_argument("--pct", type=float, default=None)
