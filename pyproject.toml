@@ -9,15 +9,15 @@ dependencies = [
   "isort>=5.13",
   "joblib>=1.4",
   "jq>=1.8.0",
-  "kaleido>=0.2",
+  "kaleido>=0.2,<1",
   "lightgbm>=4.5",
   "numba>=0.61",
-  "numpy>=1.26",
+  "numpy>=1.26,<2",
   "optuna>=4.2",
   "pacmap==0.8.0",
   "pandas>=2.2",
   "pip>=25.1",
-  "plotly>=5.24.1",
+  "plotly~=5.24.1",
   "polars>=1.20",
   "ray",
   "scikit-learn>=1.6",
@@ -48,7 +48,7 @@ find = {}
 [build-system]
 requires = [
   "setuptools>=75.0",
-  "numpy>=1.26"
+  "numpy>=1.26,<2"
 ]
 build-backend = "setuptools.build_meta"
 
