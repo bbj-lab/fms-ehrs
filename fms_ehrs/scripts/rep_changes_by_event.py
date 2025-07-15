@@ -9,7 +9,6 @@ import itertools
 import pathlib
 
 import joblib as jl
-import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -22,8 +21,13 @@ from fms_ehrs.framework.logger import get_logger
 from fms_ehrs.framework.plotting import colors
 from fms_ehrs.framework.util import collate_events_info
 
-mpl.rcParams["font.family"] = "cmr10"
-mpl.rcParams["axes.formatter.use_mathtext"] = True
+plt.rcParams.update(
+    {
+        "text.usetex": True,
+        "font.family": "serif",
+        "text.latex.preamble": r"\usepackage{amsmath,amsfonts,microtype}",
+    }
+)
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
@@ -62,7 +66,12 @@ data_dir, out_dir, model_loc = map(
 test_dir = data_dir.joinpath(f"{args.data_version}-tokenized", "test")
 
 inf_arr = np.load(test_dir.joinpath(f"log_probs-{model_loc.stem}.npy")) / -np.log(2)
-tt = pl.scan_parquet(test_dir.joinpath("tokens_timelines_outcomes.parquet"))
+if (f := test_dir.joinpath("tokens_timelines_outcomes.parquet")).exists():
+    tt = pl.scan_parquet(f)
+elif (f := test_dir.joinpath("tokens_timelines.parquet")).exists():
+    tt = pl.scan_parquet(f)
+else:
+    raise FileNotFoundError("Check tokens_timelines* file.")
 tks_arr = tt.select("padded").collect().to_series().to_numpy()
 tms_arr = tt.select("times").collect().to_series().to_numpy()
 ids = tt.select("hospitalization_id").collect().to_series().to_numpy()
@@ -93,11 +102,11 @@ def process_big_batch(batch_num: int, big_batch: t.Tensor):
         for e_i in pd.unique(time_idx)[1:]:  # preserves order, skips prefix
             aw = np.argwhere(time_idx == e_i)
             i_jumps.append(
-                np.linalg.norm(reps_i[aw.max()] - reps_i[aw.min() - 1]).astype(
-                    np.float64
-                )
+                np.linalg.norm(reps_i[aw.max()] - reps_i[aw.min() - 1])
+                .astype(np.float64)
+                .item()
             )
-            i_info.append(event_info[e_i].astype(np.float64))
+            i_info.append(event_info[e_i].astype(np.float64).item())
         batch_jumps.append(i_jumps)
         batch_info.append(i_info)
     return batch_jumps, batch_info

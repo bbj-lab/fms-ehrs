@@ -13,6 +13,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import plotly.io as pio
 import polars as pl
+from pacmap import PaCMAP
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from torch import arange as t_arange
@@ -33,7 +34,7 @@ logger.log_env()
 @logger.log_calls
 def main(
     *,
-    projector_type: typing.Literal["PCA", "TSNE"] = "PCA",
+    projector_type: typing.Literal["PCA", "TSNE", "PACMAP"] = "PCA",
     data_dir: os.PathLike = None,
     data_version: str = None,
     ref_mdl_loc: os.PathLike = None,
@@ -68,12 +69,16 @@ def main(
 
     # size: vocab × emb_dim
     emb = ref_mdl.get_input_embeddings()(t_arange(len(vocab)))
-    projector = (
-        PCA(n_components=2, random_state=42)
-        if projector_type == "PCA"
-        else TSNE(n_components=2, random_state=42, perplexity=150)
-    )
-    proj = projector.fit_transform(emb.detach())
+    match projector_type:
+        case "PCA":
+            projector = PCA(n_components=2, random_state=42)
+        case "TSNE":
+            projector = TSNE(n_components=2, random_state=42, perplexity=150)
+        case "PACMAP":
+            projector = PaCMAP(n_components=2, n_neighbors=None, random_state=42)
+        case _:
+            raise Exception(f"{projector_type=} unsupported")
+    proj = projector.fit_transform(emb.detach().numpy())
     if projector_type == "PCA":
         logger.info(f"{projector.explained_variance_ratio_=}")
 
@@ -134,7 +139,7 @@ def main(
 
     fig.update_layout(
         template="plotly_white",
-        font_family="CMU Serif",
+        font_family="CMU Serif, Times New Roman, serif",
     )
 
     # fig.write_html(
@@ -150,12 +155,7 @@ def main(
 
     # size: vocab × emb_dim
     emb = ref_mdl.get_input_embeddings()(t_arange(10))
-    projector = (
-        PCA(n_components=2, random_state=42)
-        if projector_type == "PCA"
-        else TSNE(n_components=2, random_state=42, perplexity=150)
-    )
-    proj = projector.fit_transform(emb.detach())
+    proj = projector.fit_transform(emb.detach().numpy())
     if projector_type == "PCA":
         logger.info(f"{projector.explained_variance_ratio_=}")
 
@@ -217,7 +217,7 @@ def main(
 
     fig.update_layout(
         template="plotly_white",
-        font_family="CMU Serif",
+        font_family="CMU Serif, Times New Roman, serif",
     )
 
     # fig.write_html(out_dir.joinpath("embedding_q-{m}.html".format(m=ref_mdl_loc.stem)))

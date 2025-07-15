@@ -5,35 +5,39 @@ Do highly informative tokens correspond to bigger jumps in representation space?
 """
 
 import argparse
-import collections
 import pathlib
 
-import matplotlib as mpl
-import matplotlib.pyplot as plt
 import matplotlib.patches as mpl_pats
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import plotly.express as px
 import polars as pl
 import seaborn as sns
 import statsmodels.formula.api as smf
 
 from fms_ehrs.framework.logger import get_logger
 from fms_ehrs.framework.plotting import colors, plot_histogram, plot_histograms
-from fms_ehrs.framework.tokenizer import token_type, token_types
+from fms_ehrs.framework.tokenizer import token_type, token_types, type_names
 from fms_ehrs.framework.util import collate_events_info
 from fms_ehrs.framework.vocabulary import Vocabulary
 
-mpl.rcParams["font.family"] = "cmr10"
-mpl.rcParams["axes.formatter.use_mathtext"] = True
+plt.rcParams.update(
+    {
+        "text.usetex": True,
+        "font.family": "serif",
+        "text.latex.preamble": r"\usepackage{amsmath,amsfonts,microtype}",
+    }
+)
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
 logger.log_env()
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--data_dir", type=pathlib.Path, default="../../clif-data-ucmc")
+parser.add_argument("--data_dir", type=pathlib.Path, default="../../clif-data")
 parser.add_argument("--out_dir", type=pathlib.Path, default="../../figs")
-parser.add_argument("--data_version", type=str, default="W++_first_24h")
+parser.add_argument("--data_version", type=str, default="W++")
 parser.add_argument(
     "--model_loc",
     type=pathlib.Path,
@@ -62,7 +66,12 @@ colorer = dict(zip(token_types, colors[1:]))
 
 jumps = np.load(test_dir.joinpath(f"all-jumps-{model_loc.stem}.npy"))
 inf_arr = np.load(test_dir.joinpath(f"log_probs-{model_loc.stem}.npy")) / -np.log(2)
-tt = pl.scan_parquet(test_dir.joinpath("tokens_timelines_outcomes.parquet"))
+if (f := test_dir.joinpath("tokens_timelines_outcomes.parquet")).exists():
+    tt = pl.scan_parquet(f)
+elif (f := test_dir.joinpath("tokens_timelines.parquet")).exists():
+    tt = pl.scan_parquet(f)
+else:
+    raise FileNotFoundError("Check tokens_timelines* file.")
 tks_arr = tt.select("padded").collect().to_series().to_numpy()
 tms_arr = tt.select("times").collect().to_series().to_numpy()
 
@@ -80,7 +89,9 @@ df_t = (
             "token": np.row_stack(tks_arr)[:, 1:].ravel(),
         }
     )
-    .assign(type=lambda df: df.token.map(lambda w: token_type(vocab.reverse[w])))
+    .assign(
+        type=lambda df: df.token.map(lambda w: type_names[token_type(vocab.reverse[w])])
+    )
     .dropna()
     .loc[lambda df: (df.jump_length > 0) & (df.information > 0)]
 )
@@ -92,21 +103,25 @@ logger.info(lm_t.summary())
 
 if args.make_plots:
 
-    plot_histogram(
-        df_t["information"].values,
-        savepath=out_dir.joinpath(
-            "tokens-infm-{m}-{d}.png".format(m=model_loc.stem, d=data_dir.stem)
-        ),
+    fig = px.scatter(
+        df_t.groupby("type").agg("mean").reset_index(),
+        x="information",
+        y="jump_length",
+        color="type",
+        symbol="type",
+        color_discrete_sequence=colors[1:],
     )
-
-    inf_by_type = collections.OrderedDict()
-    for t in token_types:
-        inf_by_type[t] = df_t.loc[lambda df: df.type == t, "information"].values
-    plot_histograms(
-        inf_by_type,
-        savepath=out_dir.joinpath(
-            "tokens-infm-by-type-{m}-{d}.png".format(m=model_loc.stem, d=data_dir.stem)
-        ),
+    fig.update_layout(
+        # title="Average jump magnitude vs. average information by token type",
+        xaxis_title="Information (bits)",
+        yaxis_title="Jump Magnitude (in representation space)",
+        template="plotly_white",
+        font_family="CMU Serif, Times New Roman, serif",
+    )
+    fig.write_image(
+        out_dir.joinpath(
+            "twise-jumps-infs-{m}-{d}.pdf".format(m=model_loc.stem, d=data_dir.stem)
+        )
     )
 
 if not args.skip_kde:
@@ -134,7 +149,7 @@ if not args.skip_kde:
     ax.set_ylabel("jump_length")
     plt.savefig(
         out_dir.joinpath(
-            "tokens-jumps-vs-infm-{m}-{d}.svg".format(m=model_loc.stem, d=data_dir.stem)
+            "tokens-jumps-vs-infm-{m}-{d}.pdf".format(m=model_loc.stem, d=data_dir.stem)
         ),
         bbox_inches="tight",
     )
@@ -184,61 +199,36 @@ lm_el = smf.ols(f"information ~ 1 + event_length", data=df_e).fit()
 logger.info(lm_el.summary())
 
 if args.make_plots:
-    fig, ax = plt.subplots(figsize=(10, 8))
-    ax.scatter(df_e["information"], df_e["path_length"], s=1, c=colors[1], alpha=0.5)
 
-    ax.set_title("Path length vs. Information (Eventwise)")
-    ax.set_xlabel("information")
-    ax.set_ylabel("path_length")
-    plt.savefig(
+    fig = px.scatter(
+        df_e,
+        x="information",
+        y="path_length",
+        color_discrete_sequence=colors[1:],
+    )
+    fig.update_traces(marker_size=1)
+    fig.update_layout(
+        # title="Path length vs. information by event",
+        xaxis_title="Information (bits)",
+        yaxis_title="Path length (in representation space)",
+        template="plotly_white",
+        font_family="CMU Serif, Times New Roman, serif",
+    )
+    fig.write_image(
         out_dir.joinpath(
-            "path-lens-vs-infm-{agg}-{m}-{d}.png".format(
+            "path-lens-vs-infm-{agg}-{m}-{d}.pdf".format(
                 agg=args.aggregation, m=model_loc.stem, d=data_dir.stem
             )
-        ),
-        bbox_inches="tight",
-        dpi=600,
+        )
     )
 
     plot_histogram(
         df_e["information"].values,
         savepath=out_dir.joinpath(
-            "events-infm-{agg}-{m}-{d}.png".format(
+            "events-infm-{agg}-{m}-{d}.pdf".format(
                 agg=args.aggregation, m=model_loc.stem, d=data_dir.stem
             )
         ),
-    )
-
-    fig, ax = plt.subplots(figsize=(10, 8))
-    ax.scatter(df_e["event_length"], df_e["information"], s=1, c=colors[1], alpha=0.5)
-
-    ax.set_title("Information vs. event length")
-    ax.set_xlabel("event_length")
-    ax.set_ylabel("information")
-    plt.savefig(
-        out_dir.joinpath(
-            "infm-vs-event-len-{agg}-{m}-{d}.png".format(
-                agg=args.aggregation, m=model_loc.stem, d=data_dir.stem
-            )
-        ),
-        bbox_inches="tight",
-        dpi=600,
-    )
-
-    fig, ax = plt.subplots(figsize=(10, 8))
-    ax.scatter(df_e["event_length"], df_e["path_length"], s=1, c=colors[1], alpha=0.5)
-
-    ax.set_title("Path length vs. event length")
-    ax.set_xlabel("event_length")
-    ax.set_ylabel("path_length")
-    plt.savefig(
-        out_dir.joinpath(
-            "path-vs-event-len-{agg}-{m}-{d}.png".format(
-                agg=args.aggregation, m=model_loc.stem, d=data_dir.stem
-            )
-        ),
-        bbox_inches="tight",
-        dpi=600,
     )
 
 logger.info("---fin")
