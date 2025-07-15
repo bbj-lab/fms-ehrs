@@ -13,10 +13,10 @@
 ## Requirements & structure
 
 The bash scripts can be run in a [slurm](https://slurm.schedmd.com) environment
-with the specified resource requirements. (We used compute nodes with 8×A100 GPUs
-40GB, connected with 2×16-core 3.0-GHz AMD Milan processors for GPU-based work.)
-Each bash script calls one or more python scripts that depend on an environment
-as described in the `requirements.txt` file:
+with the specified resource requirements. (We used compute nodes with 8×A100
+40GB-PCIe GPUs, connected with 2×16-core 3.0-GHz AMD Milan processors for
+GPU-based work.) Each bash script calls one or more python scripts that depend on
+an environment as described in the `requirements.txt` file:
 
 ```sh
 python3 -m venv venv
@@ -163,7 +163,8 @@ We train a foundation model (FM) from scratch using a variation of the Llama-3.2
 1B-parameter architecture on our tokenized MIMIC training and validation sets.
 This model then takes the place of $p$ in the above equations. We can take
 example timelines and use the model-determined measure of information to
-highlight them (first 102 tokens shown here):
+highlight them (first 102 tokens shown here, reading from left to right in
+row-major order):
 
 ![Example highlighted timeline](./img/example_tl.svg)
 
@@ -173,7 +174,7 @@ We drop events (corresponding to subsequences $x_{u:v}$) according to their
 model-determined informativeness $I_{p}(x_{u:v} | x_{<u})$. For details, please
 see our manuscript.
 
-### Reps vs. info
+### Representations vs. information
 
 We relate movements in model-derived representation space to the informativeness
 of the corresponding tokens or events. Again, further details are available in
@@ -181,13 +182,23 @@ the manuscript.
 
 ## Usage notes
 
-Queue slurm jobs with dependencies as follows:
+-   Slurm jobs can be queued in sequence as follows:
 
-```sh
-j01=$(sbatch --parsable 01_create_train_val_test_split.sh)
-j02=$(sbatch --parsable --depend=afterok:${j01} 02_tokenize_train_val_test_split.sh)
-j03=$(sbatch --parsable --depend=afterok:${j02} 03_tune_model.sh)
-```
+    ```sh
+    j01=$(sbatch --parsable 01_create_train_val_test_split.sh)
+    j02=$(sbatch --parsable --depend=afterok:${j01} 02_tokenize_train_val_test_split.sh)
+    j03=$(sbatch --parsable --depend=afterok:${j02} 03_extract_outcomes.sh)
+    ...
+    ```
+
+-   If you find yourself manually running python scripts from an interactive slurm
+    job afer running `preamble.sh`, you can append:
+
+    ```sh
+    2>&1 | tee -a output/$SLURM_JOBID-$jname.stdout
+    ```
+
+    to keep logs.
 
 <!--
 

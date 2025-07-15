@@ -6,6 +6,7 @@ functions for plotting
 
 import collections
 import pathlib
+import typing
 
 import numpy as np
 from plotly import express as px
@@ -14,7 +15,8 @@ from plotly import io as pio
 from sklearn import calibration as skl_cal
 from sklearn import metrics as skl_mets
 
-from fms_ehrs.framework.util import Dictlike, Pathlike
+Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
+Dictlike: typing.TypeAlias = collections.OrderedDict | dict
 
 pio.kaleido.scope.mathjax = None
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=proc-log-probs
+#SBATCH --job-name=proc-info
 #SBATCH --output=./output/%j-%x.stdout
 #SBATCH --partition=tier3q
 #SBATCH --time=1:00:00

@@ -10,10 +10,7 @@
 source preamble.sh
 
 model=llama-med-60358922_1-hp-W++
-data_dirs=(
-    "${hm}/clif-data"
-    "${hm}/clif-data-ucmc"
-)
+data_dirs=("${hm}/clif-data" "${hm}/clif-data-ucmc")
 splits=(train val test)
 
 torchrun --nproc_per_node=1 \

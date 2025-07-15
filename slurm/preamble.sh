@@ -8,11 +8,13 @@ if [ -v SLURM_ARRAY_JOB_ID ]; then
 fi
 
 hm="/gpfs/data/bbj-lab/users/$(whoami)"
-name=$(scontrol show job "$SLURM_JOBID" \
-    | grep -m 1 "Command=" \
-    | cut -d "=" -f2 \
-    | xargs -I {} basename {} .sh)
+name=$(scontrol show job "$SLURM_JOBID" |
+    grep -m 1 "Command=" |
+    cut -d "=" -f2 |
+    xargs -I {} basename {} .sh)
 parent_dir="$(dirname "$(dirname "$(realpath "${BASH_SOURCE[0]}")")")"
+jname=$(scontrol show job "$SLURM_JOBID" |
+    grep -oP 'JobName=\K\S+')
 export hm name parent_dir
 
 source ~/.bashrc 2> /dev/null
