@@ -1,5 +1,15 @@
 # Detecting highly informative events in electronic health records with foundation models
 
+> We present a foundation model-derived method to identify highly informative
+> tokens and events in a patient's electronic healthcare record. Our approach
+> considers incoming data in the entire context of a patient's hospitalization
+> and so can flag anomalous events that rule-based approaches would consider
+> within a normal range. We demonstrate that the events our model flags are
+> significant for predicting downstream patient outcomes, and that events
+> identified as carrying little information can safely be dropped. Finally, we
+> show how informativeness can help to interpret the predictions of prognostic
+> models trained on FM-derived representations.
+
 ## Requirements & structure
 
 The bash scripts can be run in a [slurm](https://slurm.schedmd.com) environment
@@ -124,35 +134,27 @@ then end with a token for discharge category and a dedicated timeline end token.
 
 ### Information estimation
 
-Consider the set $V^T$ of length-$T$ sequences of tokens drawn from some
+Consider the set $V^T$ of length $T$ sequences of tokens drawn from some
 vocabulary $V$. For a given sequence $x=(x_1,\dotsc, x_T)$ and indices
 $1\leq u \leq v \leq T$, we let $x_{u:v}=(x_u, x_{u+1}, \dotsc, x_v)$ correspond
 to the subsequence and $x_{<u}=x_{1:u-1}$ to the context at $u$ for $u>1$. If $p$
 is a probability distribution on $V^T$, we let
-$p(x_{u:v})=\mathbb{P}_{X\sim p}(X_{u:v}=x_{u:v})$ denote the marginal
-distribution and
-$p(x_{u:v}|x_{y:z})=\mathbb{P}_{X\sim p}(X_{u:v}=x_{u:v}| X_{y:z}=x_{y:z})$
-denote the conditional for indices $u,v,y,z$. We adopt the convention that
+$p(x_{u:v})=P_{X\sim p}(X_{u:v}=x_{u:v})$ denote the marginal distribution and
+$p(x_{u:v}|x_{y:z})=P_{X\sim p}(X_{u:v}=x_{u:v}|X_{y:z}=x_{y:z})$ denote the
+conditional for indices $u,v,y,z$. We adopt the convention that
 $p(x_{u:v} | x_{<1}) = p(x_{u:v})$. In this work, we focus on the context-aware
-information given by:
+information given by
 
-$$
-\boxed{I_{p}(x_t | x_{<t}) = - \log_2 p(x_t | x_{<t})}
-$$
+$I_p(x_t | x_{<t}) = - \log_{2} p(x_t | x_{<t})$
 
-for tokens $x_t$ and by:
+for tokens $x_t$ and by
 
-$$
-\boxed{I_{p}(x_{u:v} | x_{<u}) = - \log_2 p(x_{u:v} | x_{<u})}
-$$
+$I_p(x_{u:v} | x_{<u}) = - \log_{2} p(x_{u:v} | x_{<u})$
 
 for subsequences $x_{u:v}$. As
-$p(x_{u:v} | x_{<t}) = \prod\nolimits_{t=u}^v p(x_t | x_{<t})$, it follows that
-
-$$
-I_{p}(x_{u:v} | x_{<u}) = \textstyle\sum\nolimits_{t=u}^v I_{p}(x_t | x_{<t}).
-$$
-
+$p(x_{u:v}|x_{<t})=\textstyle\prod\nolimits_{t=u}^v p(x_t | x_{<t})$, it follows
+that
+$I_{p}(x_{u:v} | x_{<u}) = \textstyle\sum\nolimits_{t=u}^v I_{p}(x_t | x_{<t})$.
 Thus, the context-aware information for subsequences can be obtained by adding
 over that of the individual tokens. In our case, we focus on subsequences of
 tokens that are added to our timelines contemporaneously. We call these "events."
