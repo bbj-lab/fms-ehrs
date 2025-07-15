@@ -25,7 +25,7 @@ pcts=(10 20 30 40)
 python3 ../fms_ehrs/scripts/transfer_rep_based_preds.py \
     --data_dir_orig "${hm}/clif-data" \
     --data_dir_new "${hm}/clif-data-ucmc" \
-    --data_version "W++_first_24h_${model}_${methods[$i]}_${pct[$j]}pct" \
+    --data_version "W++_first_24h_${model}_${methods[$i]}_${pcts[$j]}pct" \
     --model_loc "${hm}/clif-mdls-archive/${model}" \
     --classifier logistic_regression \
     --drop_icu_adm \

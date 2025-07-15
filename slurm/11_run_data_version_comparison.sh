@@ -11,13 +11,13 @@ source preamble.sh
 model=llama-med-60358922_1-hp-W++
 data_dirs=("${hm}/clif-data" "${hm}/clif-data-ucmc")
 methods=(none top bottom random)
-pct=(10 20 30 40)
+pcts=(10 20 30 40)
 
 for d in "${data_dirs[@]}"; do
     versions=("W++_first_24h_${model}_none_20pct")
     handles=("original")
     for me in "${methods[@]:1}"; do
-        for p in "${pct[@]}"; do
+        for p in "${pcts[@]}"; do
             versions+=("W++_first_24h_${model}_${me}_${p}pct")
             handles+=("${me}_${p}pct")
         done

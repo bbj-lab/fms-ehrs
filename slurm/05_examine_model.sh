@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=examine-mdls
+#SBATCH --job-name=examine-mdl
 #SBATCH --output=./output/%j-%x.stdout
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:1

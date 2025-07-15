@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-look up relevant info for provided hosptialization id's in MIMIC
+look up relevant info for provided hospitalization id's in MIMIC
 """
 
 import argparse
