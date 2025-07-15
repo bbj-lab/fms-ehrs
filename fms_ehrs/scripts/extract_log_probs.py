@@ -112,7 +112,7 @@ for s in args.splits:
         )
         for i, j in enumerate(first_stop_idx):
             if j > 0:
-                log_probs_realized[i, j:] = np.nan
+                log_probs_realized[i, j + 1 :] = np.nan
         log_probs[batch_idx] = log_probs_realized
 
     np.save(
