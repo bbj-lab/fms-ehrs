@@ -8,9 +8,11 @@
 
 source preamble.sh
 
+model=llama-med-60358922_1-hp-W++
+
 python3 ../fms_ehrs/scripts/examine_models.py \
-    --projector_type PACMAP \
+    --projector_type PCA \
     --data_dir "${hm}/clif-data" \
-    --data_version "${data_version:-W++}" \
-    --ref_mdl_loc "${hm}/clif-mdls-archive/llama-med-60358922_1-hp-W++" \
+    --data_version "${model##*-}" \
+    --ref_mdl_loc "${hm}/clif-mdls-archive/${model}" \
     --out_dir "${hm}/figs"

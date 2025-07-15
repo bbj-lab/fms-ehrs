@@ -10,14 +10,11 @@
 
 source preamble.sh
 
-case "${SLURM_ARRAY_TASK_ID}" in
-    0) data_dir="${hm}/clif-data" ;;
-    1) data_dir="${hm}/clif-data-ucmc" ;;
-    *) echo "Invalid SLURM_ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}" ;;
-esac
+model=llama-med-60358922_1-hp-W++
+data_dirs=("${hm}/clif-data" "${hm}/clif-data-ucmc")
 
 python3 ../fms_ehrs/scripts/process_representation_trajectories.py \
-    --data_dir "$data_dir" \
-    --data_version W++ \
-    --model_loc "${hm}/clif-mdls-archive/llama-med-60358922_1-hp-W++" \
+    --data_dir "${data_dirs[$SLURM_ARRAY_TASK_ID]}" \
+    --data_version "${model##*-}" \
+    --model_loc "${hm}/clif-mdls-archive/${model}" \
     --save_jumps True

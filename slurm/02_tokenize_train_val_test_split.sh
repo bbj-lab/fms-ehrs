@@ -8,24 +8,24 @@
 
 source preamble.sh
 
-[ -z "${data_version}" ] && export data_version=W
+[ -z "${data_version}" ] && export data_version=W++
 
 echo "Processing MIMIC data..."
 python3 ../fms_ehrs/scripts/tokenize_train_val_test_split.py \
     --data_dir "${hm}/clif-data/" \
     --data_version_in W \
-    --data_version_out "${data_version:-QC_noX}" \
+    --data_version_out "${data_version}" \
     --max_padded_len 1024 \
     --day_stay_filter True \
     --include_24h_cut True \
     --drop_nulls_nans True
 
-echo "Using vocab from MIMIC to process UChicago data..."
+echo "Using vocab from MIMIC to process UCMC data..."
 python3 ../fms_ehrs/scripts/tokenize_train_val_test_split.py \
     --data_dir "${hm}/clif-data-ucmc" \
     --data_version_in QC \
-    --data_version_out "${data_version:-QC_noX}" \
-    --vocab_path "${hm}/clif-data/${data_version:-QC_noX}-tokenized/train/vocab.gzip" \
+    --data_version_out "${data_version}" \
+    --vocab_path "${hm}/clif-data/${data_version}-tokenized/train/vocab.gzip" \
     --max_padded_len 1024 \
     --day_stay_filter True \
     --include_24h_cut True \
