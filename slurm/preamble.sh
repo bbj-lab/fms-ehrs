@@ -13,6 +13,8 @@ name=$(scontrol show job "$SLURM_JOBID" \
     | cut -d "=" -f2 \
     | xargs -I {} basename {} .sh)
 parent_dir="$(dirname "$(dirname "$(realpath "${BASH_SOURCE[0]}")")")"
+jname=$(scontrol show job "$SLURM_JOBID" \
+    | grep -oP 'JobName=\K\S+')
 export hm name parent_dir
 
 source ~/.bashrc 2> /dev/null

@@ -6,6 +6,7 @@ functions for plotting
 
 import collections
 import pathlib
+import typing
 
 import numpy as np
 from plotly import express as px
@@ -14,7 +15,8 @@ from plotly import io as pio
 from sklearn import calibration as skl_cal
 from sklearn import metrics as skl_mets
 
-from fms_ehrs.framework.util import Dictlike, Pathlike
+Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
+Dictlike: typing.TypeAlias = collections.OrderedDict | dict
 
 pio.kaleido.scope.mathjax = None
 
@@ -267,6 +269,7 @@ def imshow_text(
     title: str = "",
     savepath=None,
     autocolor_text: bool = False,
+    **layout_kwargs,
 ):
     assert values.shape == text.shape
     fig = go.Figure(
@@ -285,15 +288,16 @@ def imshow_text(
     )
 
     fig.update_layout(
-        autosize=False,
+        # autosize=False,
         title=title,
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         yaxis=dict(
             showgrid=False, zeroline=False, showticklabels=False, autorange="reversed"
         ),
-        height=3000,
-        width=1000,
+        # height=3000,
+        # width=1000,
         font_family="CMU Serif, Times New Roman, serif",
+        **layout_kwargs,
     )
 
     if savepath is None:
@@ -326,10 +330,17 @@ if __name__ == "__main__":
 
     plot_histograms({"foo": vals, "bar": vals + 0.2}, xaxis_title="bits")
 
-    n_tot, n_col = 2**10, 2**3
+    n_tot, n_col = 102, 6
     vals = rng.poisson(lam=20, size=n_tot).reshape((-1, n_col))
     text = np.arange(n_tot).astype(str).reshape((-1, n_col))
-    imshow_text(values=vals, text=text)
+    imshow_text(
+        values=vals,
+        text=text,
+        width=1000,
+        height=600,
+        autosize=False,
+        margin=dict(l=0, r=0, t=0, b=0),
+    )
 
     results = pd.DataFrame(
         {
