@@ -7,16 +7,14 @@
 
 source preamble.sh
 
-data_dirs=(
-    "${hm}/clif-data"
-    # "${hm}/clif-data-ucmc"
-)
+model=llama-med-60358922_1-hp-W++
+data_dirs=("${hm}/clif-data" "${hm}/clif-data-ucmc")
 
 for d in "${data_dirs[@]}"; do
     python3 ../fms_ehrs/scripts/process_rep_trajs_inf.py \
         --data_dir "$d" \
-        --data_versions "W++" \
-        --model_loc "${hm}/clif-mdls-archive/llama-med-60358922_1-hp-W++" \
+        --data_versions "${model##*-}" \
+        --model_loc "${hm}/clif-mdls-archive/${model}" \
         --out_dir "${hm}/figs" \
         --make_plots \
         --aggregation "sum" \

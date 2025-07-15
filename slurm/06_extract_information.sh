@@ -9,19 +9,10 @@
 
 source preamble.sh
 
-div=2
-quo=$((SLURM_ARRAY_TASK_ID / div))
-rem=$((SLURM_ARRAY_TASK_ID % div))
-
+model=llama-med-60358922_1-hp-W++
 data_dirs=(
     "${hm}/clif-data"
     "${hm}/clif-data-ucmc"
-)
-models=(
-    #    llama-original-60358922_0-hp-W++
-    llama-med-60358922_1-hp-W++
-    #    llama-small-60358922_2-hp-W++
-    #    llama-smol-60358922_3-hp-W++
 )
 splits=(train val test)
 
@@ -30,8 +21,8 @@ torchrun --nproc_per_node=1 \
     --rdzv-id "$SLURM_ARRAY_TASK_ID" \
     --rdzv-endpoint=localhost:0 \
     ../fms_ehrs/scripts/extract_log_probs.py \
-    --data_dir "${data_dirs[$rem]}" \
-    --data_version "${models[$quo]##*-}" \
-    --model_loc "${hm}/clif-mdls-archive/${models[$quo]}" \
+    --data_dir "${data_dirs[$SLURM_ARRAY_TASK_ID]}" \
+    --data_version "${model##*-}" \
+    --model_loc "${hm}/clif-mdls-archive/${model}" \
     --batch_sz $((2 ** 5)) \
     --splits "${splits[@]}"
