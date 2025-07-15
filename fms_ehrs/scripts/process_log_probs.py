@@ -9,9 +9,6 @@ import collections
 import pathlib
 
 import numpy as np
-
-# import pandas as pd
-# import plotly.express as px
 import polars as pl
 
 from fms_ehrs.framework.logger import get_logger, log_summary
@@ -51,6 +48,7 @@ parser.add_argument(
     "--aggregation", choices=["sum", "max", "perplexity"], default="sum"
 )
 parser.add_argument("--n_egs", type=int, default=10)
+parser.add_argument("--max_len", type=int, default=102)
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -75,15 +73,6 @@ data_dirs["new"] = {
     s: data_dir_new.joinpath(f"{args.data_version}-tokenized", s) for s in splits
 }
 
-# anom = {
-#     v: np.load(
-#         data_dirs[v]["test"].joinpath(
-#             "features-anomaly-score-{m}.npy".format(m=model_loc.stem)
-#         )
-#     )
-#     for v in versions
-# }
-
 vocab = Vocabulary().load(data_dirs["orig"]["train"].joinpath("vocab.gzip"))
 
 infm = {
@@ -95,7 +84,8 @@ infm = {
 }
 
 for v in versions:
-    logger.info(f"{v=},{np.nanmean(infm[v])=}")
+    infm[v][:, 0] = 0  # first token deterministic
+    logger.info(f"{v=},{np.nanmean(infm[v][:,1:])=}")
 
 ent = {v: np.nanmean(infm[v], axis=1) for v in versions}
 inf_sum = {v: np.nansum(infm[v], axis=1) for v in versions}
@@ -145,31 +135,6 @@ ids = {
     for v in versions
 }
 
-# flags = {
-#     v: (
-#         pl.scan_parquet(
-#             data_dirs[v]["test"].joinpath(
-#                 "tokens_timelines_outcomes.parquet",
-#             )
-#         )
-#         .with_columns(
-#             [
-#                 pl.when(pl.col(outcome))
-#                 .then(pl.lit(outcome))
-#                 .otherwise(None)
-#                 .alias(outcome)
-#                 for outcome in outcomes
-#             ]
-#         )
-#         .with_columns(flags=pl.concat_str(outcomes, separator=", ", ignore_nulls=True))
-#         .select("flags")
-#         .collect()
-#         .to_series()
-#         .to_list()
-#     )
-#     for v in versions
-# }
-
 # single-token events
 logger.info("Singletons |".ljust(79, "="))
 plot_histograms(
@@ -185,7 +150,6 @@ for v in versions:
     extract_examples(
         timelines=tl[v],
         criteria=infm[v],
-        flags=flags[v] if "flags" in locals() else None,
         vocab=vocab,
         logger=logger,
         k=args.n_egs,
@@ -193,7 +157,10 @@ for v in versions:
     )
 
 n_cols = 6
-max_len = 1002
+n_rows = args.max_len // n_cols
+max_len = n_rows * n_cols
+height = (700 * n_rows) // 42
+
 for v in versions:
     for s in samp[v]:
         i = np.argmax(s == ids[v])
@@ -217,41 +184,29 @@ for v in versions:
         imshow_text(
             values=np.nan_to_num(infm[v][i])[:max_len].reshape((-1, n_cols)),
             text=tt[:max_len].reshape((-1, n_cols)),
-            title=f"Information by token for patient {s} in {names[v]}",
+            # title=f"Information by token for patient {s} in {names[v]}",
             savepath=out_dir.joinpath(
                 "tokens-{v}-{s}-{m}-hist.pdf".format(v=v, s=s, m=model_loc.stem)
             ),
+            autosize=False,
+            height=height,
+            width=1000,
+            margin=dict(l=0, r=0, t=0, b=0),
         )
         imshow_text(
             values=ev_inf_i[:max_len].reshape((-1, n_cols)),
             text=tt[:max_len].reshape((-1, n_cols)),
-            title=f"Information by event for patient {s} in {names[v]}",
+            # title=f"Information by event for patient {s} in {names[v]}",
             savepath=out_dir.joinpath(
                 "events-{agg}-{v}-{s}-{m}-hist.pdf".format(
                     agg=args.aggregation, v=v, s=s, m=model_loc.stem
                 )
             ),
+            autosize=False,
+            height=height,
+            width=1000,
+            margin=dict(l=0, r=0, t=0, b=0),
         )
-
-
-# for v in versions:
-#     fig = px.scatter(
-#         pd.DataFrame({"anomaly score": anom[v], "information": inf_sum[v]}),
-#         x="information",
-#         y="anomaly score",
-#         trendline="ols",
-#         color_discrete_sequence=["#DE7C00"],
-#     )
-#     fig.data[1].line.color = "#789D4A"
-#     fig.update_layout(
-#         title="Anomaly score vs. sum of information",
-#         template="plotly_white",
-#         font_family="CMU Serif, Times New Roman, serif",
-#     )
-#     fig.update_traces(marker=dict(size=3))
-#     fig.write_image(
-#         out_dir.joinpath("anom-ent-{m}-{v}-hist.pdf".format(m=model_loc.stem, v=v))
-#     )
 
 
 logger.info("---fin")

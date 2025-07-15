@@ -36,7 +36,6 @@ parser.add_argument(
 )
 parser.add_argument("--save_preds", action="store_true")
 parser.add_argument("--drop_icu_adm", action="store_true")
-parser.add_argument("--breakdown_outliers", action="store_true")
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -58,23 +57,11 @@ features = collections.defaultdict(dict)
 qualifiers = collections.defaultdict(lambda: collections.defaultdict(dict))
 labels = collections.defaultdict(lambda: collections.defaultdict(dict))
 
-if args.breakdown_outliers:
-    outliers = collections.defaultdict(dict)
-
 for v in versions:
     for s in splits:
         data_dirs[v][s] = (data_dir_orig if v == "orig" else data_dir_new).joinpath(
             f"{args.data_version}-tokenized", s
         )
-        if args.breakdown_outliers:
-            outliers[v][s] = (
-                np.load(
-                    data_dirs[v][s].joinpath(
-                        "features-outliers-{m}.npy".format(m=model_loc.stem)
-                    )
-                )  # "Returns -1 for outliers and 1 for inliers"
-                == -1
-            )
         features[v][s] = np.load(
             data_dirs[v][s].joinpath("features-{m}.npy".format(m=model_loc.stem))
         )
@@ -169,21 +156,6 @@ for outcome in outcomes:
             "{n} qualifying ({p:.2f}%)".format(n=q_test.sum(), p=100 * q_test.mean())
         )
         log_classification_metrics(y_true=y_true, y_score=y_score, logger=logger)
-
-        if args.breakdown_outliers:
-            out_test = (outliers[v]["test"])[q_test]
-            logger.info("on outliers".upper().ljust(49, "-"))
-            log_classification_metrics(
-                y_true=y_true[out_test],
-                y_score=y_score[out_test],
-                logger=logger,
-            )
-            logger.info("on inliers".upper().ljust(49, "-"))
-            log_classification_metrics(
-                y_true=y_true[~out_test],
-                y_score=y_score[~out_test],
-                logger=logger,
-            )
 
 if args.save_preds:
     for v in versions:
