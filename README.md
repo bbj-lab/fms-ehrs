@@ -19,10 +19,9 @@ GPU-based work.) Each bash script calls one or more python scripts that depend o
 an environment as described in the `requirements.txt` file:
 
 ```sh
-python3 -m venv venv
-source venv/bin/activate
-pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
-pip3 install -e .
+uv venv venv
+. venv/bin/activate
+uv pip install --torch-backend=cu128 -e .
 ```
 
 For plots to render correctly, you may need to install a working version of tex
@@ -200,6 +199,16 @@ the manuscript.
 
     to keep logs.
 
+-   You can use [apptainer](https://apptainer.org/docs/user/1.0/index.html) to build the following image:
+    ```
+    apptainer build venv.sif venv.def
+    ```
+    and then make these definitions in your [preamble.sh](./slurm/preamble.sh) file:
+    ```
+    python3() { apptainer exec --nv ../venv.sif python3 "$@" ; }
+    torchrun() { apptainer exec --nv ../venv.sif torchrun "$@" ; }
+    ```
+
 <!--
 
 Format:
@@ -236,6 +245,7 @@ Troubleshoot:
 ```
 systemd-run --scope --user tmux new -s gpuq
 srun -p gpuq \
+  --reservation=gpudev \
   --gres=gpu:1 \
   --time=8:00:00 \
   --job-name=adhoc \

@@ -23,6 +23,7 @@ for d in "${data_dirs[@]}"; do
         done
     done
 
+    echo "Comparing performance across data versions..."
     python3 ../fms_ehrs/scripts/aggregate_version_preds.py \
         --data_dir "$d" \
         --data_versions "${versions[@]}" \

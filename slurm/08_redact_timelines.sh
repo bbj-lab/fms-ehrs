@@ -24,6 +24,7 @@ methods=(none top bottom random)
 pcts=(10 20 30 40)
 fracs=(0.1 0.2 0.3 0.4)
 
+echo "Redacting timelines..."
 python3 ../fms_ehrs/scripts/redact_timelines.py \
     --data_dir "${data_dirs[$i]}" \
     --data_version "W++_first_24h" \

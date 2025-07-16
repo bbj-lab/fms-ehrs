@@ -22,6 +22,7 @@ model=llama-med-60358922_1-hp-W++
 methods=(none top bottom random)
 pcts=(10 20 30 40)
 
+echo "Generating representation-based predictions..."
 python3 ../fms_ehrs/scripts/transfer_rep_based_preds.py \
     --data_dir_orig "${hm}/clif-data" \
     --data_dir_new "${hm}/clif-data-ucmc" \

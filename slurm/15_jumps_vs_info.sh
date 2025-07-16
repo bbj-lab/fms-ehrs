@@ -11,6 +11,7 @@ model=llama-med-60358922_1-hp-W++
 data_dirs=("${hm}/clif-data" "${hm}/clif-data-ucmc")
 
 for d in "${data_dirs[@]}"; do
+    echo "Generating plots..."
     python3 ../fms_ehrs/scripts/process_rep_trajs_inf.py \
         --data_dir "$d" \
         --data_versions "${model##*-}" \

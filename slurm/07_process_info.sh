@@ -31,6 +31,7 @@ samp_new=(
     "20528107"
 )
 
+echo "Processing timelines..."
 python3 ../fms_ehrs/scripts/process_log_probs.py \
     --data_dir_orig "${hm}/clif-data" \
     --data_dir_new "${hm}/clif-data-ucmc" \
