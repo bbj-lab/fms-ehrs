@@ -13,6 +13,7 @@ model=llama-med-60358922_1-hp-W++
 data_dirs=("${hm}/clif-data" "${hm}/clif-data-ucmc")
 splits=(train val test)
 
+echo "Extracting tokenwise context-aware information..."
 torchrun --nproc_per_node=1 \
     --rdzv_backend c10d \
     --rdzv-id "$SLURM_ARRAY_TASK_ID" \

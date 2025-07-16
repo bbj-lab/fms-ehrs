@@ -10,6 +10,7 @@ source preamble.sh
 
 model=llama-med-60358922_1-hp-W++
 
+echo "Examining learned embeddings..."
 python3 ../fms_ehrs/scripts/examine_models.py \
     --projector_type PCA \
     --data_dir "${hm}/clif-data" \

@@ -19,6 +19,7 @@ samp=(
     "26886976"
 )
 
+echo "Pulling info on MIMIC hospitalizations..."
 python3 ../fms_ehrs/scripts/query_raw_mimic.py \
     --data_dir "${hm}/mimiciv-3.1" \
     --hadm_ids "${samp[@]}"

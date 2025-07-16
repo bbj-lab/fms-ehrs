@@ -24,6 +24,7 @@ data_dirs=("${hm}/clif-data" "${hm}/clif-data-ucmc")
 methods=(none top bottom random)
 pcts=(10 20 30 40)
 
+echo "Extracting representations..."
 torchrun --nproc_per_node=2 \
     --rdzv_backend c10d \
     --rdzv-id "$SLURM_ARRAY_TASK_ID" \

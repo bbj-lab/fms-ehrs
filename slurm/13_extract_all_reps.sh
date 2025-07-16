@@ -12,6 +12,7 @@ source preamble.sh
 model=llama-med-60358922_1-hp-W++
 data_dirs=("${hm}/clif-data" "${hm}/clif-data-ucmc")
 
+echo "Extracting full trajectories of representations..."
 torchrun --nproc_per_node=2 \
     --rdzv_backend c10d \
     --rdzv-id "$SLURM_ARRAY_TASK_ID" \

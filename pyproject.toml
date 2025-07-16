@@ -1,7 +1,7 @@
 [project]
 name = "fms-ehrs"
 readme = {file = "README.md", content-type = "text/markdown"}
-license = {file = "LICENSE.md"}
+license-files = ["LICENSE.md"]
 dependencies = [
   "black>=24.10",
   "datasets>=3.2",
@@ -34,7 +34,6 @@ dependencies = [
 classifiers = [
   "Development Status :: 2 - Pre-Alpha",
   "Intended Audience :: Science/Research",
-  "License :: OSI Approved :: MIT License",
   "Natural Language :: English",
   "Programming Language :: Python :: 3",
   "Topic :: Scientific/Engineering :: Artificial Intelligence"
@@ -59,3 +58,6 @@ target-version = [
 
 [tool.isort]
 profile = "black"
+
+[tool.uv]
+no-cache = true

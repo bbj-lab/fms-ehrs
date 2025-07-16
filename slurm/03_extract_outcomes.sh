@@ -11,6 +11,7 @@ source preamble.sh
 
 data_dirs=("${hm}/clif-data" "${hm}/clif-data-ucmc")
 
+echo "Extracting outcomes..."
 python3 ../fms_ehrs/scripts/extract_outcomes.py \
     --data_dir "${data_dirs[$SLURM_ARRAY_TASK_ID]}" \
     --ref_version W++ \
