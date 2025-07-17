@@ -11,11 +11,11 @@
 source preamble.sh
 
 model=llama-med-60358922_1-hp-W++
-data_dirs=("${hm}/clif-data" "${hm}/clif-data-ucmc")
+data_dirs=("${hm}/data-mimic" "${hm}/data-ucmc")
 
 echo "Processing representation trajectories..."
 python3 ../fms_ehrs/scripts/process_representation_trajectories.py \
     --data_dir "${data_dirs[$SLURM_ARRAY_TASK_ID]}" \
     --data_version "${model##*-}" \
-    --model_loc "${hm}/clif-mdls-archive/${model}" \
+    --model_loc "${hm}/mdls-archive/${model}" \
     --save_jumps True

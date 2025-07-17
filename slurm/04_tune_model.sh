@@ -15,9 +15,9 @@ torchrun --nproc_per_node=8 \
     ../fms_ehrs/scripts/tune_model.py \
     --n_epochs 10 \
     --n_trials 3 \
-    --data_dir "${hm}/clif-data" \
+    --data_dir "${hm}/data-mimic" \
     --data_version "${data_version}" \
-    --model_dir "${hm}/clif-mdls" \
+    --model_dir "${hm}/mdls" \
     --model_version "llama-med" \
     --model_name "meta-llama/Llama-3.2-1B" \
     --wandb_project "${data_version}" \
@@ -27,4 +27,4 @@ torchrun --nproc_per_node=8 \
     --num_attention_heads 8
 
 # this leaves tuned models at ${model_dir}/${model_version}-%j-hp-${data_version}
-# typically we copy the ones we like to ${hm}/clif-mdls-archive
+# typically we copy the ones we like to ${hm}/mdls-archive

@@ -9,7 +9,7 @@
 source preamble.sh
 
 model=llama-med-60358922_1-hp-W++
-data_dirs=("${hm}/clif-data" "${hm}/clif-data-ucmc")
+data_dirs=("${hm}/data-mimic" "${hm}/data-ucmc")
 methods=(none top bottom random)
 pcts=(10 20 30 40)
 
@@ -29,7 +29,7 @@ for d in "${data_dirs[@]}"; do
         --data_versions "${versions[@]}" \
         --handles "${handles[@]}" \
         --baseline_handle none \
-        --model_loc "${hm}/clif-mdls-archive/${model}" \
+        --model_loc "${hm}/mdls-archive/${model}" \
         --out_dir "${hm}/figs"
 
 done

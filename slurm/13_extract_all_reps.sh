@@ -10,7 +10,7 @@
 source preamble.sh
 
 model=llama-med-60358922_1-hp-W++
-data_dirs=("${hm}/clif-data" "${hm}/clif-data-ucmc")
+data_dirs=("${hm}/data-mimic" "${hm}/data-ucmc")
 
 echo "Extracting full trajectories of representations..."
 torchrun --nproc_per_node=2 \
@@ -20,7 +20,7 @@ torchrun --nproc_per_node=2 \
     ../fms_ehrs/scripts/extract_all_hidden_states.py \
     --data_dir "${data_dirs[$SLURM_ARRAY_TASK_ID]}" \
     --data_version "${model##*-}" \
-    --model_loc "${hm}/clif-mdls-archive/${model}" \
+    --model_loc "${hm}/mdls-archive/${model}" \
     --small_batch_sz $((2 ** 4)) \
     --big_batch_sz $((2 ** 12)) \
     --test_only True

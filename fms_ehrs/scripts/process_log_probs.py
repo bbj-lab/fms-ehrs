@@ -21,15 +21,15 @@ logger.info("running {}".format(__file__))
 logger.log_env()
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--data_dir_orig", type=pathlib.Path, default="../../clif-data")
+parser.add_argument("--data_dir_orig", type=pathlib.Path, default="../../data-mimic")
 parser.add_argument("--name_orig", type=str, default="MIMIC")
-parser.add_argument("--data_dir_new", type=pathlib.Path, default="../../clif-data-ucmc")
+parser.add_argument("--data_dir_new", type=pathlib.Path, default="../../data-ucmc")
 parser.add_argument("--name_new", type=str, default="UCMC")
 parser.add_argument("--data_version", type=str, default="W++")
 parser.add_argument(
     "--model_loc",
     type=pathlib.Path,
-    default="../../clif-mdls-archive/llama-med-60358922_1-hp-W++",
+    default="../../mdls-archive/llama-med-60358922_1-hp-W++",
 )
 parser.add_argument("--out_dir", type=pathlib.Path, default="../../figs")
 parser.add_argument(

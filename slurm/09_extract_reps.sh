@@ -20,7 +20,7 @@ if ((SLURM_ARRAY_TASK_COUNT != ni * nj * nk)); then
 fi
 
 model=llama-med-60358922_1-hp-W++
-data_dirs=("${hm}/clif-data" "${hm}/clif-data-ucmc")
+data_dirs=("${hm}/data-mimic" "${hm}/data-ucmc")
 methods=(none top bottom random)
 pcts=(10 20 30 40)
 
@@ -32,5 +32,5 @@ torchrun --nproc_per_node=2 \
     ../fms_ehrs/scripts/extract_hidden_states.py \
     --data_dir "${data_dirs[$i]}" \
     --data_version "W++_first_24h_${model}_${methods[$j]}_${pcts[$k]}pct" \
-    --model_loc "${hm}/clif-mdls-archive/${model}" \
+    --model_loc "${hm}/mdls-archive/${model}" \
     --batch_sz "$((2 ** 5))"

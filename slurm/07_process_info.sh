@@ -33,10 +33,10 @@ samp_new=(
 
 echo "Processing timelines..."
 python3 ../fms_ehrs/scripts/process_log_probs.py \
-    --data_dir_orig "${hm}/clif-data" \
-    --data_dir_new "${hm}/clif-data-ucmc" \
+    --data_dir_orig "${hm}/data-mimic" \
+    --data_dir_new "${hm}/data-ucmc" \
     --data_version "${model##*-}" \
-    --model_loc "${hm}/clif-mdls-archive/${model}" \
+    --model_loc "${hm}/mdls-archive/${model}" \
     --out_dir "${hm}/figs" \
     --aggregation sum \
     --samp_orig "${samp_orig[@]}" \

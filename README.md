@@ -27,12 +27,6 @@ uv pip install --torch-backend=cu128 -e .
 For plots to render correctly, you may need to install a working version of tex
 on your system.
 
-Alternatively, after installing torch, you can install directly from github:
-
-```sh
-pip install -e "git+https://github.com/bbj-lab/clif-tokenizer.git@main#egg=fms-ehrs"
-```
-
 The code is structured logically as follows, where the numerical prefixes
 correspond to the prefixes in the slurm files (located in the `slurm` folder):
 
@@ -144,16 +138,16 @@ conditional for indices $u,v,y,z$. We adopt the convention that
 $p(x_{u:v} | x_{<1}) = p(x_{u:v})$. In this work, we focus on the context-aware
 information given by
 
-$I_p(x_t | x_{<t}) = - \log_{2} p(x_t | x_{<t})$
+$\boxed{I_p(x_t | x_{<t}) = - \log_{2} p(x_t | x_{<t})}$
 
 for tokens $x_t$ and by
 
-$I_p(x_{u:v} | x_{<u}) = - \log_{2} p(x_{u:v} | x_{<u})$
+$\boxed{I_p(x_{u:v} | x_{<u}) = - \log_{2} p(x_{u:v} | x_{<u})}$
 
 for subsequences $x_{u:v}$. As
-$p(x_{u:v}|x_{<t})=\textstyle\prod\nolimits_{t=u}^v p(x_t | x_{<t})$, it follows
+$p(x_{u:v} | x_{<t})=\textstyle\prod\nolimits_{t=u}^v p(x_t | x_{<t})$, it follows
 that
-$I_{p}(x_{u:v} | x_{<u}) = \textstyle\sum\nolimits_{t=u}^v I_{p}(x_t | x_{<t})$.
+$I_{p}(x_{u:v} | x_{<u})=\textstyle\sum\nolimits_{t=u}^v I_{p}(x_t | x_{<t})$.
 Thus, the context-aware information for subsequences can be obtained by adding
 over that of the individual tokens. In our case, we focus on subsequences of
 tokens that are added to our timelines contemporaneously. We call these "events."
@@ -181,6 +175,46 @@ the manuscript.
 
 ## Usage notes
 
+-   Many of the slurm scripts assume a folder structure as follows, where `tree ${hm}` looks something like this:
+
+    ```sh
+    .
+    ├── data-mimic # MIMIC datasets
+    │   ├── raw
+    │   │   ├── test
+    │   │   │   ├── clif_adt.parquet
+    │   │   │   ├── ...
+    │   │   │   └── clif_vitals.parquet
+    │   │   ├── train
+    │   │   │   ├── clif_adt.parquet
+    │   │   │   ├── ...
+    │   │   │   └── clif_vitals.parquet
+    │   │   └── val
+    │   │       ├── clif_adt.parquet
+    │   │       ├── ...
+    │   │       └── clif_vitals.parquet
+    │   ├── ...
+    │   └── W++_first_24h-tokenized
+    │       ├── test
+    │       │   └── tokens_timelines.parquet
+    │       ├── train
+    │       │   ├── tokens_timelines.parquet
+    │       │   └── vocab.gzip
+    │       └── val
+    │           └── tokens_timelines.parquet
+    ├── data-ucmc  # UCMC datasets
+    ├── mdls  # to hold all models generated
+    ├── mdls-archive  # models for long-term storage
+    │   └── llama-med-60358922_1-hp-W++
+    │       ├── config.json
+    │       ├── generation_config.json
+    │       └── model.safetensors
+    ├── fms-ehrs-info  # THIS REPO
+    └── figs  # for generated figures
+    ```
+
+    Tokenized datasets are deposited into the `data-mimic` or `data-ucmc` folder, depending on data provenance. Trained models are stored in `mdls`. Many models are generated and these take up significant amounts of space. Models to be kept are copied into `mdls-archive`. Generated figures are placed in the `figs` folder.
+
 -   Slurm jobs can be queued in sequence as follows:
 
     ```sh
@@ -198,16 +232,6 @@ the manuscript.
     ```
 
     to keep logs.
-
--   You can use [apptainer](https://apptainer.org/docs/user/1.0/index.html) to build the following image:
-    ```
-    apptainer build venv.sif venv.def
-    ```
-    and then make these definitions in your [preamble.sh](./slurm/preamble.sh) file:
-    ```
-    python3() { apptainer exec --nv ../venv.sif python3 "$@" ; }
-    torchrun() { apptainer exec --nv ../venv.sif torchrun "$@" ; }
-    ```
 
 <!--
 
@@ -276,6 +300,12 @@ unzip cm-unicode.zip
 find . -type f \( -iname "*.ttf" -o -iname "*.otf" \) -exec mv {} ~/.local/share/fonts/CMU/ \;
 fc-cache -f -v
 fc-list | grep -i cmu
+```
+
+Install directly from github:
+
+```sh
+pip install -e "git+https://github.com/bbj-lab/clif-tokenizer.git@main#egg=fms-ehrs"
 ```
 
 -->

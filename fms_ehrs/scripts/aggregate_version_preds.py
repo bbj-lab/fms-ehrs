@@ -26,7 +26,7 @@ logger.info("running {}".format(__file__))
 logger.log_env()
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--data_dir", type=pathlib.Path, default="../../clif-data")
+parser.add_argument("--data_dir", type=pathlib.Path, default="../../data-mimic")
 parser.add_argument(
     "--data_versions",
     type=str,
@@ -59,7 +59,7 @@ parser.add_argument(
 parser.add_argument(
     "--model_loc",
     type=pathlib.Path,
-    default="../../clif-mdls-archive/llama-med-60358922_1-hp-W++",
+    default="../../mdls-archive/llama-med-60358922_1-hp-W++",
 )
 parser.add_argument("--suffix", type=str, default="")
 parser.add_argument(

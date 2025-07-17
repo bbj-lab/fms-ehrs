@@ -10,7 +10,7 @@
 source preamble.sh
 
 model=llama-med-60358922_1-hp-W++
-data_dirs=("${hm}/clif-data" "${hm}/clif-data-ucmc")
+data_dirs=("${hm}/data-mimic" "${hm}/data-ucmc")
 splits=(train val test)
 
 echo "Extracting tokenwise context-aware information..."
@@ -21,6 +21,6 @@ torchrun --nproc_per_node=1 \
     ../fms_ehrs/scripts/extract_log_probs.py \
     --data_dir "${data_dirs[$SLURM_ARRAY_TASK_ID]}" \
     --data_version "${model##*-}" \
-    --model_loc "${hm}/clif-mdls-archive/${model}" \
+    --model_loc "${hm}/mdls-archive/${model}" \
     --batch_sz $((2 ** 5)) \
     --splits "${splits[@]}"
