@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-load models and plot embeddings
+load models and illustrate embeddings
 """
 
 import os

@@ -9,7 +9,7 @@
 
 source preamble.sh
 
-data_dirs=("${hm}/clif-data" "${hm}/clif-data-ucmc")
+data_dirs=("${hm}/data-mimic" "${hm}/data-ucmc")
 
 echo "Extracting outcomes..."
 python3 ../fms_ehrs/scripts/extract_outcomes.py \

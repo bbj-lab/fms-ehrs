@@ -19,7 +19,7 @@ if ((SLURM_ARRAY_TASK_COUNT != ni * nj * nk)); then
 fi
 
 model=llama-med-60358922_1-hp-W++
-data_dirs=("${hm}/clif-data" "${hm}/clif-data-ucmc")
+data_dirs=("${hm}/data-mimic" "${hm}/data-ucmc")
 methods=(none top bottom random)
 pcts=(10 20 30 40)
 fracs=(0.1 0.2 0.3 0.4)
@@ -28,7 +28,7 @@ echo "Redacting timelines..."
 python3 ../fms_ehrs/scripts/redact_timelines.py \
     --data_dir "${data_dirs[$i]}" \
     --data_version "W++_first_24h" \
-    --model_loc "${hm}/clif-mdls-archive/${model}" \
+    --model_loc "${hm}/mdls-archive/${model}" \
     --pct "${fracs[$k]}" \
     --method "${methods[$j]}" \
     --new_version "W++_first_24h_${model}_${methods[$j]}_${pcts[$k]}pct" \
