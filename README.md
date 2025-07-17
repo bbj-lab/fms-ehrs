@@ -19,10 +19,9 @@ GPU-based work.) Each bash script calls one or more python scripts that depend o
 an environment as described in the `requirements.txt` file:
 
 ```sh
-python3 -m venv venv
-source venv/bin/activate
-pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
-pip3 install -e .
+uv venv venv
+. venv/bin/activate
+uv pip install --torch-backend=cu128 -e .
 ```
 
 For plots to render correctly, you may need to install a working version of tex
@@ -34,6 +33,59 @@ Alternatively, after installing torch, you can install directly from github:
 pip install -e "git+https://github.com/bbj-lab/clif-tokenizer.git@main#egg=fms-ehrs"
 ```
 
+<<<<<<< HEAD
+=======
+The code is structured logically as follows, where the numerical prefixes
+correspond to the prefixes in the slurm files (located in the `slurm` folder):
+
+```mermaid
+---
+config:
+  theme: neutral
+  look: handDrawn
+  layout: elk
+  themeCSS: "* { overflow: visible; }"
+---
+flowchart TD
+ subgraph s1["Data processing"]
+        N1["01_create_train_val_test_split"]
+        N2["02_tokenize_train_val_test_split"]
+        N3["03_extract_outcomes"]
+        N16["16_aggregate_summary_stats"]
+  end
+ subgraph s2["Information estimation"]
+        N4["04_tune_model"]
+        N5["05_examine_model"]
+        N6["06_extract_information"]
+        N7["07_process_info"]
+  end
+ subgraph s3["Redaction experiment"]
+        N8["08_redact_timelines"]
+        N9["09_extract_reps"]
+        N10["10_transfer_rep_based_preds"]
+        N11["11_run_data_version_comparison"]
+        N12["12_run_stats"]
+  end
+ subgraph s4["Reps vs info"]
+        N13["13_extract_all_reps"]
+        N14["14_process_rep_trajectories"]
+        N15["15_jumps_vs_info"]
+  end
+    N1 --> N2
+    N2 --> N3 & N4
+    N3 --> N16 & N10
+    N4 --> N5 & N6 & N8 & N13
+    N6 --> N7 & N15
+    N7 --> N8
+    N8 --> N9
+    N4 --> N9 --> N10
+    N10 --> N11
+    N11 --> N12
+    N13 --> N14
+    N14 --> N15
+```
+
+>>>>>>> psb-release
 ## What the code does
 
 ### Data processing (and tokenization)
@@ -150,6 +202,16 @@ the manuscript.
 
     to keep logs.
 
+-   You can use [apptainer](https://apptainer.org/docs/user/1.0/index.html) to build the following image:
+    ```
+    apptainer build venv.sif venv.def
+    ```
+    and then make these definitions in your [preamble.sh](./slurm/preamble.sh) file:
+    ```
+    python3() { apptainer exec --nv ../venv.sif python3 "$@" ; }
+    torchrun() { apptainer exec --nv ../venv.sif torchrun "$@" ; }
+    ```
+
 <!--
 
 Format:
@@ -186,6 +248,7 @@ Troubleshoot:
 ```
 systemd-run --scope --user tmux new -s gpuq
 srun -p gpuq \
+  --reservation=gpudev \
   --gres=gpu:1 \
   --time=8:00:00 \
   --job-name=adhoc \
