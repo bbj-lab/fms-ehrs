@@ -16,7 +16,9 @@ The bash scripts can be run in a [slurm](https://slurm.schedmd.com) environment
 with the specified resource requirements. (We used compute nodes with 8×A100
 40GB-PCIe GPUs, connected with 2×16-core 3.0-GHz AMD Milan processors for
 GPU-based work.) Each bash script calls one or more python scripts that depend on
-an environment as described in the `requirements.txt` file:
+an environment as described in the `requirements.txt` file. You can set up an
+environment with [pytorch](https://pytorch.org/get-started/locally/) configured
+for CUDA 12.8 with [uv](https://docs.astral.sh/uv/pip/) with:
 
 ```sh
 uv venv venv
@@ -24,11 +26,10 @@ uv venv venv
 uv pip install --torch-backend=cu128 -e .
 ```
 
-For plots to render correctly, you may need to install a working version of tex
-on your system.
-
-The code is structured logically as follows, where the numerical prefixes
-correspond to the prefixes in the slurm files (located in the `slurm` folder):
+For plots to render correctly, you may need to install a working version of
+[tex](https://www.tug.org/texlive/) on your system. The code is structured
+logically as follows, where the numerical prefixes correspond to the prefixes in
+the slurm files (located in the `slurm` folder):
 
 ```mermaid
 ---
@@ -40,10 +41,10 @@ config:
 ---
 flowchart TD
  subgraph s1["Data processing"]
-        N1["01_create_train_val_test_split"]
-        N2["02_tokenize_train_val_test_split"]
+        N1["01_create_data_splits"]
+        N2["02_tokenize_data_splits"]
         N3["03_extract_outcomes"]
-        N16["16_aggregate_summary_stats"]
+        N16["16_aggregate_stats"]
   end
  subgraph s2["Information estimation"]
         N4["04_tune_model"]
@@ -54,13 +55,13 @@ flowchart TD
  subgraph s3["Redaction experiment"]
         N8["08_redact_timelines"]
         N9["09_extract_reps"]
-        N10["10_transfer_rep_based_preds"]
-        N11["11_run_data_version_comparison"]
+        N10["10_xfer_rep_based_preds"]
+        N11["11_version_comparison"]
         N12["12_run_stats"]
   end
  subgraph s4["Reps vs info"]
         N13["13_extract_all_reps"]
-        N14["14_process_rep_trajectories"]
+        N14["14_process_trajectories"]
         N15["15_jumps_vs_info"]
   end
     N1 --> N2
@@ -145,8 +146,8 @@ for tokens $x_t$ and by
 $\boxed{I_p(x_{u:v} | x_{<u}) = - \log_{2} p(x_{u:v} | x_{<u})}$
 
 for subsequences $x_{u:v}$. As
-$p(x_{u:v} | x_{<t})=\textstyle\prod\nolimits_{t=u}^v p(x_t | x_{<t})$, it follows
-that
+$p(x_{u:v} | x_{<t})=\textstyle\prod\nolimits_{t=u}^v p(x_t | x_{<t})$, it
+follows that
 $I_{p}(x_{u:v} | x_{<u})=\textstyle\sum\nolimits_{t=u}^v I_{p}(x_t | x_{<t})$.
 Thus, the context-aware information for subsequences can be obtained by adding
 over that of the individual tokens. In our case, we focus on subsequences of
@@ -175,7 +176,19 @@ the manuscript.
 
 ## Usage notes
 
--   Many of the slurm scripts assume a folder structure as follows, where `tree ${hm}` looks something like this:
+-   Credentialed users may obtain the
+    [MIMIC-IV-3.1 dataset](https://physionet.org/content/mimiciv/3.1/) from
+    Physionet. [This repo](https://github.com/bbj-lab/CLIF-MIMIC) contains
+    instructions and code for converting it to the
+    [CLIF-2.0.0 format](https://web.archive.org/web/20250711203935/https://clif-consortium.github.io/website/data-dictionary/data-dictionary-2.0.0.html).
+    (Use the [v0.1.0](https://github.com/bbj-lab/CLIF-MIMIC/releases/tag/v0.1.0)
+    release.) The `rclif-2.0` folder location is then passed as `--data_dir_in`
+    to the [first slurm script](./slurm/01_create_train_val_test_split.sh).
+
+-   Many of the slurm scripts assume a folder structure as follows, where
+    `tree ${hm}` (_cf_
+    [tree](https://manpages.ubuntu.com/manpages/noble/man1/tree.1.html)) looks
+    something like this:
 
     ```sh
     .
@@ -203,17 +216,24 @@ the manuscript.
     │       └── val
     │           └── tokens_timelines.parquet
     ├── data-ucmc  # UCMC datasets
+    │   └── ...
     ├── mdls  # to hold all models generated
+    │   └── ...
     ├── mdls-archive  # models for long-term storage
     │   └── llama-med-60358922_1-hp-W++
     │       ├── config.json
     │       ├── generation_config.json
     │       └── model.safetensors
     ├── fms-ehrs-info  # THIS REPO
+    │   └── ...
     └── figs  # for generated figures
     ```
 
-    Tokenized datasets are deposited into the `data-mimic` or `data-ucmc` folder, depending on data provenance. Trained models are stored in `mdls`. Many models are generated and these take up significant amounts of space. Models to be kept are copied into `mdls-archive`. Generated figures are placed in the `figs` folder.
+    Tokenized datasets are deposited into the `data-mimic` or `data-ucmc` folder,
+    depending on data provenance. Trained models are stored in `mdls`. Many
+    models are generated and these take up significant amounts of space. Models
+    to be kept are copied into `mdls-archive`. Generated figures are placed in
+    the `figs` folder.
 
 -   Slurm jobs can be queued in sequence as follows:
 
@@ -224,8 +244,8 @@ the manuscript.
     ...
     ```
 
--   If you find yourself manually running python scripts from an interactive slurm
-    job afer running `preamble.sh`, you can append:
+-   If you find yourself manually running python scripts from an interactive
+    slurm job afer running `preamble.sh`, you can append:
 
     ```sh
     2>&1 | tee -a output/$SLURM_JOBID-$jname.stdout
