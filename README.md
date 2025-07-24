@@ -18,7 +18,7 @@ with the specified resource requirements. (We used compute nodes with 8×A100
 GPU-based work.) Each bash script calls one or more python scripts that depend on
 an environment as described in the `requirements.txt` file. You can set up an
 environment with [pytorch](https://pytorch.org/get-started/locally/) configured
-for CUDA 12.8 with [uv](https://docs.astral.sh/uv/pip/) with:
+for CUDA 12.8 with [uv](https://docs.astral.sh/uv/pip/) as follows:
 
 ```sh
 uv venv venv
@@ -29,7 +29,7 @@ uv pip install --torch-backend=cu128 -e .
 For plots to render correctly, you may need to install a working version of
 [tex](https://www.tug.org/texlive/) on your system. The code is structured
 logically as follows, where the numerical prefixes correspond to the prefixes in
-the slurm files (located in the `slurm` folder):
+the slurm files (located in the [slurm folder](./slurm)):
 
 ```mermaid
 ---
@@ -45,6 +45,7 @@ flowchart TD
         N2["02_tokenize_data_splits"]
         N3["03_extract_outcomes"]
         N16["16_aggregate_stats"]
+        N17["17_pull_mimic_info"]
   end
  subgraph s2["Information estimation"]
         N4["04_tune_model"]
@@ -76,6 +77,7 @@ flowchart TD
     N11 --> N12
     N13 --> N14
     N14 --> N15
+    N16 --> N17
 ```
 
 ## What the code does
@@ -114,7 +116,7 @@ deciled lab value in the training data within that category. We call this
 strategy, of tokenizing categories and binning their corresponding values
 according to the training value of the deciles, category-value tokenization:
 
-![Cat Val Tokenization](./img/schematic.svg)
+![Category-value tokenization](./img/schematic.svg)
 
 A handful of other tables receive this type of tokenization: vitals and results
 according to vital category, medication and dosage by medication category,
@@ -308,7 +310,7 @@ rsync -avht \
 
 Save environment:
 ```
-pip list --format=freeze > requirements.txt
+uv pip compile --torch-backend=cu128 pyproject.toml -o requirements.txt
 ```
 
 Get fonts on randi:

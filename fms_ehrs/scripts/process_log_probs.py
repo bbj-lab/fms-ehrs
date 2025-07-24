@@ -189,6 +189,8 @@ for v in versions:
                 "tokens-{v}-{s}-{m}-hist.pdf".format(v=v, s=s, m=model_loc.stem)
             ),
             autosize=False,
+            zmin=0,
+            zmax=30,
             height=height,
             width=1000,
             margin=dict(l=0, r=0, t=0, b=0),
