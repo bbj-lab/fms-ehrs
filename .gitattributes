@@ -1,0 +1,14 @@
+
+# idiosyncratic
+*/requirements.txt linguist-generated=true
+
+* text=auto eol=lf
+
+# Bash
+*.sh text eol=lf
+
+# Documents
+*.md text diff=markdown
+
+# Python
+*.py text diff=python
