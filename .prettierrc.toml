@@ -1,2 +1,2 @@
 printWidth = 81
-proseWrap = "always"
+proseWrap  = "always"

@@ -29,7 +29,10 @@ def main(
     data_dir: os.PathLike = None,
     data_version: str = "day_stays_first_24h",
     outcome: typing.Literal[
-        "same_admission_death", "long_length_of_stay", "icu_admission", "imv_event"
+        "same_admission_death",
+        "long_length_of_stay",
+        "icu_admission",
+        "imv_event",
     ] = "same_admission_death",
 ):
 
@@ -40,7 +43,9 @@ def main(
 
     # load and prep data
     splits = ("train", "val", "test")
-    data_dirs = {s: data_dir.joinpath(f"{data_version}-tokenized", s) for s in splits}
+    data_dirs = {
+        s: data_dir.joinpath(f"{data_version}-tokenized", s) for s in splits
+    }
 
     vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
 
@@ -48,7 +53,9 @@ def main(
         ds.load_dataset(
             "parquet",
             data_files={
-                s: str(data_dirs[s].joinpath("tokens_timelines_outcomes.parquet"))
+                s: str(
+                    data_dirs[s].joinpath("tokens_timelines_outcomes.parquet")
+                )
                 for s in ("test",)
             },
         )
