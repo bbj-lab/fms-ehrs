@@ -1,4 +1,4 @@
-# Detecting highly informative events in electronic health records with foundation models
+# Quantifying surprise in clinical care: Detecting highly informative events in electronic health records with foundation models
 
 > We present a foundation model-derived method to identify highly informative
 > tokens and events in a patient's electronic healthcare record. Our approach
@@ -21,9 +21,9 @@ environment with [pytorch](https://pytorch.org/get-started/locally/) configured
 for CUDA 12.8 with [uv](https://docs.astral.sh/uv/pip/) as follows:
 
 ```sh
-uv venv venv
+uv venv --python=$(which python3) venv
 . venv/bin/activate
-uv pip install --torch-backend=cu128 -e .
+uv pip install --torch-backend=cu128 --link-mode=copy -e .
 ```
 
 For plots to render correctly, you may need to install a working version of
@@ -262,7 +262,7 @@ Format:
 isort fms_ehrs/
 black fms_ehrs/
 shfmt -w slurm/
-prettier --write --print-width 81 --prose-wrap always *.md
+prettier --write *.md
 ```
 
 Send to randi:
