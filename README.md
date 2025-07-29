@@ -1,14 +1,14 @@
 # Quantifying surprise in clinical care: Detecting highly informative events in electronic health records with foundation models
 
 > We present a foundation model-derived method to identify highly informative
-> tokens and events in a patient's electronic healthcare record. Our approach
-> considers incoming data in the entire context of a patient's hospitalization
-> and so can flag anomalous events that rule-based approaches would consider
-> within a normal range. We demonstrate that the events our model flags are
-> significant for predicting downstream patient outcomes, and that events
-> identified as carrying little information can safely be dropped. Finally, we
-> show how informativeness can help to interpret the predictions of prognostic
-> models trained on FM-derived representations.
+> tokens and events in electronic health records. Our approach considers incoming
+> data in the entire context of a patient's hospitalization and so can flag
+> anomalous events that rule-based approaches would consider within a normal
+> range. We demonstrate that the events our model flags are significant for
+> predicting downstream patient outcomes and that a fraction of events identified
+> as carrying little information can safely be dropped. Additionally, we show how
+> informativeness can help interpret the predictions of prognostic models trained
+> on foundation model-derived representations.
 
 ## Requirements & structure
 
@@ -185,7 +185,7 @@ the manuscript.
     [CLIF-2.0.0 format](https://web.archive.org/web/20250711203935/https://clif-consortium.github.io/website/data-dictionary/data-dictionary-2.0.0.html).
     (Use the [v0.1.0](https://github.com/bbj-lab/CLIF-MIMIC/releases/tag/v0.1.0)
     release.) The `rclif-2.0` folder location is then passed as `--data_dir_in`
-    to the [first slurm script](./slurm/01_create_train_val_test_split.sh).
+    to the [first slurm script](./slurm/01_create_data_splits.sh).
 
 -   Many of the slurm scripts assume a folder structure as follows, where
     `tree ${hm}` (_cf_
@@ -226,7 +226,7 @@ the manuscript.
     │       ├── config.json
     │       ├── generation_config.json
     │       └── model.safetensors
-    ├── fms-ehrs-info  # THIS REPO
+    ├── Quantifying-Surprise-EHRs  # THIS REPO
     │   └── ...
     └── figs  # for generated figures
     ```
