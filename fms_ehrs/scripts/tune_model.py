@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-tune a small model with a packing strategy
+tune a model with a packing strategy
 """
 
 import os

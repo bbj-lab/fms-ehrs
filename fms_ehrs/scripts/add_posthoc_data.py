@@ -19,10 +19,10 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--new_data_loc",
     type=pathlib.Path,
-    default="../../clif-data/scratch/en_ner_bc5cdr_md_umls.csv",
+    default="../../data-mimic/scratch/en_ner_bc5cdr_md_umls.csv",
 )
 parser.add_argument("--new_data_name", type=str, default="machine_measurements")
-parser.add_argument("--data_dir_out", type=pathlib.Path, default="../../clif-data/")
+parser.add_argument("--data_dir_out", type=pathlib.Path, default="../../data-mimic/")
 parser.add_argument("--data_version", type=str, default="raw")
 parser.add_argument("--patient_id_col", type=str, default="subject_id")
 parser.add_argument("--time_col", type=str, default="ecg_time")
@@ -46,7 +46,6 @@ new_data = (
     .with_row_index("new_idx")
 )
 
-# get sub-directories
 splits = ("train", "val", "test")
 for s in splits:
     dir_out = data_dir_out.joinpath(args.data_version, s)

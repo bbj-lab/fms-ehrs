@@ -25,18 +25,18 @@ logger.info("running {}".format(__file__))
 logger.log_env()
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--data_dir_orig", type=pathlib.Path, default="../../clif-data")
-parser.add_argument("--data_dir_new", type=pathlib.Path, default="../../clif-data-ucmc")
+parser.add_argument("--data_dir_orig", type=pathlib.Path, default="../../data-mimic")
+parser.add_argument("--data_dir_new", type=pathlib.Path, default="../../data-ucmc")
 parser.add_argument("--data_version", type=str, default="QC_day_stays_first_24h")
 parser.add_argument(
     "--model_sft_loc",
     type=pathlib.Path,
-    default="../../clif-mdls-archive/mdl-llama1b-57928921-run1-58115722-clsfr-same_admission_death",
+    default="../../mdls-archive/mdl-llama1b-57928921-run1-58115722-clsfr-same_admission_death",
 )
 parser.add_argument(
     "--model_outlier_loc",
     type=pathlib.Path,
-    default="../../clif-mdls-archive/llama1b-57928921-run1",
+    default="../../mdls-archive/llama1b-57928921-run1",
 )
 parser.add_argument(
     "--outcome",
