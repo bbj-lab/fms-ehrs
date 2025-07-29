@@ -26,8 +26,8 @@ models=(
 
 for i in "${!models[@]}"; do
     python3 ../fms_ehrs/scripts/process_sft_preds.py \
-        --data_dir_orig "${hm}/clif-data" \
-        --data_dir_new "${hm}/clif-data-ucmc" \
+        --data_dir_orig "${hm}/data-mimic" \
+        --data_dir_new "${hm}/data-ucmc" \
         --data_version QC_day_stays_first_24h \
         --model_sft_loc "${hm}/clif-mdls-archive/${models[$i]}" \
         --model_outlier_loc "${hm}/clif-mdls-archive/llama1b-57928921-run1" \

@@ -19,7 +19,7 @@ torchrun --nproc_per_node=8 \
     ../fms_ehrs/scripts/tune_model.py \
     --n_epochs 10 \
     --n_trials 3 \
-    --data_dir "${hm}/clif-data" \
+    --data_dir "${hm}/data-mimic" \
     --data_version "${data_version:-QC_noX}" \
     --model_dir "${hm}/clif-mdls" \
     --model_version "llama-${names[$SLURM_ARRAY_TASK_ID]}" \

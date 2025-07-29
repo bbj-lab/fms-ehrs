@@ -24,8 +24,8 @@ models=(
 for v in "${versions[@]}"; do
     for m in "${models[@]}"; do
         python3 ../fms_ehrs/scripts/find_outliers_oos.py \
-            --data_dir_orig "${hm}/clif-data" \
-            --data_dir_new "${hm}/clif-data-ucmc" \
+            --data_dir_orig "${hm}/data-mimic" \
+            --data_dir_new "${hm}/data-ucmc" \
             --data_version "${v}_first_24h" \
             --model_loc "${hm}/clif-mdls-archive/${m}" \
             --out_dir "${hm}"

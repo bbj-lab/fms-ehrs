@@ -12,10 +12,10 @@ export data_version=W++
 
 case "${SLURM_ARRAY_TASK_ID}" in
     0)
-        data_dir="${hm}/clif-data"
+        data_dir="${hm}/data-mimic"
         ;;
     1)
-        data_dir="${hm}/clif-data-ucmc"
+        data_dir="${hm}/data-ucmc"
         ;;
     *) echo "Invalid SLURM_ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}" ;;
 esac
