@@ -12,7 +12,7 @@ source preamble.sh
 
 echo "Processing MIMIC data..."
 python3 ../fms_ehrs/scripts/tokenize_train_val_test_split.py \
-    --data_dir "${hm}/clif-data/" \
+    --data_dir "${hm}/data-mimic/" \
     --data_version_in W \
     --data_version_out "${data_version:-QC_noX}" \
     --max_padded_len 1024 \
@@ -22,10 +22,10 @@ python3 ../fms_ehrs/scripts/tokenize_train_val_test_split.py \
 
 echo "Using vocab from MIMIC to process UChicago data..."
 python3 ../fms_ehrs/scripts/tokenize_train_val_test_split.py \
-    --data_dir "${hm}/clif-data-ucmc" \
+    --data_dir "${hm}/data-ucmc" \
     --data_version_in QC \
     --data_version_out "${data_version:-QC_noX}" \
-    --vocab_path "${hm}/clif-data/${data_version:-QC_noX}-tokenized/train/vocab.gzip" \
+    --vocab_path "${hm}/data-mimic/${data_version:-QC_noX}-tokenized/train/vocab.gzip" \
     --max_padded_len 1024 \
     --day_stay_filter True \
     --include_24h_cut True \
