@@ -16,5 +16,5 @@ for d in "${data_dirs[@]}"; do
     python3 ../fms_ehrs/scripts/process_stats.py \
         --data_dir "$d" \
         --data_version "W++_first_24h" \
-        --model_loc "${hm}/clif-mdls-archive/llama-med-60358922_1-hp-W++"
+        --model_loc "${hm}/mdls-archive/llama-med-60358922_1-hp-W++"
 done

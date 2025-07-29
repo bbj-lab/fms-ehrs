@@ -20,6 +20,6 @@ python3 ../fms_ehrs/scripts/transfer_rep_based_preds.py \
     --data_dir_orig "${hm}/data-mimic" \
     --data_dir_new "${hm}/data-ucmc" \
     --data_version "${models[$SLURM_ARRAY_TASK_ID]##*-}_first_24h" \
-    --model_loc "${hm}/clif-mdls-archive/${models[$SLURM_ARRAY_TASK_ID]}" \
+    --model_loc "${hm}/mdls-archive/${models[$SLURM_ARRAY_TASK_ID]}" \
     --classifier logistic_regression \
     --save_preds

@@ -15,4 +15,4 @@ python3 ../fms_ehrs/scripts/cluster_reps.py \
     --data_dir_orig "${hm}/data-mimic" \
     --data_dir_new "${hm}/data-ucmc" \
     --data_version "${m##*-}_first_24h" \
-    --model_loc "${hm}/clif-mdls-archive/$m"
+    --model_loc "${hm}/mdls-archive/$m"
