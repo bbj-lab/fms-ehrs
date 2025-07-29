@@ -52,6 +52,10 @@ mimic_tables["hosp-diagnoses_icd"] = mimic_tables["hosp-diagnoses_icd"].join(
 
 for hadm_id in args.hadm_ids:
     print(hadm_id.center(79, "="))
+    print(mimic_tables["hosp-labevents"].filter(pl.col("hadm_id") == hadm_id).collect())
+    print(
+        mimic_tables["icu-chartevents"].filter(pl.col("hadm_id") == hadm_id).collect()
+    )
     print(
         mimic_tables["hosp-admissions"]
         .filter(pl.col("hadm_id") == hadm_id)

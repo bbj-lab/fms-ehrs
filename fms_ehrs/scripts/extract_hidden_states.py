@@ -26,7 +26,7 @@ logger.log_env()
 @logger.log_calls
 def main(
     *,
-    data_dir: os.PathLike = "../clif-data",
+    data_dir: os.PathLike = "../data-mimic",
     data_version: str = "day_stays_first_24h",
     model_loc: os.PathLike = None,
     batch_sz: int = 2**5,

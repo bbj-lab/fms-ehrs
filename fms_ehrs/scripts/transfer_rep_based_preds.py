@@ -2,7 +2,7 @@
 
 """
 make some simple predictions outcomes ~ features
-break down performance by ICU admission type
+provide some performance breakdowns
 """
 
 import argparse
