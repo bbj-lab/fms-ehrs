@@ -17,7 +17,7 @@ logger.info("running {}".format(__file__))
 logger.log_env()
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--data_dir", type=pathlib.Path, default="../../clif-data")
+parser.add_argument("--data_dir", type=pathlib.Path, default="../../data-mimic")
 parser.add_argument("--data_version", type=str, default="W++_first_24h")
 parser.add_argument("--raw_version", type=str, default="raw")
 args, unknowns = parser.parse_known_args()

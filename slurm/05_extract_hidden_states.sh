@@ -25,8 +25,8 @@ if ((SLURM_ARRAY_TASK_COUNT != ni * nj * nk)); then
 fi
 
 data_dirs=(
-    "${hm}/clif-data"
-    "${hm}/clif-data-ucmc"
+    "${hm}/data-mimic"
+    "${hm}/data-ucmc"
 )
 methods=(
     none

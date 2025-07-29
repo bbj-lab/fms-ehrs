@@ -18,13 +18,13 @@ logger.info("running {}".format(__file__))
 logger.log_env()
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--data_dir_orig", type=pathlib.Path, default="../../clif-data")
-parser.add_argument("--data_dir_new", type=pathlib.Path, default="../../clif-data-ucmc")
+parser.add_argument("--data_dir_orig", type=pathlib.Path, default="../../data-mimic")
+parser.add_argument("--data_dir_new", type=pathlib.Path, default="../../data-ucmc")
 parser.add_argument("--data_version", type=str, default="QC_noX_first_24h")
 parser.add_argument(
     "--model_loc",
     type=pathlib.Path,
-    default="../../clif-mdls-archive/llama1b-original-59946215-hp-QC_noX",
+    default="../../mdls-archive/llama1b-original-59946215-hp-QC_noX",
 )
 args, unknowns = parser.parse_known_args()
 

@@ -26,7 +26,7 @@ models=(
 )
 
 python3 ../fms_ehrs/scripts/fine_tuned_predictions.py \
-    --data_dir "${hm}/clif-data-ucmc" \
+    --data_dir "${hm}/data-ucmc" \
     --data_version QC_day_stays_first_24h \
     --model_loc "${hm}/clif-mdls-archive/${models[$SLURM_ARRAY_TASK_ID]}" \
     --outcome "${outcomes[$((SLURM_ARRAY_TASK_ID / 3))]}"

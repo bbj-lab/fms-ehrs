@@ -5,6 +5,7 @@ functions for plotting
 """
 
 import collections
+import os
 import pathlib
 import typing
 
@@ -27,7 +28,7 @@ colors = mains + lights + darks
 
 
 def plot_calibration_curve(
-    named_results: Dictlike, n_bins: int = 10, savepath: Pathlike = None
+    named_results: Dictlike, *, n_bins: int = 10, savepath: Pathlike = None
 ):
     """
     plot a calibration curve for each named set of predictions;
@@ -140,7 +141,7 @@ def plot_roc_curve(named_results: Dictlike, savepath: Pathlike = None):
 
 
 def plot_precision_recall_curve(
-    named_results: Dictlike, savepath: Pathlike = None, decimals: int = 3
+    named_results: Dictlike, *, savepath: Pathlike = None, decimals: int = 3
 ):
     """
     plot a precision-recall curve for each named set of predictions;
@@ -188,7 +189,11 @@ def plot_precision_recall_curve(
 
 
 def plot_histogram(
-    arr: np.array, title: str = "Histogram", nbins: int = 50, savepath: Pathlike = None
+    arr: np.array,
+    *,
+    title: str = "Histogram",
+    nbins: int = 50,
+    savepath: Pathlike = None,
 ):
     """
     plot a histogram of the non-nan values in an array `arr`;
@@ -266,15 +271,20 @@ def plot_histograms(
 def imshow_text(
     values: np.array,
     text: np.array,
+    *,
     title: str = "",
     savepath=None,
     autocolor_text: bool = False,
+    zmin=None,
+    zmax=None,
     **layout_kwargs,
 ):
     assert values.shape == text.shape
     fig = go.Figure(
         data=go.Heatmap(
             z=values,
+            zmin=zmin,
+            zmax=zmax,
             text=text,
             texttemplate="%{text}",
             textfont={"size": 12} | ({} if autocolor_text else {"color": "black"}),

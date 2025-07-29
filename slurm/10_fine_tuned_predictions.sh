@@ -23,7 +23,7 @@ if ((SLURM_ARRAY_TASK_COUNT != ni * nj * nk)); then
     echo "ni*nj*nk=$((ni * nj * nk))"
 fi
 
-data_dirs=("${hm}/clif-data" "${hm}/clif-data-ucmc")
+data_dirs=("${hm}/data-mimic" "${hm}/data-ucmc")
 models=(
     mdl-llama-orig-58789721-58997654-clsfr-same_admission_death
     mdl-llama-orig-58789721-58997873-clsfr-long_length_of_stay

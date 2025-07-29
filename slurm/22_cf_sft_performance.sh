@@ -13,7 +13,7 @@ div=2
 quo=$((SLURM_ARRAY_TASK_ID / div))
 rem=$((SLURM_ARRAY_TASK_ID % div))
 
-data_dirs=("${hm}/clif-data" "${hm}/clif-data-ucmc")
+data_dirs=("${hm}/data-mimic" "${hm}/data-ucmc")
 
 case ${quo} in
     0)

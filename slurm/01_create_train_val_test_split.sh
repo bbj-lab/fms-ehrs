@@ -10,14 +10,14 @@ source preamble.sh
 
 python3 ../fms_ehrs/scripts/create_train_val_test_split.py \
     --data_dir_in "${hm}/CLIF-MIMICv0.1.0/output/rclif-2.0/" \
-    --data_dir_out "${hm}/clif-data/" \
+    --data_dir_out "${hm}/data-mimic/" \
     --data_version_out W \
     --train_frac 0.7 \
     --val_frac 0.1
 
 python3 ../fms_ehrs/scripts/create_train_val_test_split.py \
     --data_dir_in "/scratch/$(whoami)/CLIF-2.0.0" \
-    --data_dir_out "${hm}/clif-data-ucmc" \
+    --data_dir_out "${hm}/data-ucmc" \
     --data_version_out W \
     --train_frac 0.05 \
     --val_frac 0.05 \

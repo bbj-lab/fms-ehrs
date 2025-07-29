@@ -1,14 +1,8 @@
-# Detecting highly informative events in electronic health records with foundation models
+# FMs-EHRs
 
-> We present a foundation model-derived method to identify highly informative
-> tokens and events in a patient's electronic healthcare record. Our approach
-> considers incoming data in the entire context of a patient's hospitalization
-> and so can flag anomalous events that rule-based approaches would consider
-> within a normal range. We demonstrate that the events our model flags are
-> significant for predicting downstream patient outcomes, and that events
-> identified as carrying little information can safely be dropped. Finally, we
-> show how informativeness can help to interpret the predictions of prognostic
-> models trained on FM-derived representations.
+> This repo contains code to tokenize electronic health records, train foundation
+> models on those tokenized records, and then perform various downstream
+> analyses.
 
 ## Requirements & structure
 
@@ -16,17 +10,20 @@ The bash scripts can be run in a [slurm](https://slurm.schedmd.com) environment
 with the specified resource requirements. (We used compute nodes with 8×A100
 40GB-PCIe GPUs, connected with 2×16-core 3.0-GHz AMD Milan processors for
 GPU-based work.) Each bash script calls one or more python scripts that depend on
-an environment as described in the `requirements.txt` file:
+an environment as described in the `requirements.txt` file. You can set up an
+environment with [pytorch](https://pytorch.org/get-started/locally/) configured
+for CUDA 12.8 with [uv](https://docs.astral.sh/uv/pip/) as follows:
 
 ```sh
-uv venv venv
+uv venv --python=$(which python3) venv
 . venv/bin/activate
-uv pip install --torch-backend=cu128 -e .
+uv pip install --torch-backend=cu128 --link-mode=copy -e .
 ```
 
-For plots to render correctly, you may need to install a working version of tex
-on your system.
+For plots to render correctly, you may need to install a working version of
+[tex](https://www.tug.org/texlive/) on your system.
 
+<<<<<<< HEAD
 Alternatively, after installing torch, you can install directly from github:
 
 ```sh
@@ -86,9 +83,9 @@ flowchart TD
 ```
 
 >>>>>>> psb-release
+=======
+>>>>>>> main
 ## What the code does
-
-### Data processing (and tokenization)
 
 We consider 422k hospitalization events for adults (age 18 or older) from the
 Beth Israel Deaconess Medical Center between 2008–2019
@@ -122,7 +119,7 @@ deciled lab value in the training data within that category. We call this
 strategy, of tokenizing categories and binning their corresponding values
 according to the training value of the deciles, category-value tokenization:
 
-![Cat Val Tokenization](./img/schematic.svg)
+![Category-value tokenization](./img/schematic.svg)
 
 A handful of other tables receive this type of tokenization: vitals and results
 according to vital category, medication and dosage by medication category,
@@ -133,56 +130,70 @@ placed into a prone position. All hospitalization-related data is encoded this
 way and inserted in chronological order. Tokens that arrive synchronously
 correspond to an event and always appear coterminously in a sequence. Timelines
 then end with a token for discharge category and a dedicated timeline end token.
-
-### Information estimation
-
-Consider the set $V^T$ of length $T$ sequences of tokens drawn from some
-vocabulary $V$. For a given sequence $x=(x_1,\dotsc, x_T)$ and indices
-$1\leq u \leq v \leq T$, we let $x_{u:v}=(x_u, x_{u+1}, \dotsc, x_v)$ correspond
-to the subsequence and $x_{<u}=x_{1:u-1}$ to the context at $u$ for $u>1$. If $p$
-is a probability distribution on $V^T$, we let
-$p(x_{u:v})=P_{X\sim p}(X_{u:v}=x_{u:v})$ denote the marginal distribution and
-$p(x_{u:v}|x_{y:z})=P_{X\sim p}(X_{u:v}=x_{u:v}|X_{y:z}=x_{y:z})$ denote the
-conditional for indices $u,v,y,z$. We adopt the convention that
-$p(x_{u:v} | x_{<1}) = p(x_{u:v})$. In this work, we focus on the context-aware
-information given by
-
-$I_p(x_t | x_{<t}) = - \log_{2} p(x_t | x_{<t})$
-
-for tokens $x_t$ and by
-
-$I_p(x_{u:v} | x_{<u}) = - \log_{2} p(x_{u:v} | x_{<u})$
-
-for subsequences $x_{u:v}$. As
-$p(x_{u:v}|x_{<t})=\textstyle\prod\nolimits_{t=u}^v p(x_t | x_{<t})$, it follows
-that
-$I_{p}(x_{u:v} | x_{<u}) = \textstyle\sum\nolimits_{t=u}^v I_{p}(x_t | x_{<t})$.
-Thus, the context-aware information for subsequences can be obtained by adding
-over that of the individual tokens. In our case, we focus on subsequences of
-tokens that are added to our timelines contemporaneously. We call these "events."
-
-We train a foundation model (FM) from scratch using a variation of the Llama-3.2
-1B-parameter architecture on our tokenized MIMIC training and validation sets.
-This model then takes the place of $p$ in the above equations. We can take
-example timelines and use the model-determined measure of information to
-highlight them (first 102 tokens shown here, reading from left to right in
-row-major order):
+For example, the first few tokens for a timeline might look like this:
 
 ![Example highlighted timeline](./img/example_tl.svg)
 
-### Redaction experiment
-
-We drop events (corresponding to subsequences $x_{u:v}$) according to their
-model-determined informativeness $I_{p}(x_{u:v} | x_{<u})$. For details, please
-see our manuscript.
-
-### Representations vs. information
-
-We relate movements in model-derived representation space to the informativeness
-of the corresponding tokens or events. Again, further details are available in
-the manuscript.
-
 ## Usage notes
+
+-   Credentialed users may obtain the
+    [MIMIC-IV-3.1 dataset](https://physionet.org/content/mimiciv/3.1/) from
+    Physionet. [This repo](https://github.com/bbj-lab/CLIF-MIMIC) contains
+    instructions and code for converting it to the
+    [CLIF-2.0.0 format](https://web.archive.org/web/20250711203935/https://clif-consortium.github.io/website/data-dictionary/data-dictionary-2.0.0.html).
+    (Use the [v0.1.0](https://github.com/bbj-lab/CLIF-MIMIC/releases/tag/v0.1.0)
+    release.) The `rclif-2.0` folder location is then passed as `--data_dir_in`
+    to the [first slurm script](./slurm/01_create_data_splits.sh).
+
+-   Many of the slurm scripts assume a folder structure as follows, where
+    `tree ${hm}` (_cf_
+    [tree](https://manpages.ubuntu.com/manpages/noble/man1/tree.1.html)) looks
+    something like this:
+
+    ```sh
+    .
+    ├── data-mimic # MIMIC datasets
+    │   ├── raw
+    │   │   ├── test
+    │   │   │   ├── clif_adt.parquet
+    │   │   │   ├── ...
+    │   │   │   └── clif_vitals.parquet
+    │   │   ├── train
+    │   │   │   ├── clif_adt.parquet
+    │   │   │   ├── ...
+    │   │   │   └── clif_vitals.parquet
+    │   │   └── val
+    │   │       ├── clif_adt.parquet
+    │   │       ├── ...
+    │   │       └── clif_vitals.parquet
+    │   ├── ...
+    │   └── W++_first_24h-tokenized
+    │       ├── test
+    │       │   └── tokens_timelines.parquet
+    │       ├── train
+    │       │   ├── tokens_timelines.parquet
+    │       │   └── vocab.gzip
+    │       └── val
+    │           └── tokens_timelines.parquet
+    ├── data-ucmc  # UCMC datasets
+    │   └── ...
+    ├── mdls  # to hold all models generated
+    │   └── ...
+    ├── mdls-archive  # models for long-term storage
+    │   └── llama-med-60358922_1-hp-W++
+    │       ├── config.json
+    │       ├── generation_config.json
+    │       └── model.safetensors
+    ├── Quantifying-Surprise-EHRs  # THIS REPO
+    │   └── ...
+    └── figs  # for generated figures
+    ```
+
+    Tokenized datasets are deposited into the `data-mimic` or `data-ucmc` folder,
+    depending on data provenance. Trained models are stored in `mdls`. Many
+    models are generated and these take up significant amounts of space. Models
+    to be kept are copied into `mdls-archive`. Generated figures are placed in
+    the `figs` folder.
 
 -   Slurm jobs can be queued in sequence as follows:
 
@@ -193,24 +204,14 @@ the manuscript.
     ...
     ```
 
--   If you find yourself manually running python scripts from an interactive slurm
-    job afer running `preamble.sh`, you can append:
+-   If you find yourself manually running python scripts from an interactive
+    slurm job afer running `preamble.sh`, you can append:
 
     ```sh
     2>&1 | tee -a output/$SLURM_JOBID-$jname.stdout
     ```
 
     to keep logs.
-
--   You can use [apptainer](https://apptainer.org/docs/user/1.0/index.html) to build the following image:
-    ```
-    apptainer build venv.sif venv.def
-    ```
-    and then make these definitions in your [preamble.sh](./slurm/preamble.sh) file:
-    ```
-    python3() { apptainer exec --nv ../venv.sif python3 "$@" ; }
-    torchrun() { apptainer exec --nv ../venv.sif torchrun "$@" ; }
-    ```
 
 <!--
 
@@ -219,7 +220,7 @@ Format:
 isort fms_ehrs/
 black fms_ehrs/
 shfmt -w slurm/
-prettier --write --print-width 81 --prose-wrap always *.md
+prettier --write *.md
 ```
 
 Send to randi:
@@ -267,7 +268,7 @@ rsync -avht \
 
 Save environment:
 ```
-pip list --format=freeze > requirements.txt
+uv pip compile --torch-backend=cu128 pyproject.toml -o requirements.txt
 ```
 
 Get fonts on randi:
@@ -279,6 +280,12 @@ unzip cm-unicode.zip
 find . -type f \( -iname "*.ttf" -o -iname "*.otf" \) -exec mv {} ~/.local/share/fonts/CMU/ \;
 fc-cache -f -v
 fc-list | grep -i cmu
+```
+
+Install directly from github:
+
+```sh
+pip install -e "git+https://github.com/bbj-lab/clif-tokenizer.git@main#egg=fms-ehrs"
 ```
 
 -->

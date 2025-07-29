@@ -9,8 +9,8 @@
 source preamble.sh
 
 case "${SLURM_ARRAY_TASK_ID}" in
-    0) data_dir="${hm}/clif-data" ;;
-    1) data_dir="${hm}/clif-data-ucmc" ;;
+    0) data_dir="${hm}/data-mimic" ;;
+    1) data_dir="${hm}/data-ucmc" ;;
     *) echo "Invalid SLURM_ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}" ;;
 esac
 
