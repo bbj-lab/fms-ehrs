@@ -29,8 +29,8 @@ for i in "${!models[@]}"; do
         --data_dir_orig "${hm}/data-mimic" \
         --data_dir_new "${hm}/data-ucmc" \
         --data_version QC_day_stays_first_24h \
-        --model_sft_loc "${hm}/clif-mdls-archive/${models[$i]}" \
-        --model_outlier_loc "${hm}/clif-mdls-archive/llama1b-57928921-run1" \
+        --model_sft_loc "${hm}/mdls-archive/${models[$i]}" \
+        --model_outlier_loc "${hm}/mdls-archive/llama1b-57928921-run1" \
         --outcome "${outcomes[$((i / 3))]}" \
         --only_new True
 done

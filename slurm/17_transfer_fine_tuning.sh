@@ -41,10 +41,10 @@ training_fraction=${training_fractions[$((SLURM_ARRAY_TASK_ID % 3))]}
 res=$(
     torchrun --nproc_per_node=8 \
         ../fms_ehrs/scripts/fine_tune_classification.py \
-        --model_loc "${hm}/clif-mdls-archive/${model}" \
+        --model_loc "${hm}/mdls-archive/${model}" \
         --data_dir "${hm}/data-ucmc" \
         --data_version QC_day_stays_first_24h \
-        --out_dir "${hm}/clif-mdls" \
+        --out_dir "${hm}/mdls" \
         --n_epochs 10 \
         --learning_rate 0.00002 \
         --per_device_train_batch_size 4 \

@@ -38,7 +38,7 @@ for d in "${data_dirs[@]}"; do
         --data_versions "${versions[@]}" \
         --handles "${handles[@]}" \
         --baseline_handle none \
-        --model_loc "${hm}/clif-mdls-archive/${model}" \
+        --model_loc "${hm}/mdls-archive/${model}" \
         --out_dir "${hm}/figs"
 
 done
@@ -65,7 +65,7 @@ done
 #            --data_dir "$d" \
 #            --data_versions "${versions[@]}" \
 #            --handles "${handles[@]}" \
-#            --model_loc "${hm}/clif-mdls-archive/${mo}" \
+#            --model_loc "${hm}/mdls-archive/${mo}" \
 #            --out_dir "${hm}/figs"
 #
 #    done

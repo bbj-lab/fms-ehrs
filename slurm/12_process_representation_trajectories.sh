@@ -19,5 +19,5 @@ esac
 python3 ../fms_ehrs/scripts/process_representation_trajectories.py \
     --data_dir "$data_dir" \
     --data_version W++ \
-    --model_loc "${hm}/clif-mdls-archive/llama-med-60358922_1-hp-W++" \
+    --model_loc "${hm}/mdls-archive/llama-med-60358922_1-hp-W++" \
     --save_jumps True
