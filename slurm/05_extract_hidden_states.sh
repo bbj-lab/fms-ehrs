@@ -48,7 +48,7 @@ torchrun --nproc_per_node=2 \
     ../fms_ehrs/scripts/extract_hidden_states.py \
     --data_dir "${data_dirs[$i]}" \
     --data_version "W++_first_24h_llama-med-60358922_1-hp-W++_${methods[$j]}_${pcts[$k]}pct_ppy" \
-    --model_loc "${hm}/clif-mdls-archive/llama-med-60358922_1-hp-W++" \
+    --model_loc "${hm}/mdls-archive/llama-med-60358922_1-hp-W++" \
     --batch_sz "$((2 ** 5))"
 
 #models=(
@@ -65,5 +65,5 @@ torchrun --nproc_per_node=2 \
 #    ../fms_ehrs/scripts/extract_hidden_states.py \
 #    --data_dir "${data_dirs[$i]}" \
 #    --data_version "W++_first_24h_${models[$k]}_${methods[$j]}_20pct" \
-#    --model_loc "${hm}/clif-mdls-archive/${models[$k]}" \
+#    --model_loc "${hm}/mdls-archive/${models[$k]}" \
 #    --batch_sz $((2 ** 5))

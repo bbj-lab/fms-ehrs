@@ -38,7 +38,7 @@ python3 ../fms_ehrs/scripts/transfer_rep_based_preds.py \
     --data_dir_orig "${hm}/data-mimic" \
     --data_dir_new "${hm}/data-ucmc" \
     --data_version "W++_first_24h_${model}_${methods[$i]}_${pct[$j]}pct_ppy" \
-    --model_loc "${hm}/clif-mdls-archive/${model}" \
+    --model_loc "${hm}/mdls-archive/${model}" \
     --classifier logistic_regression \
     --drop_icu_adm \
     --save_preds
@@ -54,7 +54,7 @@ python3 ../fms_ehrs/scripts/transfer_rep_based_preds.py \
 #    --data_dir_orig "${hm}/data-mimic" \
 #    --data_dir_new "${hm}/data-ucmc" \
 #    --data_version "W++_first_24h_${models[$j]}_${methods[$i]}_20pct" \
-#    --model_loc "${hm}/clif-mdls-archive/${models[$j]}" \
+#    --model_loc "${hm}/mdls-archive/${models[$j]}" \
 #    --classifier logistic_regression \
 #    --drop_icu_adm \
 #    --save_preds

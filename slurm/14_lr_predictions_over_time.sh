@@ -19,6 +19,6 @@ python3 ../fms_ehrs/scripts/lr_predictions_over_time.py \
     --data_dir_train "${hm}/data-mimic" \
     --data_dir_pred "$data_dir" \
     --data_version QC_day_stays_first_24h \
-    --model_loc_base "${hm}/clif-mdls-archive/llama1b-57928921-run1" \
-    --model_loc_sft "${hm}/clif-mdls-archive/mdl-llama1b-57928921-run1-58115722-clsfr-same_admission_death" \
+    --model_loc_base "${hm}/mdls-archive/llama1b-57928921-run1" \
+    --model_loc_sft "${hm}/mdls-archive/mdl-llama1b-57928921-run1-58115722-clsfr-same_admission_death" \
     --big_batch_sz $((2 ** 12))

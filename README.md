@@ -23,68 +23,6 @@ uv pip install --torch-backend=cu128 --link-mode=copy -e .
 For plots to render correctly, you may need to install a working version of
 [tex](https://www.tug.org/texlive/) on your system.
 
-<<<<<<< HEAD
-Alternatively, after installing torch, you can install directly from github:
-
-```sh
-pip install -e "git+https://github.com/bbj-lab/clif-tokenizer.git@main#egg=fms-ehrs"
-```
-
-<<<<<<< HEAD
-=======
-The code is structured logically as follows, where the numerical prefixes
-correspond to the prefixes in the slurm files (located in the `slurm` folder):
-
-```mermaid
----
-config:
-  theme: neutral
-  look: handDrawn
-  layout: elk
-  themeCSS: "* { overflow: visible; }"
----
-flowchart TD
- subgraph s1["Data processing"]
-        N1["01_create_train_val_test_split"]
-        N2["02_tokenize_train_val_test_split"]
-        N3["03_extract_outcomes"]
-        N16["16_aggregate_summary_stats"]
-  end
- subgraph s2["Information estimation"]
-        N4["04_tune_model"]
-        N5["05_examine_model"]
-        N6["06_extract_information"]
-        N7["07_process_info"]
-  end
- subgraph s3["Redaction experiment"]
-        N8["08_redact_timelines"]
-        N9["09_extract_reps"]
-        N10["10_transfer_rep_based_preds"]
-        N11["11_run_data_version_comparison"]
-        N12["12_run_stats"]
-  end
- subgraph s4["Reps vs info"]
-        N13["13_extract_all_reps"]
-        N14["14_process_rep_trajectories"]
-        N15["15_jumps_vs_info"]
-  end
-    N1 --> N2
-    N2 --> N3 & N4
-    N3 --> N16 & N10
-    N4 --> N5 & N6 & N8 & N13
-    N6 --> N7 & N15
-    N7 --> N8
-    N8 --> N9
-    N4 --> N9 --> N10
-    N10 --> N11
-    N11 --> N12
-    N13 --> N14
-    N14 --> N15
-```
-
->>>>>>> psb-release
-=======
->>>>>>> main
 ## What the code does
 
 We consider 422k hospitalization events for adults (age 18 or older) from the

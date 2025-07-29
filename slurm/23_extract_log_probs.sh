@@ -32,6 +32,6 @@ torchrun --nproc_per_node=1 \
     ../fms_ehrs/scripts/extract_log_probs.py \
     --data_dir "${data_dirs[$rem]}" \
     --data_version "${models[$quo]##*-}" \
-    --model_loc "${hm}/clif-mdls-archive/${models[$quo]}" \
+    --model_loc "${hm}/mdls-archive/${models[$quo]}" \
     --batch_sz $((2 ** 5)) \
     --splits "${splits[@]}"

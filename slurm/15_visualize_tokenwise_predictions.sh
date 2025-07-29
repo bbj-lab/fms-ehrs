@@ -18,4 +18,4 @@ python3 ../fms_ehrs/scripts/visualize_tokenwise_predictions.py \
     --data_dir "$data_dir" \
     --out_dir "$hm" \
     --data_version QC_day_stays_first_24h \
-    --model_loc "${hm}/clif-mdls-archive/mdl-llama1b-57928921-run1-58115722-clsfr-same_admission_death"
+    --model_loc "${hm}/mdls-archive/mdl-llama1b-57928921-run1-58115722-clsfr-same_admission_death"

@@ -39,5 +39,5 @@ versions=(
 python3 ../fms_ehrs/scripts/fine_tuned_predictions.py \
     --data_dir "${data_dirs[$i]}" \
     --data_version "${versions[$k]}_first_24h" \
-    --model_loc "${hm}/clif-mdls-archive/${models[$j]}" \
+    --model_loc "${hm}/mdls-archive/${models[$j]}" \
     --outcome "${models[$j]##*-}"

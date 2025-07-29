@@ -37,16 +37,10 @@ samp_new=(
 for m in "${models[@]}"; do
     for agg in sum perplexity; do
         python3 ../fms_ehrs/scripts/process_log_probs.py \
-<<<<<<< HEAD
-            --data_dir_orig "${hm}/clif-data" \
-            --data_dir_new "${hm}/clif-data-ucmc" \
-            --data_version "${m##*-}" \
-=======
             --data_dir_orig "${hm}/data-mimic" \
             --data_dir_new "${hm}/data-ucmc" \
             --data_version "${m##*-}_first_24h" \
->>>>>>> main
-            --model_loc "${hm}/clif-mdls-archive/$m" \
+            --model_loc "${hm}/mdls-archive/$m" \
             --out_dir "${hm}/figs" \
             --aggregation "${agg}" \
             --samp_orig "${samp_orig[@]}" \
