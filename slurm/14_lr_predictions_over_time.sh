@@ -10,13 +10,13 @@
 source preamble.sh
 
 case "${SLURM_ARRAY_TASK_ID}" in
-    0) data_dir="${hm}/clif-data" ;;
-    1) data_dir="${hm}/clif-data-ucmc" ;;
+    0) data_dir="${hm}/data-mimic" ;;
+    1) data_dir="${hm}/data-ucmc" ;;
     *) echo "Invalid SLURM_ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}" ;;
 esac
 
 python3 ../fms_ehrs/scripts/lr_predictions_over_time.py \
-    --data_dir_train "${hm}/clif-data" \
+    --data_dir_train "${hm}/data-mimic" \
     --data_dir_pred "$data_dir" \
     --data_version QC_day_stays_first_24h \
     --model_loc_base "${hm}/clif-mdls-archive/llama1b-57928921-run1" \

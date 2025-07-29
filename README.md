@@ -1,14 +1,8 @@
-# Quantifying surprise in clinical care: Detecting highly informative events in electronic health records with foundation models
+# FMs-EHRs
 
-> We present a foundation model-derived method to identify highly informative
-> tokens and events in electronic health records. Our approach considers incoming
-> data in the entire context of a patient's hospitalization and so can flag
-> anomalous events that rule-based approaches would consider within a normal
-> range. We demonstrate that the events our model flags are significant for
-> predicting downstream patient outcomes and that a fraction of events identified
-> as carrying little information can safely be dropped. Additionally, we show how
-> informativeness can help interpret the predictions of prognostic models trained
-> on foundation model-derived representations.
+> This repo contains code to tokenize electronic health records, train foundation
+> models on those tokenized records, and then perform various downstream
+> analyses.
 
 ## Requirements & structure
 
@@ -27,62 +21,9 @@ uv pip install --torch-backend=cu128 --link-mode=copy -e .
 ```
 
 For plots to render correctly, you may need to install a working version of
-[tex](https://www.tug.org/texlive/) on your system. The code is structured
-logically as follows, where the numerical prefixes correspond to the prefixes in
-the slurm files (located in the [slurm folder](./slurm)):
-
-```mermaid
----
-config:
-  theme: neutral
-  look: handDrawn
-  layout: elk
-  themeCSS: "* { overflow: visible; }"
----
-flowchart TD
- subgraph s1["Data processing"]
-        N1["01_create_data_splits"]
-        N2["02_tokenize_data_splits"]
-        N3["03_extract_outcomes"]
-        N16["16_aggregate_stats"]
-        N17["17_pull_mimic_info"]
-  end
- subgraph s2["Information estimation"]
-        N4["04_tune_model"]
-        N5["05_examine_model"]
-        N6["06_extract_information"]
-        N7["07_process_info"]
-  end
- subgraph s3["Redaction experiment"]
-        N8["08_redact_timelines"]
-        N9["09_extract_reps"]
-        N10["10_xfer_rep_based_preds"]
-        N11["11_version_comparison"]
-        N12["12_run_stats"]
-  end
- subgraph s4["Reps vs info"]
-        N13["13_extract_all_reps"]
-        N14["14_process_trajectories"]
-        N15["15_jumps_vs_info"]
-  end
-    N1 --> N2
-    N2 --> N3 & N4
-    N3 --> N16 & N10
-    N4 --> N5 & N6 & N8 & N13
-    N6 --> N7 & N15
-    N7 --> N8
-    N8 --> N9
-    N4 --> N9 --> N10
-    N10 --> N11
-    N11 --> N12
-    N13 --> N14
-    N14 --> N15
-    N16 --> N17
-```
+[tex](https://www.tug.org/texlive/) on your system.
 
 ## What the code does
-
-### Data processing (and tokenization)
 
 We consider 422k hospitalization events for adults (age 18 or older) from the
 Beth Israel Deaconess Medical Center between 2008–2019
@@ -127,54 +68,9 @@ placed into a prone position. All hospitalization-related data is encoded this
 way and inserted in chronological order. Tokens that arrive synchronously
 correspond to an event and always appear coterminously in a sequence. Timelines
 then end with a token for discharge category and a dedicated timeline end token.
-
-### Information estimation
-
-Consider the set $V^T$ of length $T$ sequences of tokens drawn from some
-vocabulary $V$. For a given sequence $x=(x_1,\dotsc, x_T)$ and indices
-$1\leq u \leq v \leq T$, we let $x_{u:v}=(x_u, x_{u+1}, \dotsc, x_v)$ correspond
-to the subsequence and $x_{<u}=x_{1:u-1}$ to the context at $u$ for $u>1$. If $p$
-is a probability distribution on $V^T$, we let
-$p(x_{u:v})=P_{X\sim p}(X_{u:v}=x_{u:v})$ denote the marginal distribution and
-$p(x_{u:v}|x_{y:z})=P_{X\sim p}(X_{u:v}=x_{u:v}|X_{y:z}=x_{y:z})$ denote the
-conditional for indices $u,v,y,z$. We adopt the convention that
-$p(x_{u:v} | x_{<1}) = p(x_{u:v})$. In this work, we focus on the context-aware
-information given by
-
-$\boxed{I_p(x_t | x_{<t}) = - \log_{2} p(x_t | x_{<t})}$
-
-for tokens $x_t$ and by
-
-$\boxed{I_p(x_{u:v} | x_{<u}) = - \log_{2} p(x_{u:v} | x_{<u})}$
-
-for subsequences $x_{u:v}$. As
-$p(x_{u:v} | x_{<t})=\textstyle\prod\nolimits_{t=u}^v p(x_t | x_{<t})$, it
-follows that
-$I_{p}(x_{u:v} | x_{<u})=\textstyle\sum\nolimits_{t=u}^v I_{p}(x_t | x_{<t})$.
-Thus, the context-aware information for subsequences can be obtained by adding
-over that of the individual tokens. In our case, we focus on subsequences of
-tokens that are added to our timelines contemporaneously. We call these "events."
-
-We train a foundation model (FM) from scratch using a variation of the Llama-3.2
-1B-parameter architecture on our tokenized MIMIC training and validation sets.
-This model then takes the place of $p$ in the above equations. We can take
-example timelines and use the model-determined measure of information to
-highlight them (first 102 tokens shown here, reading from left to right in
-row-major order):
+For example, the first few tokens for a timeline might look like this:
 
 ![Example highlighted timeline](./img/example_tl.svg)
-
-### Redaction experiment
-
-We drop events (corresponding to subsequences $x_{u:v}$) according to their
-model-determined informativeness $I_{p}(x_{u:v} | x_{<u})$. For details, please
-see our manuscript.
-
-### Representations vs. information
-
-We relate movements in model-derived representation space to the informativeness
-of the corresponding tokens or events. Again, further details are available in
-the manuscript.
 
 ## Usage notes
 

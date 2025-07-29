@@ -8,8 +8,8 @@
 source preamble.sh
 
 data_dirs=(
-    "${hm}/clif-data"
-    "${hm}/clif-data-ucmc"
+    "${hm}/data-mimic"
+    "${hm}/data-ucmc"
 )
 
 for d in "${data_dirs[@]}"; do

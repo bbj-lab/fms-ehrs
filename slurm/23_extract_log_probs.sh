@@ -14,8 +14,8 @@ quo=$((SLURM_ARRAY_TASK_ID / div))
 rem=$((SLURM_ARRAY_TASK_ID % div))
 
 data_dirs=(
-    "${hm}/clif-data"
-    "${hm}/clif-data-ucmc"
+    "${hm}/data-mimic"
+    "${hm}/data-ucmc"
 )
 models=(
     llama-original-60358922_0-hp-W++

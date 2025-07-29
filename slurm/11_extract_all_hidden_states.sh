@@ -14,12 +14,12 @@ quo=$((SLURM_ARRAY_TASK_ID / div))
 rem=$((SLURM_ARRAY_TASK_ID % div))
 
 data_dirs=(
-    "${hm}/clif-data"
-    "${hm}/clif-data-ucmc"
+    "${hm}/data-mimic"
+    "${hm}/data-ucmc"
 )
 out_dirs=(
-    "/scratch/burkh4rt/clif-data"
-    "/scratch/burkh4rt/clif-data-ucmc"
+    "/scratch/burkh4rt/data-mimic"
+    "/scratch/burkh4rt/data-ucmc"
 )
 
 torchrun --nproc_per_node=2 \

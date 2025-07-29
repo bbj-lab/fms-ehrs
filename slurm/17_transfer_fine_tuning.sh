@@ -42,7 +42,7 @@ res=$(
     torchrun --nproc_per_node=8 \
         ../fms_ehrs/scripts/fine_tune_classification.py \
         --model_loc "${hm}/clif-mdls-archive/${model}" \
-        --data_dir "${hm}/clif-data-ucmc" \
+        --data_dir "${hm}/data-ucmc" \
         --data_version QC_day_stays_first_24h \
         --out_dir "${hm}/clif-mdls" \
         --n_epochs 10 \
