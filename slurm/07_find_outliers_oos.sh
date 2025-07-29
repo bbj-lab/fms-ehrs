@@ -27,7 +27,7 @@ for v in "${versions[@]}"; do
             --data_dir_orig "${hm}/data-mimic" \
             --data_dir_new "${hm}/data-ucmc" \
             --data_version "${v}_first_24h" \
-            --model_loc "${hm}/clif-mdls-archive/${m}" \
+            --model_loc "${hm}/mdls-archive/${m}" \
             --out_dir "${hm}"
     done
 done

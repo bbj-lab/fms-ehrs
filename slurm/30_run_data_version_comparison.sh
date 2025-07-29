@@ -2,7 +2,8 @@
 
 #SBATCH --job-name=cf-perf-data
 #SBATCH --output=./output/%j-%x.stdout
-#SBATCH --partition=tier3q
+#SBATCH --partition=tier2q
+#SBATCH --cpus-per-task=5
 #SBATCH --time=1:00:00
 ##SBATCH --depend=afterok:60708969
 
@@ -37,7 +38,7 @@ for d in "${data_dirs[@]}"; do
         --data_versions "${versions[@]}" \
         --handles "${handles[@]}" \
         --baseline_handle none \
-        --model_loc "${hm}/clif-mdls-archive/${model}" \
+        --model_loc "${hm}/mdls-archive/${model}" \
         --out_dir "${hm}/figs"
 
 done
@@ -64,7 +65,7 @@ done
 #            --data_dir "$d" \
 #            --data_versions "${versions[@]}" \
 #            --handles "${handles[@]}" \
-#            --model_loc "${hm}/clif-mdls-archive/${mo}" \
+#            --model_loc "${hm}/mdls-archive/${mo}" \
 #            --out_dir "${hm}/figs"
 #
 #    done

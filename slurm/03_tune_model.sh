@@ -21,7 +21,7 @@ torchrun --nproc_per_node=8 \
     --n_trials 3 \
     --data_dir "${hm}/data-mimic" \
     --data_version "${data_version:-QC_noX}" \
-    --model_dir "${hm}/clif-mdls" \
+    --model_dir "${hm}/mdls" \
     --model_version "llama-${names[$SLURM_ARRAY_TASK_ID]}" \
     --model_name "meta-llama/Llama-3.2-1B" \
     --wandb_project "${data_version:-QC_noX}" \

@@ -23,4 +23,4 @@ python3 ../fms_ehrs/scripts/aggregate_model_preds.py \
     --data_dir "${data_dir}" \
     --out_dir "${hm}/figs" \
     --data_version "${data_version:-QC_noX}_first_24h" \
-    --models "${models[@]/#/${hm}/clif-mdls-archive/}"
+    --models "${models[@]/#/${hm}/mdls-archive/}"

@@ -2,13 +2,14 @@
 
 #SBATCH --job-name=proc-log-probs
 #SBATCH --output=./output/%j-%x.stdout
-#SBATCH --partition=tier2q
+#SBATCH --partition=tier3q
 #SBATCH --time=1:00:00
+##SBATCH --depend=afterok:61620751
 
 source preamble.sh
 
 models=(
-    llama-original-60358922_0-hp-W++
+    llama-med-60358922_1-hp-W++
 )
 samp_orig=(
     "20826893"
@@ -39,7 +40,7 @@ for m in "${models[@]}"; do
             --data_dir_orig "${hm}/data-mimic" \
             --data_dir_new "${hm}/data-ucmc" \
             --data_version "${m##*-}_first_24h" \
-            --model_loc "${hm}/clif-mdls-archive/$m" \
+            --model_loc "${hm}/mdls-archive/$m" \
             --out_dir "${hm}/figs" \
             --aggregation "${agg}" \
             --samp_orig "${samp_orig[@]}" \
