@@ -82,7 +82,7 @@ stop_tokens = t.tensor([vocab("PAD"), vocab("TRUNC"), vocab("TL_END")]).to(devic
 
 for s in args.splits:
     n = dataset[s].num_rows
-    tl_len = dataset[s].select(range(1))["input_ids"].shape[-1]
+    tl_len = len(dataset[s].select(range(1))["input_ids"][0])
     log_probs = np.full(
         shape=(n, tl_len),
         fill_value=np.nan,
@@ -105,7 +105,7 @@ for s in args.splits:
             .numpy()
         )
         first_stop_idx = (
-            t.argmax(t.isin(batch, stop_tokens).int(), axis=1, keepdim=True)
+            t.argmax(t.isin(batch, stop_tokens).int(), dim=1, keepdim=True)
             .cpu()
             .numpy()
             .ravel()

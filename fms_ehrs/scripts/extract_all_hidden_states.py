@@ -90,13 +90,13 @@ def main(
 
     for s in splits:
         n = dataset[s].num_rows
-        tl_len = dataset[s].select(range(1))["input_ids"].shape[-1]
+        tl_len = len(dataset[s].select(range(1))["input_ids"][0])
         for batch_num, big_batch in tqdm(enumerate(t.split(t.arange(n), big_batch_sz))):
             features[s] = np.empty((big_batch.size(0), tl_len, d), dtype=np.float16)
             for small_batch in t.split(big_batch, small_batch_sz):
                 batch = dataset[s]["input_ids"][small_batch].to(device)
                 first_stop_idx = t.argmax(
-                    t.isin(batch, stop_tokens).int(), axis=1, keepdim=True
+                    t.isin(batch, stop_tokens).int(), dim=1, keepdim=True
                 )  # or 0 if no stop token
                 with t.inference_mode():
                     x = model.forward(input_ids=batch, output_hidden_states=True)
