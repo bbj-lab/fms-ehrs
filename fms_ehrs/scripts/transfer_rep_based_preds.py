@@ -96,7 +96,6 @@ for v in versions:
 preds = collections.defaultdict(dict)
 
 for outcome in outcomes:
-
     logger.info(outcome.replace("_", " ").upper().ljust(79, "-"))
 
     Xtrain = (features["orig"]["train"])[qualifiers[outcome]["orig"]["train"]]
@@ -143,7 +142,6 @@ for outcome in outcomes:
                 f"Classifier {args.classifier} is not yet supported."
             )
     for v in versions:
-
         logger.info(v.upper())
 
         q_test = qualifiers[outcome][v]["test"]

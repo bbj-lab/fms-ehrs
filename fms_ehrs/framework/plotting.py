@@ -49,7 +49,6 @@ def plot_calibration_curve(
     )
 
     for i, (name, results) in enumerate(named_results.items()):
-
         y_true = results["y_true"]
         y_score = results["y_score"]
 
@@ -104,7 +103,6 @@ def plot_roc_curve(named_results: Dictlike, savepath: Pathlike = None):
     )
 
     for i, (name, results) in enumerate(named_results.items()):
-
         y_true = results["y_true"]
         y_score = results["y_score"]
 
@@ -152,7 +150,6 @@ def plot_precision_recall_curve(
     fig = go.Figure()
 
     for i, (name, results) in enumerate(named_results.items()):
-
         y_true = results["y_true"]
         y_score = results["y_score"]
 
@@ -317,7 +314,6 @@ def imshow_text(
 
 
 if __name__ == "__main__":
-
     import pandas as pd
 
     from fms_ehrs.framework.stats import generate_classifier_preds

@@ -112,7 +112,6 @@ class Vocabulary:
 
 
 if __name__ == "__main__":
-
     import tempfile
 
     import numpy as np

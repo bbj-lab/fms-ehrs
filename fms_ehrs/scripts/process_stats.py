@@ -111,4 +111,5 @@ for outcome in outcomes:
         logger.info(lr[outcome].summary())
         # logger.info(lr[outcome].summary().as_latex())
 
+
 logger.info("---fin")

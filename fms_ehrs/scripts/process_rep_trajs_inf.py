@@ -17,7 +17,7 @@ import seaborn as sns
 import statsmodels.formula.api as smf
 
 from fms_ehrs.framework.logger import get_logger
-from fms_ehrs.framework.plotting import colors, plot_histogram, plot_histograms
+from fms_ehrs.framework.plotting import colors, plot_histogram
 from fms_ehrs.framework.tokenizer import token_type, token_types, type_names
 from fms_ehrs.framework.util import collate_events_info
 from fms_ehrs.framework.vocabulary import Vocabulary
@@ -98,11 +98,10 @@ df_t = (
 
 logger.info(f"Tokenwise associations for {len(df_t)} tokens...")
 
-lm_t = smf.ols(f"jump_length ~ 1 + information", data=df_t).fit()
+lm_t = smf.ols("jump_length ~ 1 + information", data=df_t).fit()
 logger.info(lm_t.summary())
 
 if args.make_plots:
-
     fig = px.scatter(
         df_t.groupby("type").agg("mean").reset_index(),
         x="information",
@@ -192,14 +191,13 @@ df_e = pd.DataFrame(
 ).dropna()
 
 logger.info(f"Eventwise associations for {len(df_e)} events...")
-lm_e = smf.ols(f"path_length ~ 1 + information", data=df_e).fit()
+lm_e = smf.ols("path_length ~ 1 + information", data=df_e).fit()
 logger.info(lm_e.summary())
 
-lm_el = smf.ols(f"information ~ 1 + event_length", data=df_e).fit()
+lm_el = smf.ols("information ~ 1 + event_length", data=df_e).fit()
 logger.info(lm_el.summary())
 
 if args.make_plots:
-
     fig = px.scatter(
         df_e,
         x="information",
@@ -230,5 +228,6 @@ if args.make_plots:
             )
         ),
     )
+
 
 logger.info("---fin")

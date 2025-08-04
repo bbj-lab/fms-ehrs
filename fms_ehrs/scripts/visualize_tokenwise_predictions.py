@@ -55,7 +55,6 @@ with open(
 
 
 for suffix in ("", "_urt", "_lr"):
-
     fig = go.Figure()
 
     Mt = ragged_lists_to_array(results["mort_preds" + suffix].values())
@@ -145,5 +144,6 @@ for suffix in ("", "_urt", "_lr"):
         .expanduser()
         .resolve()
     )
+
 
 logger.info("---fin")

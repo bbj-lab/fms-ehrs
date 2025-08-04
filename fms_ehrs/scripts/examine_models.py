@@ -41,7 +41,6 @@ def main(
     addl_mdls_loc: str = None,
     out_dir: os.PathLike = None,
 ):
-
     data_dir, ref_mdl_loc, out_dir = map(
         lambda d: pathlib.Path(d).expanduser().resolve(),
         (data_dir, ref_mdl_loc, out_dir),

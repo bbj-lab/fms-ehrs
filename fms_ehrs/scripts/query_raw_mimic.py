@@ -125,3 +125,6 @@ for hadm_id in args.hadm_ids:
         .collect()
         .to_numpy()
     )
+
+
+logger.info("---fin")

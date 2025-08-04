@@ -161,7 +161,6 @@ def generate_classifier_preds(
 
 
 if __name__ == "__main__":
-
     np_rng = np.random.default_rng(42)
 
     y_true, y_preds = generate_classifier_preds(num_preds=3)

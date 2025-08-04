@@ -5,7 +5,7 @@
 #SBATCH --partition=tier3q
 #SBATCH --cpus-per-task=5
 #SBATCH --mem=250GB
-#SBATCH --time=30:00
+#SBATCH --time=2:00:00
 #SBATCH --array=0-5
 
 source preamble.sh
