@@ -35,7 +35,6 @@ def main(
     test_only: bool = False,
     out_dir: os.PathLike = None,
 ):
-
     out_dir = out_dir if out_dir else data_dir
 
     data_dir, model_loc, out_dir = map(

@@ -209,7 +209,6 @@ def set_pd_options() -> None:
 
 
 if __name__ == "__main__":
-
     print(ragged_lists_to_array([[2.0, 3.0], [3.0]]))
 
     tks = [np.arange(10)]

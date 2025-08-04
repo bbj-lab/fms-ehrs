@@ -7,10 +7,8 @@
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
     ]
     dependencies = [
-        "black>=24.10",
         "datasets>=3.2",
         "fire>=0.7",
-        "isort>=5.13",
         "joblib>=1.4",
         "kaleido>=0.2,<1",
         "lightgbm>=4.5",
@@ -23,6 +21,7 @@
         "plotly~=5.24.1",
         "polars>=1.20",
         "ray",
+        "ruff",
         "scikit-learn>=1.6",
         "scipy>=1.15",
         "seaborn>=0.13.2",
@@ -40,22 +39,25 @@
     requires-python = ">=3.12"
     version = "25.1.0"
 
+[tool.ruff]
+    line-length = 88
+
+    [tool.ruff.format]
+        docstring-code-format     = true
+        indent-style              = "space"
+        line-ending               = "lf"
+        quote-style               = "double"
+        skip-magic-trailing-comma = true
+
+    [tool.ruff.lint]
+        ignore = [ "E731" ]
+
 [tool.setuptools.packages]
     find = {}
 
 [build-system]
     build-backend = "setuptools.build_meta"
     requires      = [ "setuptools>=75.0", "wheel", "ninja" ]
-
-[tool.black]
-    line-length    = 88
-    target-version = [ "py312" ]
-
-[tool.isort]
-    atomic         = true
-    line_length    = 88
-    profile        = "black"
-    skip_gitignore = true
 
 [tool.uv]
     no-cache = true

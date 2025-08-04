@@ -52,7 +52,6 @@ def main(
     tune: bool = False,
     training_fraction: float = 1.0,
 ) -> pathlib.PurePath | None:
-
     model_loc, data_dir, out_dir = map(
         lambda d: pathlib.Path(d).expanduser().resolve(),
         (model_loc, data_dir, out_dir),

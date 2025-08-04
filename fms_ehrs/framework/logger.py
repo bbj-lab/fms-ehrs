@@ -69,7 +69,6 @@ class SlurmLogger(logging.Logger):
             self.info("branch: {}".format(get_branch.stdout.decode().strip()))
 
     def log_calls(self, func: callable) -> callable:
-
         @functools.wraps(func)
         def log_io(*args, **kwargs):
             func_args = inspect.signature(func).bind_partial(*args, **kwargs)
@@ -128,7 +127,6 @@ def log_classification_metrics(
 
 
 if __name__ == "__main__":
-
     from fms_ehrs.framework.stats import generate_classifier_preds
 
     logger = get_logger()

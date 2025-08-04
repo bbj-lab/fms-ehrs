@@ -4,6 +4,7 @@
 provides a simple tokenizing interface to take tabular CLIF data and convert
 it to tokenized timelines at the hospitalization_id level
 """
+
 import collections
 import functools
 import logging
@@ -155,7 +156,6 @@ class ClifTokenizer:
         )
 
     def process_tables(self) -> None:
-
         self.tbl["patient"] = (
             self.tbl["patient"]
             .group_by("patient_id")
@@ -526,7 +526,6 @@ class ClifTokenizer:
         )
 
     def get_admission_frame(self) -> Frame:
-
         ## prepend patient-level tokens to each admission event
         admission_tokens = (
             self.tbl["patient"]
@@ -813,7 +812,6 @@ type_names = collections.OrderedDict(
 token_types = tuple(type_names.keys())
 
 if __name__ == "__main__":
-
     if os.uname().nodename.startswith("cri"):
         hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/clif-development-sample")
     else:

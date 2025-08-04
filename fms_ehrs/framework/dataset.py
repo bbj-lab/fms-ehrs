@@ -21,7 +21,6 @@ Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
 
 
 class Datasets:
-
     def __init__(
         self,
         data_version: str,
@@ -167,7 +166,6 @@ class Datasets:
 
 
 if __name__ == "__main__":
-
     if os.uname().nodename.startswith("cri"):
         hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/")
     else:

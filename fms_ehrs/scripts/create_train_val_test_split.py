@@ -109,7 +109,6 @@ def main(
 
     # generate sub-tables
     for s in splits:
-
         pl.scan_parquet(data_dir_in.joinpath("clif_patient.parquet")).join(
             p_ids[s].lazy(), on="patient_id"
         ).sink_parquet(dirs_out[s].joinpath("clif_patient.parquet"))
