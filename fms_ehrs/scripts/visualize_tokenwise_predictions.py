@@ -64,13 +64,7 @@ for suffix in ("", "_urt", "_lr"):
 
     fig.add_trace(
         go.Scatter(
-            y=Mt_mean,
-            mode="lines",
-            line=dict(
-                color="red",
-                width=1,
-            ),
-            name="Dies",
+            y=Mt_mean, mode="lines", line=dict(color="red", width=1), name="Dies"
         )
     )
 
@@ -81,10 +75,7 @@ for suffix in ("", "_urt", "_lr"):
                 mode="lines",
                 opacity=0.1,
                 fill="tonexty" if i > 0 else None,
-                line=dict(
-                    color="red",
-                    width=0,
-                ),
+                line=dict(color="red", width=0),
                 name="+/- 2σ",
             )
         )
@@ -98,13 +89,7 @@ for suffix in ("", "_urt", "_lr"):
 
     fig.add_trace(
         go.Scatter(
-            y=Lt_mean,
-            mode="lines",
-            line=dict(
-                color="blue",
-                width=1,
-            ),
-            name="Lives",
+            y=Lt_mean, mode="lines", line=dict(color="blue", width=1), name="Lives"
         )
     )
 
@@ -115,10 +100,7 @@ for suffix in ("", "_urt", "_lr"):
                 mode="lines",
                 opacity=0.1,
                 fill="tonexty" if i > 0 else None,
-                line=dict(
-                    color="blue",
-                    width=0,
-                ),
+                line=dict(color="blue", width=0),
                 name="+/- 2σ",
             )
         )
@@ -136,9 +118,7 @@ for suffix in ("", "_urt", "_lr"):
     fig.write_image(
         out_dir.joinpath(
             "tokenwise_vis-{m}{s}-{d}.pdf".format(
-                m=model_loc.stem,
-                s=suffix,
-                d=data_dir.stem,
+                m=model_loc.stem, s=suffix, d=data_dir.stem
             )
         )
         .expanduser()

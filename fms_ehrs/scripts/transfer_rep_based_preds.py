@@ -106,11 +106,7 @@ for outcome in outcomes:
     match args.classifier:
         case "light_gbm":
             estimator = lgb.LGBMClassifier(metric="auc")
-            estimator.fit(
-                X=Xtrain,
-                y=ytrain,
-                eval_set=(Xval, yval),
-            )
+            estimator.fit(X=Xtrain, y=ytrain, eval_set=(Xval, yval))
 
         case "logistic_regression_cv":
             estimator = skl.pipeline.make_pipeline(

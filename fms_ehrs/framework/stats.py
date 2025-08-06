@@ -168,8 +168,7 @@ if __name__ == "__main__":
     for i in range(len(y_preds)):
         print(
             "AUC for preds{} = {:.3f}".format(
-                i,
-                skl_mets.roc_auc_score(y_true=y_true, y_score=y_preds[i]),
+                i, skl_mets.roc_auc_score(y_true=y_true, y_score=y_preds[i])
             )
         )
         print(
@@ -189,7 +188,7 @@ if __name__ == "__main__":
         "test 0 vs 1, 1-sided: {}".format(
             bootstrap_pval(
                 y_true=y_true, y_score0=y_preds[1], y_score1=y_preds[0], n_samples=1_000
-            ),
+            )
         )
     )
 
@@ -201,7 +200,7 @@ if __name__ == "__main__":
                 y_score1=y_preds[0],
                 n_samples=1_000,
                 alternative="two-sided",
-            ),
+            )
         )
     )
 
@@ -209,7 +208,7 @@ if __name__ == "__main__":
         "test 0 vs 2, 1-sided: {}".format(
             bootstrap_pval(
                 y_true=y_true, y_score0=y_preds[2], y_score1=y_preds[0], n_samples=1_000
-            ),
+            )
         )
     )
 
@@ -221,6 +220,6 @@ if __name__ == "__main__":
                 y_score1=y_preds[0],
                 n_samples=1_000,
                 alternative="two-sided",
-            ),
+            )
         )
     )

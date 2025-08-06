@@ -67,12 +67,7 @@ def summarize_split(s):
     ).select("hospitalization_id", "age_at_admission", "patient_id")
     pat_ref = (
         pl.read_parquet(raw_dirs[s].joinpath("clif_patient.parquet"))
-        .select(
-            "patient_id",
-            "race_category",
-            "ethnicity_category",
-            "sex_category",
-        )
+        .select("patient_id", "race_category", "ethnicity_category", "sex_category")
         .group_by("patient_id")
         .first()
     )

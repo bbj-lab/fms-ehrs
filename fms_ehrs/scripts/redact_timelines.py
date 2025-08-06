@@ -24,19 +24,13 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--data_dir", type=pathlib.Path, default="../../data-mimic")
 parser.add_argument("--data_version", type=str, default="QC_day_stays_first_24h")
 parser.add_argument(
-    "--model_loc",
-    type=pathlib.Path,
-    default="../../mdls-archive/llama1b-57928921-run1",
+    "--model_loc", type=pathlib.Path, default="../../mdls-archive/llama1b-57928921-run1"
 )
 parser.add_argument(
-    "--method",
-    choices=["top", "bottom", "random", "none", None],
-    default=None,
+    "--method", choices=["top", "bottom", "random", "none", None], default=None
 )
 parser.add_argument(
-    "--aggregation",
-    choices=["max", "sum", "perplexity"],
-    default="sum",
+    "--aggregation", choices=["max", "sum", "perplexity"], default="sum"
 )
 parser.add_argument("--k", type=int, default=None)
 parser.add_argument("--pct", type=float, default=None)
@@ -47,8 +41,7 @@ for k, v in vars(args).items():
     logger.info(f"{k}: {v}")
 
 data_dir, model_loc = map(
-    lambda d: pathlib.Path(d).expanduser().resolve(),
-    (args.data_dir, args.model_loc),
+    lambda d: pathlib.Path(d).expanduser().resolve(), (args.data_dir, args.model_loc)
 )
 
 outcome_columns = (

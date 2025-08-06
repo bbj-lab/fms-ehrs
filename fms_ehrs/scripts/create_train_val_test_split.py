@@ -29,8 +29,7 @@ def main(
     valid_admission_window: tuple[str, str] = None,
 ):
     data_dir_in, data_dir_out = map(
-        lambda d: pathlib.Path(d).expanduser().resolve(),
-        (data_dir_in, data_dir_out),
+        lambda d: pathlib.Path(d).expanduser().resolve(), (data_dir_in, data_dir_out)
     )
 
     # make output sub-directories

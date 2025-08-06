@@ -62,11 +62,7 @@ embd = {
 
 flags = {
     v: (
-        pl.scan_parquet(
-            data_dirs[v].joinpath(
-                "tokens_timelines_outcomes.parquet",
-            )
-        )
+        pl.scan_parquet(data_dirs[v].joinpath("tokens_timelines_outcomes.parquet"))
         .with_columns(
             [
                 pl.when(pl.col(outcome))
@@ -95,12 +91,7 @@ df = pd.concat(
     axis=0,
 )
 
-fig = px.scatter(
-    df,
-    x="dim1",
-    y="dim2",
-    color="version",
-)
+fig = px.scatter(df, x="dim1", y="dim2", color="version")
 fig.update_layout(
     title="{typ} embedding of 24hr representations".format(typ=args.mapper),
     template="plotly_white",
@@ -113,12 +104,7 @@ fig.write_image(
 )
 
 for out in outcomes[:2]:
-    fig = px.scatter(
-        df,
-        x="dim1",
-        y="dim2",
-        color=out,
-    )
+    fig = px.scatter(df, x="dim1", y="dim2", color=out)
     fig.update_layout(
         title="{typ} embedding of 24hr representations".format(typ=args.mapper),
         template="plotly_white",

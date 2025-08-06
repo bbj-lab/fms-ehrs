@@ -132,7 +132,7 @@ df_e = pd.DataFrame(
 ).dropna()
 
 logger.info(f"Eventwise associations for {len(df_e)} events...")
-lm_e = smf.ols(f"total_jump ~ 1 + information", data=df_e).fit()
+lm_e = smf.ols("total_jump ~ 1 + information", data=df_e).fit()
 logger.info(lm_e.summary())
 
 fig, ax = plt.subplots(figsize=(10, 8))

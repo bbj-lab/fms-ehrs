@@ -29,15 +29,11 @@ def main(
     data_dir: os.PathLike = None,
     data_version: str = "day_stays_first_24h",
     outcome: typing.Literal[
-        "same_admission_death",
-        "long_length_of_stay",
-        "icu_admission",
-        "imv_event",
+        "same_admission_death", "long_length_of_stay", "icu_admission", "imv_event"
     ] = "same_admission_death",
 ):
     model_loc, data_dir = map(
-        lambda d: pathlib.Path(d).expanduser().resolve(),
-        (model_loc, data_dir),
+        lambda d: pathlib.Path(d).expanduser().resolve(), (model_loc, data_dir)
     )
 
     # load and prep data

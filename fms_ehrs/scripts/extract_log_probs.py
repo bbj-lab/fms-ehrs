@@ -37,8 +37,7 @@ for k, v in vars(args).items():
     logger.info(f"{k}: {v}")
 
 data_dir, model_loc = map(
-    lambda d: pathlib.Path(d).expanduser().resolve(),
-    (args.data_dir, args.model_loc),
+    lambda d: pathlib.Path(d).expanduser().resolve(), (args.data_dir, args.model_loc)
 )
 
 # prepare parallelism
@@ -84,8 +83,7 @@ for s in args.splits:
     n = dataset[s].num_rows
     tl_len = len(dataset[s].select(range(1))["input_ids"][0])
     log_probs = np.full(
-        shape=(n, tl_len),
-        fill_value=np.nan,
+        shape=(n, tl_len), fill_value=np.nan
     )  # could use `np.empty` here, but perhaps safer this way
 
     for batch_idx in tqdm(t.split(t.arange(n), args.batch_sz)):
@@ -116,8 +114,7 @@ for s in args.splits:
         log_probs[batch_idx] = log_probs_realized
 
     np.save(
-        data_dirs[s].joinpath("log_probs-{m}.npy".format(m=model_loc.stem)),
-        log_probs,
+        data_dirs[s].joinpath("log_probs-{m}.npy".format(m=model_loc.stem)), log_probs
     )  # save out result
 
 logger.info("---fin")
