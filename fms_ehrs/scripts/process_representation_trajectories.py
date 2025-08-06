@@ -32,8 +32,7 @@ def main(
     run_stats: bool = False,
 ):
     data_dir, model_loc = map(
-        lambda d: pathlib.Path(d).expanduser().resolve(),
-        (data_dir, model_loc),
+        lambda d: pathlib.Path(d).expanduser().resolve(), (data_dir, model_loc)
     )
 
     if load_jumps:

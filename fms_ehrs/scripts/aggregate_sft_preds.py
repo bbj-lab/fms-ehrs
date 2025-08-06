@@ -49,11 +49,7 @@ data_dir, out_dir, *models = map(
 data_dir_test = data_dir.joinpath(f"{args.data_version}-tokenized", "test")
 
 y_true = (
-    pl.scan_parquet(
-        data_dir_test.joinpath(
-            "tokens_timelines_outcomes.parquet",
-        )
-    )
+    pl.scan_parquet(data_dir_test.joinpath("tokens_timelines_outcomes.parquet"))
     .select(args.outcome)
     .collect()
     .to_numpy()

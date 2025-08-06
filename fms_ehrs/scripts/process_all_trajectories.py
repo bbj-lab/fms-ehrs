@@ -21,9 +21,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--data_dir", type=pathlib.Path, default="../../data-mimic")
 parser.add_argument("--data_version", type=str, default="QC_day_stays_first_24h")
 parser.add_argument(
-    "--model_loc",
-    type=pathlib.Path,
-    default="../../mdls-archive/llama1b-57928921-run1",
+    "--model_loc", type=pathlib.Path, default="../../mdls-archive/llama1b-57928921-run1"
 )
 parser.add_argument("splits", nargs="*", default=["train", "val", "test"])
 args, unknowns = parser.parse_known_args()
@@ -32,8 +30,7 @@ for k, v in vars(args).items():
     logger.info(f"{k}: {v}")
 
 data_dir, model_loc = map(
-    lambda d: pathlib.Path(d).expanduser().resolve(),
-    (args.data_dir, args.model_loc),
+    lambda d: pathlib.Path(d).expanduser().resolve(), (args.data_dir, args.model_loc)
 )
 
 for s in args.splits:

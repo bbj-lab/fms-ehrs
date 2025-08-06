@@ -44,8 +44,7 @@ def main(
     os.environ["WANDB_RUN_NAME"] = "{m}-{j}".format(m=model_version, j=jid)
 
     data_dir, model_dir = map(
-        lambda d: pathlib.Path(d).expanduser().resolve(),
-        (data_dir, model_dir),
+        lambda d: pathlib.Path(d).expanduser().resolve(), (data_dir, model_dir)
     )
 
     output_dir = model_dir.joinpath("{m}-{j}".format(m=model_version, j=jid))

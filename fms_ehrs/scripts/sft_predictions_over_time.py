@@ -55,10 +55,7 @@ dataset = (
     )
     .with_format("torch")
     .map(
-        lambda x: {
-            "input_ids": x["padded"],
-            "label": x["same_admission_death"],
-        },
+        lambda x: {"input_ids": x["padded"], "label": x["same_admission_death"]},
         remove_columns=["padded", "same_admission_death"],
     )
 )

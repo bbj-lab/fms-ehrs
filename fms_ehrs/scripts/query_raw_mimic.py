@@ -23,12 +23,7 @@ parser.add_argument(
     help="""The directory containing the hosp & icu directories downloaded from
     physionet.""",
 )
-parser.add_argument(
-    "--hadm_ids",
-    type=str,
-    nargs="*",
-    default=["24640534", "26886976"],
-)
+parser.add_argument("--hadm_ids", type=str, nargs="*", default=["24640534", "26886976"])
 
 
 args, unknowns = parser.parse_known_args()

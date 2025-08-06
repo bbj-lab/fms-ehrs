@@ -110,7 +110,7 @@ class ClifTokenizer:
                 )
                 if self.vocab.has_aux(designator)
                 else self.vocab(None)
-            ),
+            )
         ).cast(pl.Int64)
 
     def process_single_category(self, x: Frame, label: str) -> Frame:
@@ -193,7 +193,7 @@ class ClifTokenizer:
             .with_columns(
                 tokens=pl.concat_list(
                     "race_category", "ethnicity_category", "sex_category"
-                ),
+                )
             )
             .select("patient_id", "tokens")
             .collect()
@@ -262,9 +262,7 @@ class ClifTokenizer:
         self.tbl["hospitalization"] = (
             self.tbl["hospitalization"]
             .with_columns(age_at_admission=self.get_quants(v=v, c=c))
-            .with_columns(
-                admission_tokens=pl.concat_list(c, "admission_type_name"),
-            )
+            .with_columns(admission_tokens=pl.concat_list(c, "admission_type_name"))
             .drop(c, "admission_type_name")
         )
 
@@ -283,9 +281,7 @@ class ClifTokenizer:
                     skip_nulls=False,
                 ),
                 times=pl.col("event_time").map_elements(
-                    lambda x: [x],
-                    return_dtype=pl.List(pl.Datetime),
-                    skip_nulls=False,
+                    lambda x: [x], return_dtype=pl.List(pl.Datetime), skip_nulls=False
                 ),
             )
             .select("hospitalization_id", "event_time", "tokens", "times")
@@ -433,9 +429,7 @@ class ClifTokenizer:
                     skip_nulls=False,
                 ),
                 times=pl.col("event_time").map_elements(
-                    lambda x: [x],
-                    return_dtype=pl.List(pl.Datetime),
-                    skip_nulls=False,
+                    lambda x: [x], return_dtype=pl.List(pl.Datetime), skip_nulls=False
                 ),
             )
             .cast({"times": pl.List(pl.Datetime(time_unit="ms"))})
@@ -530,11 +524,7 @@ class ClifTokenizer:
         admission_tokens = (
             self.tbl["patient"]
             .join(self.tbl["hospitalization"], on="patient_id", validate="1:m")
-            .cast(
-                {
-                    "event_start": pl.Datetime(time_unit="ms"),
-                }
-            )
+            .cast({"event_start": pl.Datetime(time_unit="ms")})
             .with_columns(
                 adm_tokens=pl.concat_list(
                     pl.lit(self.vocab("TL_START")),
@@ -558,11 +548,7 @@ class ClifTokenizer:
         discharge_tokens = (
             self.tbl["hospitalization"]
             .rename({"event_end": "event_time"})
-            .cast(
-                {
-                    "event_time": pl.Datetime(time_unit="ms"),
-                }
-            )
+            .cast({"event_time": pl.Datetime(time_unit="ms")})
             .with_columns(
                 dis_tokens=pl.concat_list(
                     "discharge_category", pl.lit(self.vocab("TL_END"))
@@ -616,7 +602,7 @@ class ClifTokenizer:
                     pl.col("times").list.eval(
                         pl.element() - pl.col("").min() <= duration
                     )
-                ).list.arg_min(),
+                ).list.arg_min()
             )
             .with_columns(
                 valid_length=pl.when(pl.col("first_fail_or_0") == 0)

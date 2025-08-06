@@ -54,11 +54,10 @@ for v in versions:
     )
     clusterer.fit(features)
 
-    logger.info(f"Found {max(clusterer.labels_)+1} clusters.")
+    logger.info(f"Found {max(clusterer.labels_) + 1} clusters.")
 
     with open(
-        data_dirs[v].joinpath("dbscan-reps-{m}-m100.pkl".format(m=model_loc.stem)),
-        "wb",
+        data_dirs[v].joinpath("dbscan-reps-{m}-m100.pkl".format(m=model_loc.stem)), "wb"
     ) as fp:
         pickle.dump(clusterer, fp)
 

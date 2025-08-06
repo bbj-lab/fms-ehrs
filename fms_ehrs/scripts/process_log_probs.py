@@ -77,7 +77,7 @@ vocab = Vocabulary().load(data_dirs["orig"]["train"].joinpath("vocab.gzip"))
 
 infm = {
     v: np.load(
-        data_dirs[v]["test"].joinpath("log_probs-{m}.npy".format(m=model_loc.stem)),
+        data_dirs[v]["test"].joinpath("log_probs-{m}.npy".format(m=model_loc.stem))
     )
     / -np.log(2)
     for v in versions
@@ -92,11 +92,7 @@ inf_sum = {v: np.nansum(infm[v], axis=1) for v in versions}
 
 tl = {
     v: np.array(
-        pl.scan_parquet(
-            data_dirs[v]["test"].joinpath(
-                "tokens_timelines.parquet",
-            )
-        )
+        pl.scan_parquet(data_dirs[v]["test"].joinpath("tokens_timelines.parquet"))
         .select("padded")
         .collect()
         .to_series()
@@ -106,11 +102,7 @@ tl = {
 }
 
 tm = {
-    v: pl.scan_parquet(
-        data_dirs[v]["test"].joinpath(
-            "tokens_timelines.parquet",
-        )
-    )
+    v: pl.scan_parquet(data_dirs[v]["test"].joinpath("tokens_timelines.parquet"))
     .select("times")
     .collect()
     .to_series()
@@ -122,11 +114,7 @@ samp = {"orig": args.samp_orig, "new": args.samp_new}
 
 ids = {
     v: np.array(
-        pl.scan_parquet(
-            data_dirs[v]["test"].joinpath(
-                "tokens_timelines.parquet",
-            )
-        )
+        pl.scan_parquet(data_dirs[v]["test"].joinpath("tokens_timelines.parquet"))
         .select("hospitalization_id")
         .collect()
         .to_series()

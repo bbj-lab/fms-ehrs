@@ -199,10 +199,7 @@ logger.info(lm_el.summary())
 
 if args.make_plots:
     fig = px.scatter(
-        df_e,
-        x="information",
-        y="path_length",
-        color_discrete_sequence=colors[1:],
+        df_e, x="information", y="path_length", color_discrete_sequence=colors[1:]
     )
     fig.update_traces(marker_size=1)
     fig.update_layout(

@@ -110,12 +110,7 @@ def log_classification_metrics(
         "roc_auc: {:.3f}".format(skl_mets.roc_auc_score(y_true=y_true, y_score=y_score))
     )
 
-    for met in (
-        "accuracy",
-        "balanced_accuracy",
-        "precision",
-        "recall",
-    ):
+    for met in ("accuracy", "balanced_accuracy", "precision", "recall"):
         logger.info(
             "{}: {:.3f}".format(
                 met,

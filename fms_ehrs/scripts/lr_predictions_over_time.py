@@ -83,10 +83,7 @@ labels = labels[: len(urt_feats)]
 estimator = skl.pipeline.make_pipeline(
     skl.preprocessing.StandardScaler(),
     skl.linear_model.LogisticRegression(
-        max_iter=10_000,
-        n_jobs=-1,
-        random_state=42,
-        solver="newton-cholesky",
+        max_iter=10_000, n_jobs=-1, random_state=42, solver="newton-cholesky"
     ),
 )
 estimator.fit(X=urt_feats, y=labels)

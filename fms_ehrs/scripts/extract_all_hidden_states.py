@@ -38,8 +38,7 @@ def main(
     out_dir = out_dir if out_dir else data_dir
 
     data_dir, model_loc, out_dir = map(
-        lambda d: pathlib.Path(d).expanduser().resolve(),
-        (data_dir, model_loc, out_dir),
+        lambda d: pathlib.Path(d).expanduser().resolve(), (data_dir, model_loc, out_dir)
     )
 
     # prepare parallelism

@@ -83,7 +83,7 @@ for v in versions:
     pred_ = np.load(
         data_dir[v].joinpath(
             "sft-{o}-preds-{m}.npy".format(o=outcome, m=model_sft_loc.stem)
-        ),
+        )
     )
     if pred_.shape[-1] == 2:
         qualifiers[v] = pred_[:, 1].astype(bool)
@@ -121,10 +121,7 @@ for v in versions:
         .select(
             pl.col("tokens")
             .list.get(1)  # index of race token
-            .map_elements(
-                vocab.reverse.__getitem__,
-                return_dtype=pl.String,
-            )
+            .map_elements(vocab.reverse.__getitem__, return_dtype=pl.String)
             .replace(None, "Unknown/Other")
             .replace("other", "Unknown/Other")
             .replace("unknown", "Unknown/Other")
@@ -143,10 +140,7 @@ for v in versions:
         .select(
             pl.col("tokens")
             .list.get(2)  # index of ethnicity token
-            .map_elements(
-                vocab.reverse.__getitem__,
-                return_dtype=pl.String,
-            )
+            .map_elements(vocab.reverse.__getitem__, return_dtype=pl.String)
             .replace(None, "unknown")
         )
         .collect()
@@ -158,10 +152,7 @@ for v in versions:
         .select(
             pl.col("tokens")
             .list.get(3)  # index of sex token
-            .map_elements(
-                vocab.reverse.__getitem__,
-                return_dtype=pl.String,
-            )
+            .map_elements(vocab.reverse.__getitem__, return_dtype=pl.String)
         )
         .collect()
         .to_series()

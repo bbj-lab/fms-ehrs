@@ -77,19 +77,14 @@ labels = dict()
 for v in versions:
     logger.info(f"{v}...")
     with open(
-        data_dirs[v].joinpath("dbscan-reps-{m}-m100.pkl".format(m=model_loc.stem)),
-        "rb",
+        data_dirs[v].joinpath("dbscan-reps-{m}-m100.pkl".format(m=model_loc.stem)), "rb"
     ) as fp:
         clusterers[v] = pickle.load(fp)
 
 outcomes = ("same_admission_death", "long_length_of_stay", "icu_admission", "imv_event")
 aux = {
     v: (
-        pl.scan_parquet(
-            data_dirs[v].joinpath(
-                "tokens_timelines_outcomes.parquet",
-            )
-        )
+        pl.scan_parquet(data_dirs[v].joinpath("tokens_timelines_outcomes.parquet"))
         .select("hospitalization_id", *outcomes)
         .collect()
         .with_columns(hdbscan_label=pl.Series(clusterers[v].labels_))
