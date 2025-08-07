@@ -52,6 +52,9 @@
     [tool.ruff.lint]
         ignore = [ "E731" ]
 
+        [tool.ruff.lint.isort]
+            known-first-party = [ "fms_ehrs" ]
+
 [tool.setuptools.packages]
     find = {}
 

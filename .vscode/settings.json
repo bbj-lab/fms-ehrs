@@ -12,7 +12,10 @@
     },
     "prettier.configPath": ".prettierrc.toml",
     "[python]": {
-        "editor.defaultFormatter": "charliermarsh.ruff"
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+        }
     },
     "ruff.configuration": "${workspaceFolder}/pyproject.toml",
     "[shellscript]": {

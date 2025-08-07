@@ -3,7 +3,7 @@
 #SBATCH --job-name=x-all-layers
 #SBATCH --output=./output/%j-%x.stdout
 #SBATCH --partition=gpuq
-#SBATCH --gres=gpu:2
+#SBATCH --gres=gpu:4
 #SBATCH --time=1-00:00:00
 #SBATCH --array=0-9
 
@@ -33,7 +33,7 @@ models=(
     "mdl-llama1b-57928921-run1-58165531-clsfr-imv_event"
 )
 
-torchrun --nproc_per_node=2 \
+torchrun --nproc_per_node=4 \
     --rdzv_backend c10d \
     --rdzv-id "$SLURM_ARRAY_TASK_ID" \
     --rdzv-endpoint=localhost:0 \
@@ -41,5 +41,5 @@ torchrun --nproc_per_node=2 \
     --data_dir "${data_dirs[$i]}" \
     --data_version QC_day_stays_first_24h \
     --model_loc "${hm}/mdls-archive/${models[$j]}" \
-    --batch_sz $((2 ** 4)) \
+    --batch_sz $((2 ** 3)) \
     --all_layers True

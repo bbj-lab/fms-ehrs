@@ -76,13 +76,12 @@ def main(
 
     # iterate over splits and run inference using model
     stop_tokens = t.tensor([vocab("PAD"), vocab("TRUNC"), vocab("TL_END")]).to(device)
-    features = dict()
 
     for s in splits:
         if rank == 0:
             print(s)
         n = dataset[s].num_rows
-        features[s] = np.empty((n, d, h + 1)) if all_layers else np.empty((n, d))
+        features = np.empty((n, d, h + 1)) if all_layers else np.empty((n, d))
         for batch_idx in tqdm(t.split(t.arange(n), batch_sz)):
             batch = dataset[s]["input_ids"][batch_idx].to(device)
             final_nonpadding_idx = (
@@ -104,7 +103,7 @@ def main(
             )
             for i, j in enumerate(final_nonpadding_idx):
                 ret[i] = xhs[i, j]
-            features[s][batch_idx] = ret.detach().to("cpu")
+            features[batch_idx] = ret.detach().to("cpu")
 
         np.save(
             data_dirs[s].joinpath(
@@ -112,7 +111,7 @@ def main(
                     x="-all-layers" if all_layers else "", m=model_loc.stem
                 )
             ),
-            features[s],
+            features,
         )  # save out result
 
 
