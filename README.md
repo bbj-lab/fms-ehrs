@@ -235,6 +235,7 @@ export APPTAINER_CACHEDIR="/scratch/$(whoami)/cache"
 
 apptainer build env.sif env.def
 apptainer run --nv env.sif
+apptainer exec --nv env.sif ls
 ```
 
 `env.def`:
@@ -248,7 +249,7 @@ From: python:3.12.11-bullseye
 
 %post
     pip install uv
-    uv pip install --system --torch-backend=cu128 --link-mode=copy .
+    uv pip install --torch-backend=cu128 --link-mode=copy .
 ```
 
 Add to `preamble.sh`:

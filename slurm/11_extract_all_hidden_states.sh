@@ -6,12 +6,9 @@
 #SBATCH --gres=gpu:2
 #SBATCH --time=24:00:00
 #SBATCH --array=0-1
+#SBATCH --mem=160G
 
 source preamble.sh
-
-div=2
-quo=$((SLURM_ARRAY_TASK_ID / div))
-rem=$((SLURM_ARRAY_TASK_ID % div))
 
 data_dirs=(
     "${hm}/data-mimic"
@@ -27,9 +24,11 @@ torchrun --nproc_per_node=2 \
     --rdzv-id "$SLURM_ARRAY_TASK_ID" \
     --rdzv-endpoint=localhost:0 \
     ../fms_ehrs/scripts/extract_all_hidden_states.py \
-    --data_dir "${data_dirs[$rem]}" \
-    --out_dir "${out_dirs[$rem]}" \
+    --data_dir "${data_dirs[$SLURM_ARRAY_TASK_ID]}" \
+    --out_dir "${out_dirs[$SLURM_ARRAY_TASK_ID]}" \
     --data_version "QC_day_stays_first_24h" \
     --model_loc "${hm}/mdls-archive/llama1b-57928921-run1" \
-    --small_batch_sz $((2 ** 4)) \
-    --big_batch_sz $((2 ** 12))
+    --small_batch_sz $((2 ** 3)) \
+    --big_batch_sz $((2 ** 10)) \
+    --all_layers True \
+    --splits "('test')"
