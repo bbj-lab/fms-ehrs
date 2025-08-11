@@ -16,6 +16,7 @@ from tqdm import tqdm
 from transformers import AutoModelForCausalLM
 
 from fms_ehrs.framework.logger import get_logger
+from fms_ehrs.framework.storage import fix_perms
 from fms_ehrs.framework.vocabulary import Vocabulary
 
 logger = get_logger()
@@ -67,7 +68,9 @@ def main(
     )
 
     # load and prep model
-    model = AutoModelForCausalLM.from_pretrained(model_loc)  # in eval mode by default
+    model = AutoModelForCausalLM.from_pretrained(
+        model_loc, torch_dtype=t.float16
+    )  # in eval mode by default
     d = model.config.hidden_size
     h = model.config.num_hidden_layers
     model = model.to(device)
@@ -78,14 +81,16 @@ def main(
     stop_tokens = t.tensor([vocab("PAD"), vocab("TRUNC"), vocab("TL_END")]).to(device)
 
     for s in splits:
-        if rank == 0:
-            print(s)
         n = dataset[s].num_rows
-        features = np.empty((n, d, h + 1)) if all_layers else np.empty((n, d))
+        features = (
+            np.empty((n, d, h + 1), dtype=np.float16)
+            if all_layers
+            else np.empty((n, d), dtype=np.float16)
+        )
         for batch_idx in tqdm(t.split(t.arange(n), batch_sz)):
             batch = dataset[s]["input_ids"][batch_idx].to(device)
             final_nonpadding_idx = (
-                t.argmax(t.isin(batch, stop_tokens).int(), axis=1, keepdim=True) - 1
+                t.argmax(t.isin(batch, stop_tokens).int(), dim=1, keepdim=True) - 1
             )
             with t.inference_mode():
                 x = model.forward(input_ids=batch, output_hidden_states=True)
@@ -98,14 +103,13 @@ def main(
                 dtype=x.hidden_states[-1].dtype,
                 device=device,
             )
-            xhs = (
-                t.stack(x.hidden_states, dim=-1) if all_layers else x.hidden_states[-1]
-            )
+            x = t.stack(x.hidden_states, dim=-1) if all_layers else x.hidden_states[-1]
             for i, j in enumerate(final_nonpadding_idx):
-                ret[i] = xhs[i, j]
+                ret[i] = x[i, j]
             features[batch_idx] = ret.detach().to("cpu")
+            t.cuda.empty_cache()
 
-        np.save(
+        fix_perms(np.save)(
             data_dirs[s].joinpath(
                 "features{x}-{m}.npy".format(
                     x="-all-layers" if all_layers else "", m=model_loc.stem

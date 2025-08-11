@@ -53,6 +53,7 @@ parser.add_argument(
     default="logistic_regression",
 )
 parser.add_argument("--save_preds", action="store_true")
+parser.add_argument("--fast", action="store_true")
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -136,12 +137,12 @@ for level in range(h):
         match args.classifier:
             case "light_gbm":
                 estimator = lgb.LGBMClassifier(metric="auc")
-                estimator.fit(X=Xtrain, y=ytrain, eval_set=[Xval, yval])
+                estimator.fit(X=Xtrain, y=ytrain, eval_set=(Xval, yval))
             case "logistic_regression":
                 estimator = skl.pipeline.make_pipeline(
                     skl.preprocessing.StandardScaler(),
                     skl.linear_model.LogisticRegression(
-                        max_iter=10_000,
+                        max_iter=10 if args.fast else 10_000,
                         n_jobs=-1,
                         random_state=42,
                         solver="newton-cholesky",
@@ -189,8 +190,8 @@ for v in versions:
     fig.update_traces(mode="lines+markers")
     fig.write_image(
         out_dir.joinpath(
-            "multilayer-{c}-aucs-ucmc-{m}-{v}.pdf".format(
-                c=args.classifier, m=model_loc.stem, v=v
+            "multilayer-{c}-aucs-ucmc-{m}-{v}{f}.pdf".format(
+                c=args.classifier, m=model_loc.stem, v=v, f="-fast" if args.fast else ""
             )
         )
     )
@@ -199,7 +200,11 @@ if args.save_preds:
     for v in versions:
         with open(
             data_dirs[v]["test"].joinpath(
-                args.classifier + "-all_layers-preds-" + model_loc.stem + ".pkl"
+                args.classifier
+                + "-all_layers-preds-"
+                + model_loc.stem
+                + ("-fast" if args.fast else "")
+                + ".pkl"
             ),
             "wb",
         ) as fp:

@@ -15,6 +15,7 @@ import torch as t
 from transformers import AutoModelForSequenceClassification, Trainer
 
 from fms_ehrs.framework.logger import get_logger, log_classification_metrics
+from fms_ehrs.framework.storage import fix_perms
 from fms_ehrs.framework.util import rt_padding_to_left
 from fms_ehrs.framework.vocabulary import Vocabulary
 
@@ -78,7 +79,7 @@ def main(
     logits = preds.predictions
     y_score = t.nn.functional.softmax(t.tensor(logits), dim=-1).numpy()[:, 1]
 
-    np.save(
+    fix_perms(np.save)(
         data_dirs["test"].joinpath(
             "sft-{o}-preds-{m}.npy".format(o=outcome, m=model_loc.stem)
         ),

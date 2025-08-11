@@ -15,6 +15,7 @@ from tqdm import tqdm
 from transformers import AutoModelForCausalLM
 
 from fms_ehrs.framework.logger import get_logger
+from fms_ehrs.framework.storage import fix_perms
 from fms_ehrs.framework.vocabulary import Vocabulary
 
 logger = get_logger()
@@ -113,7 +114,7 @@ for s in args.splits:
                 log_probs_realized[i, j + 1 :] = np.nan
         log_probs[batch_idx] = log_probs_realized
 
-    np.save(
+    fix_perms(np.save)(
         data_dirs[s].joinpath("log_probs-{m}.npy".format(m=model_loc.stem)), log_probs
     )  # save out result
 
