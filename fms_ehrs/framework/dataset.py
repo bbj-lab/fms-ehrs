@@ -21,7 +21,6 @@ Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
 
 
 class Datasets:
-
     def __init__(
         self,
         data_version: str,
@@ -163,11 +162,10 @@ class Datasets:
         return x if iterable else ds.Dataset.from_list(list(x))
 
     def get_context_length(self):
-        return self.dataset["train"].select(range(1))["input_ids"].shape[1]
+        return len(self.dataset["train"].select(range(1))["input_ids"][0])
 
 
 if __name__ == "__main__":
-
     if os.uname().nodename.startswith("cri"):
         hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/")
     else:

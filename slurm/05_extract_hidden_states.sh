@@ -1,44 +1,36 @@
 #!/bin/bash
 
-#SBATCH --job-name=extract-states
-#SBATCH --output=./output/%A_%a-%x.stdout
+#SBATCH --job-name=x-all-layers
+#SBATCH --output=./output/%j-%x.stdout
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:2
 #SBATCH --time=1-00:00:00
-#SBATCH --array=0-31
-##SBATCH --depend=afterok:60702515
+#SBATCH --array=0-9
 
 source preamble.sh
 
-ni=2
-nj=4
-nk=4
-i=$((SLURM_ARRAY_TASK_ID % ni))
-jk=$((SLURM_ARRAY_TASK_ID / ni))
-j=$((jk % nj))
-k=$((jk / nj))
+echo "SLURM_ARRAY_JOB_ID=${SLURM_ARRAY_JOB_ID}"
+echo "SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
 
-if ((SLURM_ARRAY_TASK_COUNT != ni * nj * nk)); then
+ni=2 nj=5
+i=$((SLURM_ARRAY_TASK_ID % ni)) j=$((SLURM_ARRAY_TASK_ID / ni))
+
+if ((SLURM_ARRAY_TASK_COUNT != ni * nj)); then
     echo "Warning:"
     echo "SLURM_ARRAY_TASK_COUNT=$SLURM_ARRAY_TASK_COUNT"
-    echo "ni*nj*nk=$((ni * nj * nk))"
+    echo "ni*nj=$((ni * nj))"
 fi
 
 data_dirs=(
     "${hm}/data-mimic"
     "${hm}/data-ucmc"
 )
-methods=(
-    none
-    top
-    bottom
-    random
-)
-pcts=(
-    10
-    20
-    30
-    40
+models=(
+    "llama1b-57928921-run1"
+    "mdl-llama1b-57928921-run1-58115722-clsfr-same_admission_death"
+    "mdl-llama1b-57928921-run1-58134628-clsfr-long_length_of_stay"
+    "mdl-llama1b-57928921-run1-58165534-clsfr-icu_admission"
+    "mdl-llama1b-57928921-run1-58165531-clsfr-imv_event"
 )
 
 torchrun --nproc_per_node=2 \
@@ -47,23 +39,7 @@ torchrun --nproc_per_node=2 \
     --rdzv-endpoint=localhost:0 \
     ../fms_ehrs/scripts/extract_hidden_states.py \
     --data_dir "${data_dirs[$i]}" \
-    --data_version "W++_first_24h_llama-med-60358922_1-hp-W++_${methods[$j]}_${pcts[$k]}pct_ppy" \
-    --model_loc "${hm}/mdls-archive/llama-med-60358922_1-hp-W++" \
-    --batch_sz "$((2 ** 5))"
-
-#models=(
-#    llama-original-60358922_0-hp-W++
-#    llama-med-60358922_1-hp-W++
-#    llama-small-60358922_2-hp-W++
-#    llama-smol-60358922_3-hp-W++
-#)
-#
-#torchrun --nproc_per_node=4 \
-#    --rdzv_backend c10d \
-#    --rdzv-id "$SLURM_ARRAY_TASK_ID" \
-#    --rdzv-endpoint=localhost:0 \
-#    ../fms_ehrs/scripts/extract_hidden_states.py \
-#    --data_dir "${data_dirs[$i]}" \
-#    --data_version "W++_first_24h_${models[$k]}_${methods[$j]}_20pct" \
-#    --model_loc "${hm}/mdls-archive/${models[$k]}" \
-#    --batch_sz $((2 ** 5))
+    --data_version QC_day_stays_first_24h \
+    --model_loc "${hm}/mdls-archive/${models[$j]}" \
+    --batch_sz $((2 ** 3)) \
+    --all_layers True

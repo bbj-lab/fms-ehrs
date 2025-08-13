@@ -29,8 +29,7 @@ def main(
     valid_admission_window: tuple[str, str] = None,
 ):
     data_dir_in, data_dir_out = map(
-        lambda d: pathlib.Path(d).expanduser().resolve(),
-        (data_dir_in, data_dir_out),
+        lambda d: pathlib.Path(d).expanduser().resolve(), (data_dir_in, data_dir_out)
     )
 
     # make output sub-directories
@@ -109,7 +108,6 @@ def main(
 
     # generate sub-tables
     for s in splits:
-
         pl.scan_parquet(data_dir_in.joinpath("clif_patient.parquet")).join(
             p_ids[s].lazy(), on="patient_id"
         ).sink_parquet(dirs_out[s].joinpath("clif_patient.parquet"))

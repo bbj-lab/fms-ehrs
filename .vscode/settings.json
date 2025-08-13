@@ -1,5 +1,5 @@
 {
-    "black-formatter.args": ["--config", "${workspaceFolder}/pyproject.toml"],
+    "cSpell.diagnosticLevel": "Hint",
     "editor.formatOnSave": true,
     "[json]": {
         "editor.defaultFormatter": "esbenp.prettier-vscode"
@@ -12,8 +12,12 @@
     },
     "prettier.configPath": ".prettierrc.toml",
     "[python]": {
-        "editor.defaultFormatter": "ms-python.black-formatter"
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+        }
     },
+    "ruff.configuration": "${workspaceFolder}/pyproject.toml",
     "[shellscript]": {
         "editor.defaultFormatter": "mkhl.shfmt"
     },

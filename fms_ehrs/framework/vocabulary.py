@@ -15,6 +15,8 @@ import warnings
 
 import polars as pl
 
+from fms_ehrs.framework.storage import fix_perms
+
 Frame: typing.TypeAlias = pl.DataFrame | pl.LazyFrame
 Hashable: typing.TypeAlias = collections.abc.Hashable
 Pathlike: typing.TypeAlias = pathlib.PurePath | str
@@ -75,6 +77,7 @@ class Vocabulary:
                 },
                 f,
             )
+            fix_perms(f)
         return self
 
     def load(self, filepath: Pathlike) -> typing.Self:
@@ -112,7 +115,6 @@ class Vocabulary:
 
 
 if __name__ == "__main__":
-
     import tempfile
 
     import numpy as np

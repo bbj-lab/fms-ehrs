@@ -40,3 +40,6 @@ dx = pl.read_csv(ucmc_dir.joinpath("C19_DX_DID.txt"), separator="|", infer_schem
 
 for har_id in args.har_ids:
     print(dx.filter(pl.col("C19_PATIENT_ID") == har_id))
+
+
+logger.info("---fin")

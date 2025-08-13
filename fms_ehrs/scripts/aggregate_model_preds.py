@@ -45,8 +45,7 @@ outcomes = ("same_admission_death", "long_length_of_stay", "icu_admission", "imv
 results = collections.OrderedDict()
 for m in models:
     with open(
-        data_dir_test.joinpath(args.classifier + "-preds-" + m.stem + ".pkl"),
-        "rb",
+        data_dir_test.joinpath(args.classifier + "-preds-" + m.stem + ".pkl"), "rb"
     ) as fp:
         results[m.stem] = pickle.load(fp)
 
@@ -58,16 +57,13 @@ for outcome in outcomes:
             "y_score": v["predictions"][outcome],
         }
     plot_calibration_curve(
-        named_results,
-        savepath=out_dir.joinpath(f"cal-{outcome}-{data_dir.stem}.pdf"),
+        named_results, savepath=out_dir.joinpath(f"cal-{outcome}-{data_dir.stem}.pdf")
     )
     plot_roc_curve(
-        named_results,
-        savepath=out_dir.joinpath(f"roc-{outcome}-{data_dir.stem}.pdf"),
+        named_results, savepath=out_dir.joinpath(f"roc-{outcome}-{data_dir.stem}.pdf")
     )
     plot_precision_recall_curve(
-        named_results,
-        savepath=out_dir.joinpath(f"pr-{outcome}-{data_dir.stem}.pdf"),
+        named_results, savepath=out_dir.joinpath(f"pr-{outcome}-{data_dir.stem}.pdf")
     )
 
 logger.info("---fin")

@@ -15,6 +15,7 @@ import torch as t
 from transformers import AutoModelForSequenceClassification, Trainer
 
 from fms_ehrs.framework.logger import get_logger, log_classification_metrics
+from fms_ehrs.framework.storage import set_perms
 from fms_ehrs.framework.util import rt_padding_to_left
 from fms_ehrs.framework.vocabulary import Vocabulary
 
@@ -29,23 +30,16 @@ def main(
     data_dir: os.PathLike = None,
     data_version: str = "day_stays_first_24h",
     outcome: typing.Literal[
-        "same_admission_death",
-        "long_length_of_stay",
-        "icu_admission",
-        "imv_event",
+        "same_admission_death", "long_length_of_stay", "icu_admission", "imv_event"
     ] = "same_admission_death",
 ):
-
     model_loc, data_dir = map(
-        lambda d: pathlib.Path(d).expanduser().resolve(),
-        (model_loc, data_dir),
+        lambda d: pathlib.Path(d).expanduser().resolve(), (model_loc, data_dir)
     )
 
     # load and prep data
     splits = ("train", "val", "test")
-    data_dirs = {
-        s: data_dir.joinpath(f"{data_version}-tokenized", s) for s in splits
-    }
+    data_dirs = {s: data_dir.joinpath(f"{data_version}-tokenized", s) for s in splits}
 
     vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
 
@@ -53,9 +47,7 @@ def main(
         ds.load_dataset(
             "parquet",
             data_files={
-                s: str(
-                    data_dirs[s].joinpath("tokens_timelines_outcomes.parquet")
-                )
+                s: str(data_dirs[s].joinpath("tokens_timelines_outcomes.parquet"))
                 for s in ("test",)
             },
         )
@@ -87,7 +79,7 @@ def main(
     logits = preds.predictions
     y_score = t.nn.functional.softmax(t.tensor(logits), dim=-1).numpy()[:, 1]
 
-    np.save(
+    set_perms(np.save)(
         data_dirs["test"].joinpath(
             "sft-{o}-preds-{m}.npy".format(o=outcome, m=model_loc.stem)
         ),
