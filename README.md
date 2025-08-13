@@ -2,7 +2,7 @@
 
 > This repo contains code to tokenize electronic health records, train foundation
 > models on those tokenized records, and then perform various downstream
-> analyses.
+> analyses. [^1] [^2]
 
 ## Requirements & structure
 
@@ -25,12 +25,12 @@ For plots to render correctly, you may need to install a working version of
 
 ## What the code does
 
-We consider 422k hospitalization events for adults (age 18 or older) from the
-Beth Israel Deaconess Medical Center between 2008–2019
-([MIMIC-IV-3.1](https://physionet.org/content/mimiciv/3.1/)) and 50k
-hospitalization events from [UCMC](https://www.uchicagomedicine.org) between
-March 2020 and March 2022. We restricted to patients with stays of at least 24
-hours. We formatted EHR data from each health system into the
+We consider hospitalization events for adults (age 18 or older) from the Beth
+Israel Deaconess Medical Center between 2008–2019
+([MIMIC-IV-3.1](https://physionet.org/content/mimiciv/3.1/)) and from
+[UCMC](https://www.uchicagomedicine.org) between March 2020 and March 2022. We
+restricted to patients with stays of at least 24 hours. We formatted EHR data
+from each health system into the
 [CLIF-2.0.0 format](https://web.archive.org/web/20250711203935/https://clif-consortium.github.io/website/data-dictionary/data-dictionary-2.0.0.html).
 The MIMIC patients were partitioned intro training, validation, and test sets at
 a 70\%-10\%-20\% rate, according to the randomized time of their first
@@ -151,6 +151,20 @@ For example, the first few tokens for a timeline might look like this:
 
     to keep logs.
 
+---
+
+[^1]:
+    M. Burkhart, B. Ramadan, Z. Liao, K. Chhikara, J. Rojas, W. Parker, & B.
+    Beaulieu-Jones, Foundation models for electronic health records:
+    representation dynamics and transferability,
+    [arXiv:2504.10422](https://doi.org/10.48550/arXiv.2504.10422)
+
+[^2]:
+    M. Burkhart, B. Ramadan, L. Solo, W. Parker, & B. Beaulieu-Jones, Quantifying
+    surprise in clinical care: detecting highly informative events in electronic
+    health records with foundation models,
+    [arXiv:2507.22798](https://doi.org/10.48550/arXiv.2507.22798)
+
 <!--
 
 Format:
@@ -224,44 +238,6 @@ Install directly from github:
 
 ```sh
 pip install -e "git+https://github.com/bbj-lab/clif-tokenizer.git@main#egg=fms-ehrs"
-```
-
-Apptainer:
-
-```sh
-export TMPDIR="/scratch/$(whoami)/cache"
-export APPTAINER_TMPDIR="/scratch/$(whoami)/cache"
-export APPTAINER_CACHEDIR="/scratch/$(whoami)/cache"
-
-apptainer build env.sif env.def
-apptainer run --nv env.sif
-apptainer exec --nv env.sif ls
-```
-
-`env.def`:
-```
-Bootstrap: docker
-From: python:3.12.11-bullseye
-
-%files
-    pyproject.toml
-    fms_ehrs/
-
-%post
-    pip install uv
-    uv pip install --torch-backend=cu128 --link-mode=copy .
-```
-
-Add to `preamble.sh`:
-
-```
-python3() {
-    apptainer exec --nv ~/env.sif python3 "$@"
-}
-
-torchrun() {
-    apptainer exec --nv ~/env.sif torchrun "$@"
-}
 ```
 
 -->

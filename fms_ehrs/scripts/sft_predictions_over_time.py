@@ -60,7 +60,7 @@ dataset = (
     )
 )
 
-device = t.device(f"cuda:0")
+device = t.device("cuda:0")
 
 tk: int = vocab("PAD")
 
