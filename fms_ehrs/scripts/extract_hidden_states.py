@@ -16,7 +16,7 @@ from tqdm import tqdm
 from transformers import AutoModelForCausalLM
 
 from fms_ehrs.framework.logger import get_logger
-from fms_ehrs.framework.storage import fix_perms
+from fms_ehrs.framework.storage import set_perms
 from fms_ehrs.framework.vocabulary import Vocabulary
 
 logger = get_logger()
@@ -109,7 +109,7 @@ def main(
             features[batch_idx] = ret.detach().to("cpu")
             t.cuda.empty_cache()
 
-        fix_perms(np.save)(
+        set_perms(np.save)(
             data_dirs[s].joinpath(
                 "features{x}-{m}.npy".format(
                     x="-all-layers" if all_layers else "", m=model_loc.stem

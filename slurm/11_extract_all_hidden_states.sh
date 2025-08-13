@@ -5,8 +5,9 @@
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:2
 #SBATCH --time=24:00:00
-#SBATCH --array=0-1
+#SBATCH --array=0
 #SBATCH --mem=160G
+##SBATCH --begin=23:00
 
 source preamble.sh
 
@@ -30,5 +31,7 @@ torchrun --nproc_per_node=2 \
     --model_loc "${hm}/mdls-archive/llama1b-57928921-run1" \
     --small_batch_sz $((2 ** 3)) \
     --big_batch_sz $((2 ** 10)) \
-    --all_layers True \
-    --splits "('test')"
+    --all_layers True
+
+#    --splits "('test',)" \
+#    --batch_num_start 35

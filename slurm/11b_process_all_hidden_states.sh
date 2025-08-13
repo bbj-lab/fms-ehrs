@@ -10,10 +10,8 @@
 
 source preamble.sh
 
-ni=2
-nj=3
-i=$((SLURM_ARRAY_TASK_ID % ni))
-j=$((SLURM_ARRAY_TASK_ID / ni))
+ni=2 nj=3
+i=$((SLURM_ARRAY_TASK_ID % ni)) j=$((SLURM_ARRAY_TASK_ID / ni))
 
 if ((SLURM_ARRAY_TASK_COUNT != ni * nj)); then
     echo "Warning:"

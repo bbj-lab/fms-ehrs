@@ -17,7 +17,7 @@ from tqdm import tqdm
 from transformers import AutoModelForCausalLM
 
 from fms_ehrs.framework.logger import get_logger
-from fms_ehrs.framework.storage import fix_perms
+from fms_ehrs.framework.storage import set_perms
 from fms_ehrs.framework.vocabulary import Vocabulary
 
 logger = get_logger()
@@ -131,7 +131,7 @@ def main(
                         feats[i, j:] = np.nan
                 features[small_batch - batch_num * big_batch_sz] = feats
                 # t.cuda.empty_cache()
-            fix_perms(np.save)(
+            set_perms(np.save)(
                 out_dirs[s].joinpath(
                     "all-features{x}-{m}-batch{n}.npy".format(
                         x="-all-layers" if all_layers else "",
