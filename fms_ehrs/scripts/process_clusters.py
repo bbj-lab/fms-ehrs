@@ -14,8 +14,9 @@ import plotly.io as pio
 import polars as pl
 
 from fms_ehrs.framework.logger import get_logger
+from fms_ehrs.framework.storage import set_perms, fix_perms
 
-pio.kaleido.scope.mathjax = None
+pio.defaults.mathjax = None
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
@@ -77,19 +78,15 @@ labels = dict()
 for v in versions:
     logger.info(f"{v}...")
     with open(
-        data_dirs[v].joinpath("dbscan-reps-{m}-m100.pkl".format(m=model_loc.stem)),
-        "rb",
+        data_dirs[v].joinpath("dbscan-reps-{m}-m100.pkl".format(m=model_loc.stem)), "rb"
     ) as fp:
         clusterers[v] = pickle.load(fp)
+        fix_perms(fp)
 
 outcomes = ("same_admission_death", "long_length_of_stay", "icu_admission", "imv_event")
 aux = {
     v: (
-        pl.scan_parquet(
-            data_dirs[v].joinpath(
-                "tokens_timelines_outcomes.parquet",
-            )
-        )
+        pl.scan_parquet(data_dirs[v].joinpath("tokens_timelines_outcomes.parquet"))
         .select("hospitalization_id", *outcomes)
         .collect()
         .with_columns(hdbscan_label=pl.Series(clusterers[v].labels_))
@@ -168,7 +165,7 @@ fig.update_layout(
     height=900,
     width=300,
 )
-fig.write_image(
+set_perms(fig.write_image)(
     out_dir.joinpath("dbscan-clusters-outcomes-{m}-m100.pdf".format(m=model_loc.stem))
 )
 
@@ -206,7 +203,7 @@ fig.update_layout(
     height=900,
     width=3500,
 )
-fig.write_image(
+set_perms(fig.write_image)(
     out_dir.joinpath("dbscan-clusters-dx-{m}-m100.pdf".format(m=model_loc.stem))
 )
 

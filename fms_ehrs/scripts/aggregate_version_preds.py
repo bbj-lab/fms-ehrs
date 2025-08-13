@@ -39,15 +39,7 @@ parser.add_argument(
     ],
 )
 parser.add_argument(
-    "--handles",
-    type=str,
-    nargs="*",
-    default=[
-        "orig",
-        "top5",
-        "bot5",
-        "rnd5",
-    ],
+    "--handles", type=str, nargs="*", default=["orig", "top5", "bot5", "rnd5"]
 )
 parser.add_argument("--baseline_handle", type=str, default="orig")
 parser.add_argument("--out_dir", type=pathlib.Path, default="../../figs")
@@ -66,10 +58,7 @@ parser.add_argument(
     "--outcomes",
     type=str,
     nargs="*",
-    default=[
-        "same_admission_death",
-        "long_length_of_stay",
-    ],
+    default=["same_admission_death", "long_length_of_stay"],
 )
 args, unknowns = parser.parse_known_args()
 
@@ -97,11 +86,7 @@ for v in args.data_versions:
     ) as fp:
         results[v] = pickle.load(fp)
     tto[v] = pl.scan_parquet(
-        data_dir.joinpath(
-            f"{v}-tokenized",
-            "test",
-            "tokens_timelines_outcomes.parquet",
-        )
+        data_dir.joinpath(f"{v}-tokenized", "test", "tokens_timelines_outcomes.parquet")
     )
     # logger.info(tto[v].select(pl.col("times").list.len()).describe())
 
@@ -135,18 +120,12 @@ for outcome in args.outcomes:
 
     results_tbl = pd.DataFrame(
         columns=["avg-len", "CI-roc_auc", "CI-pr_auc", "CI-brier"],
-        index=pd.Index(
-            named_results.keys(),
-            name="versions",
-        ),
+        index=pd.Index(named_results.keys(), name="versions"),
     )
 
     results_alt = pd.DataFrame(
         columns=["roc_auc", "pr_auc", "brier"],
-        index=pd.Index(
-            named_results.keys(),
-            name="versions",
-        ),
+        index=pd.Index(named_results.keys(), name="versions"),
     )
 
     for name, res in named_results.items():

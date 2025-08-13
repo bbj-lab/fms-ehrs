@@ -96,7 +96,6 @@ for v in versions:
 preds = collections.defaultdict(dict)
 
 for outcome in outcomes:
-
     logger.info(outcome.replace("_", " ").upper().ljust(79, "-"))
 
     Xtrain = (features["orig"]["train"])[qualifiers[outcome]["orig"]["train"]]
@@ -107,11 +106,7 @@ for outcome in outcomes:
     match args.classifier:
         case "light_gbm":
             estimator = lgb.LGBMClassifier(metric="auc")
-            estimator.fit(
-                X=Xtrain,
-                y=ytrain,
-                eval_set=(Xval, yval),
-            )
+            estimator.fit(X=Xtrain, y=ytrain, eval_set=(Xval, yval))
 
         case "logistic_regression_cv":
             estimator = skl.pipeline.make_pipeline(
@@ -143,7 +138,6 @@ for outcome in outcomes:
                 f"Classifier {args.classifier} is not yet supported."
             )
     for v in versions:
-
         logger.info(v.upper())
 
         q_test = qualifiers[outcome][v]["test"]

@@ -13,9 +13,10 @@ import plotly.graph_objects as go
 import plotly.io as pio
 
 from fms_ehrs.framework.logger import get_logger
+from fms_ehrs.framework.storage import set_perms
 from fms_ehrs.framework.util import ragged_lists_to_array
 
-pio.kaleido.scope.mathjax = None
+pio.defaults.mathjax = None
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
@@ -55,7 +56,6 @@ with open(
 
 
 for suffix in ("", "_urt", "_lr"):
-
     fig = go.Figure()
 
     Mt = ragged_lists_to_array(results["mort_preds" + suffix].values())
@@ -65,13 +65,7 @@ for suffix in ("", "_urt", "_lr"):
 
     fig.add_trace(
         go.Scatter(
-            y=Mt_mean,
-            mode="lines",
-            line=dict(
-                color="red",
-                width=1,
-            ),
-            name="Dies",
+            y=Mt_mean, mode="lines", line=dict(color="red", width=1), name="Dies"
         )
     )
 
@@ -82,10 +76,7 @@ for suffix in ("", "_urt", "_lr"):
                 mode="lines",
                 opacity=0.1,
                 fill="tonexty" if i > 0 else None,
-                line=dict(
-                    color="red",
-                    width=0,
-                ),
+                line=dict(color="red", width=0),
                 name="+/- 2σ",
             )
         )
@@ -99,13 +90,7 @@ for suffix in ("", "_urt", "_lr"):
 
     fig.add_trace(
         go.Scatter(
-            y=Lt_mean,
-            mode="lines",
-            line=dict(
-                color="blue",
-                width=1,
-            ),
-            name="Lives",
+            y=Lt_mean, mode="lines", line=dict(color="blue", width=1), name="Lives"
         )
     )
 
@@ -116,10 +101,7 @@ for suffix in ("", "_urt", "_lr"):
                 mode="lines",
                 opacity=0.1,
                 fill="tonexty" if i > 0 else None,
-                line=dict(
-                    color="blue",
-                    width=0,
-                ),
+                line=dict(color="blue", width=0),
                 name="+/- 2σ",
             )
         )
@@ -134,16 +116,15 @@ for suffix in ("", "_urt", "_lr"):
         font_family="CMU Serif, Times New Roman, serif",
     )
 
-    fig.write_image(
+    set_perms(fig.write_image)(
         out_dir.joinpath(
             "tokenwise_vis-{m}{s}-{d}.pdf".format(
-                m=model_loc.stem,
-                s=suffix,
-                d=data_dir.stem,
+                m=model_loc.stem, s=suffix, d=data_dir.stem
             )
         )
         .expanduser()
         .resolve()
     )
+
 
 logger.info("---fin")

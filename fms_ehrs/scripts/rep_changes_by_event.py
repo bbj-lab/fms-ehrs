@@ -47,11 +47,7 @@ parser.add_argument(
 parser.add_argument(
     "--aggregation", choices=["sum", "max", "perplexity"], default="sum"
 )
-parser.add_argument(
-    "--big_batch_sz",
-    type=int,
-    default=2**12,
-)
+parser.add_argument("--big_batch_sz", type=int, default=2**12)
 parser.add_argument("--drop_prefix", action="store_true")
 parser.add_argument("--make_plots", action="store_true")
 args, unknowns = parser.parse_known_args()
@@ -89,9 +85,7 @@ def process_big_batch(batch_num: int, big_batch: t.Tensor):
     for batch_idx, orig_idx in enumerate(big_batch.numpy()):
         tks, tms = tks_arr[orig_idx], tms_arr[orig_idx]
         tlen = min(
-            len(tks),
-            len(tms),
-            np.argwhere(np.isfinite(inf_arr[orig_idx])).max() + 1,
+            len(tks), len(tms), np.argwhere(np.isfinite(inf_arr[orig_idx])).max() + 1
         )
         tks, tms = tks[:tlen], tms[:tlen]
         inf_i = np.nan_to_num(inf_arr[orig_idx, :tlen])
@@ -138,7 +132,7 @@ df_e = pd.DataFrame(
 ).dropna()
 
 logger.info(f"Eventwise associations for {len(df_e)} events...")
-lm_e = smf.ols(f"total_jump ~ 1 + information", data=df_e).fit()
+lm_e = smf.ols("total_jump ~ 1 + information", data=df_e).fit()
 logger.info(lm_e.summary())
 
 fig, ax = plt.subplots(figsize=(10, 8))
@@ -162,7 +156,7 @@ q = np.quantile(df_e.information, 0.95)
 df_he = df_e.loc[lambda df: df.information >= q]
 
 logger.info(f"Eventwise associations for {len(df_he)} informative events...")
-lm_he = smf.ols(f"total_jump ~ 1 + information", data=df_he).fit()
+lm_he = smf.ols("total_jump ~ 1 + information", data=df_he).fit()
 logger.info(lm_he.summary())
 
 fig, ax = plt.subplots(figsize=(10, 8))

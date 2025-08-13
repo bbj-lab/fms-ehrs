@@ -69,7 +69,6 @@ class SlurmLogger(logging.Logger):
             self.info("branch: {}".format(get_branch.stdout.decode().strip()))
 
     def log_calls(self, func: callable) -> callable:
-
         @functools.wraps(func)
         def log_io(*args, **kwargs):
             func_args = inspect.signature(func).bind_partial(*args, **kwargs)
@@ -111,12 +110,7 @@ def log_classification_metrics(
         "roc_auc: {:.3f}".format(skl_mets.roc_auc_score(y_true=y_true, y_score=y_score))
     )
 
-    for met in (
-        "accuracy",
-        "balanced_accuracy",
-        "precision",
-        "recall",
-    ):
+    for met in ("accuracy", "balanced_accuracy", "precision", "recall"):
         logger.info(
             "{}: {:.3f}".format(
                 met,
@@ -128,7 +122,6 @@ def log_classification_metrics(
 
 
 if __name__ == "__main__":
-
     from fms_ehrs.framework.stats import generate_classifier_preds
 
     logger = get_logger()

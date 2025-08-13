@@ -33,8 +33,7 @@ for k, v in vars(args).items():
     logger.info(f"{k}: {v}")
 
 data_dir, model_loc = map(
-    lambda d: pathlib.Path(d).expanduser().resolve(),
-    (args.data_dir, args.model_loc),
+    lambda d: pathlib.Path(d).expanduser().resolve(), (args.data_dir, args.model_loc)
 )
 
 info = np.load(
@@ -47,9 +46,7 @@ info = np.load(
 
 tto = pl.read_parquet(
     data_dir.joinpath(
-        f"{args.data_version}-tokenized",
-        "test",
-        "tokens_timelines_outcomes.parquet",
+        f"{args.data_version}-tokenized", "test", "tokens_timelines_outcomes.parquet"
     )
 )
 
@@ -110,5 +107,6 @@ for outcome in outcomes:
         ).fit()
         logger.info(lr[outcome].summary())
         # logger.info(lr[outcome].summary().as_latex())
+
 
 logger.info("---fin")

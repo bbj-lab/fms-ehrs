@@ -31,10 +31,8 @@ def main(
     load_jumps: bool = False,
     run_stats: bool = False,
 ):
-
     data_dir, model_loc = map(
-        lambda d: pathlib.Path(d).expanduser().resolve(),
-        (data_dir, model_loc),
+        lambda d: pathlib.Path(d).expanduser().resolve(), (data_dir, model_loc)
     )
 
     if load_jumps:
@@ -56,9 +54,7 @@ def main(
 
         get_jumps_from_shard = lambda f: np.linalg.norm(
             np.diff(np.load(f), axis=1), axis=-1
-        ).astype(
-            np.float16
-        )  # np.load(f) will have shape n_obs × tl_len × d_rep
+        ).astype(np.float16)  # np.load(f) will have shape n_obs × tl_len × d_rep
 
         jumps = np.concatenate(
             Parallel(n_jobs=-1, verbose=True)(

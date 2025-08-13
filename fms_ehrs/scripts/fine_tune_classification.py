@@ -52,10 +52,8 @@ def main(
     tune: bool = False,
     training_fraction: float = 1.0,
 ) -> pathlib.PurePath | None:
-
     model_loc, data_dir, out_dir = map(
-        lambda d: pathlib.Path(d).expanduser().resolve(),
-        (model_loc, data_dir, out_dir),
+        lambda d: pathlib.Path(d).expanduser().resolve(), (model_loc, data_dir, out_dir)
     )
 
     os.environ["WANDB_PROJECT"] = wandb_project
@@ -149,10 +147,7 @@ def main(
 
     if tune:
         best_trial = trainer.hyperparameter_search(
-            direction="minimize",
-            backend="optuna",
-            hp_space=optuna_hp_space,
-            n_trials=5,
+            direction="minimize", backend="optuna", hp_space=optuna_hp_space, n_trials=5
         )
 
         if os.getenv("RANK", "0") == "0":

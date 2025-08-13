@@ -30,9 +30,7 @@ parser.add_argument("--data_dir_orig", type=pathlib.Path, default="../../data-mi
 parser.add_argument("--data_dir_new", type=pathlib.Path, default="../../data-ucmc")
 parser.add_argument("--data_version", type=str, default="QC_day_stays_first_24h")
 parser.add_argument(
-    "--model_loc",
-    type=pathlib.Path,
-    default="../mdls-archive/llama-orig-58789721",
+    "--model_loc", type=pathlib.Path, default="../mdls-archive/llama-orig-58789721"
 )
 parser.add_argument(
     "--classifier",
@@ -71,10 +69,7 @@ for v in versions:
         .select(
             pl.col("tokens")
             .list.get(1)  # index of race token
-            .map_elements(
-                vocab.reverse.__getitem__,
-                return_dtype=pl.String,
-            )
+            .map_elements(vocab.reverse.__getitem__, return_dtype=pl.String)
             .replace(None, "Unknown/Other")
             .replace("other", "Unknown/Other")
             .replace("unknown", "Unknown/Other")
@@ -93,10 +88,7 @@ for v in versions:
         .select(
             pl.col("tokens")
             .list.get(2)  # index of ethnicity token
-            .map_elements(
-                vocab.reverse.__getitem__,
-                return_dtype=pl.String,
-            )
+            .map_elements(vocab.reverse.__getitem__, return_dtype=pl.String)
             .replace(None, "unknown")
         )
         .collect()
@@ -108,10 +100,7 @@ for v in versions:
         .select(
             pl.col("tokens")
             .list.get(3)  # index of sex token
-            .map_elements(
-                vocab.reverse.__getitem__,
-                return_dtype=pl.String,
-            )
+            .map_elements(vocab.reverse.__getitem__, return_dtype=pl.String)
         )
         .collect()
         .to_series()
@@ -168,5 +157,6 @@ for v in versions:
                 y_true=qualified_labels, y_score=qualified_preds
             )
     print(df)
+
 
 logger.info("---fin")
