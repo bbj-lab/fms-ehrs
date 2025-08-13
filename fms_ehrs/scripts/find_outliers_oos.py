@@ -11,7 +11,7 @@ import numpy as np
 import sklearn.ensemble as skl_ens
 
 from fms_ehrs.framework.logger import get_logger
-from fms_ehrs.framework.storage import fix_perms
+from fms_ehrs.framework.storage import set_perms
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
@@ -89,11 +89,11 @@ for s in ("val", "test"):
     )
 
 for s in splits:
-    fix_perms(np.save)(
+    set_perms(np.save)(
         data_dirs[s].joinpath("features-outliers-{m}.npy".format(m=model_loc.stem)),
         out[s],
     )
-    fix_perms(np.save)(
+    set_perms(np.save)(
         data_dirs[s].joinpath(
             "features-anomaly-score-{m}.npy".format(m=model_loc.stem)
         ),
@@ -132,11 +132,11 @@ for s in splits:
         )
     )
 
-    fix_perms(np.save)(
+    set_perms(np.save)(
         data_dirs[s].joinpath("features-outliers-{m}.npy".format(m=model_loc.stem)),
         out[s],
     )
-    fix_perms(np.save)(
+    set_perms(np.save)(
         data_dirs[s].joinpath(
             "features-anomaly-score-{m}.npy".format(m=model_loc.stem)
         ),

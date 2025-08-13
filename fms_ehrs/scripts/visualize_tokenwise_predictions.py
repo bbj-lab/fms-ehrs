@@ -13,9 +13,10 @@ import plotly.graph_objects as go
 import plotly.io as pio
 
 from fms_ehrs.framework.logger import get_logger
+from fms_ehrs.framework.storage import set_perms
 from fms_ehrs.framework.util import ragged_lists_to_array
 
-pio.kaleido.scope.mathjax = None
+pio.defaults.mathjax = None
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
@@ -115,7 +116,7 @@ for suffix in ("", "_urt", "_lr"):
         font_family="CMU Serif, Times New Roman, serif",
     )
 
-    fig.write_image(
+    set_perms(fig.write_image)(
         out_dir.joinpath(
             "tokenwise_vis-{m}{s}-{d}.pdf".format(
                 m=model_loc.stem, s=suffix, d=data_dir.stem

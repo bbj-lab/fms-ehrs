@@ -16,10 +16,12 @@ from plotly import io as pio
 from sklearn import calibration as skl_cal
 from sklearn import metrics as skl_mets
 
+from fms_ehrs.framework.storage import set_perms
+
 Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
 Dictlike: typing.TypeAlias = collections.OrderedDict | dict
 
-pio.kaleido.scope.mathjax = None
+pio.defaults.mathjax = None
 
 mains = ("#EAAA00", "#DE7C00", "#789D4A", "#275D38", "#007396", "#56315F", "#A4343A")
 lights = ("#F3D03E", "#ECA154", "#A9C47F", "#9CAF88", "#3EB1C8", "#86647A", "#B46A55")
@@ -62,7 +64,7 @@ def plot_calibration_curve(
                 y=prob_true,
                 mode="lines+markers",
                 name="{} (Brier: {:.3f})".format(
-                    name, skl_mets.brier_score_loss(y_true=y_true, y_prob=y_score)
+                    name, skl_mets.brier_score_loss(y_true, y_score)
                 ),
                 marker=dict(color=colors[i % len(colors)]),
             )
@@ -81,7 +83,7 @@ def plot_calibration_curve(
     if savepath is None:
         fig.show()
     else:
-        fig.write_image(pathlib.Path(savepath).expanduser().resolve())
+        set_perms(fig.write_image)(pathlib.Path(savepath).expanduser().resolve())
 
 
 def plot_roc_curve(named_results: Dictlike, savepath: Pathlike = None):
@@ -135,7 +137,7 @@ def plot_roc_curve(named_results: Dictlike, savepath: Pathlike = None):
     if savepath is None:
         fig.show()
     else:
-        fig.write_image(pathlib.Path(savepath).expanduser().resolve())
+        set_perms(fig.write_image)(pathlib.Path(savepath).expanduser().resolve())
 
 
 def plot_precision_recall_curve(
@@ -182,7 +184,7 @@ def plot_precision_recall_curve(
     if savepath is None:
         fig.show()
     else:
-        fig.write_image(pathlib.Path(savepath).expanduser().resolve())
+        set_perms(fig.write_image)(pathlib.Path(savepath).expanduser().resolve())
 
 
 def plot_histogram(
@@ -211,7 +213,7 @@ def plot_histogram(
     if savepath is None:
         fig.show()
     else:
-        fig.write_image(pathlib.Path(savepath).expanduser().resolve())
+        set_perms(fig.write_image)(pathlib.Path(savepath).expanduser().resolve())
 
 
 def plot_histograms(
@@ -262,7 +264,7 @@ def plot_histograms(
     if savepath is None:
         fig.show()
     else:
-        fig.write_image(pathlib.Path(savepath).expanduser().resolve())
+        set_perms(fig.write_image)(pathlib.Path(savepath).expanduser().resolve())
 
 
 def imshow_text(
@@ -310,7 +312,7 @@ def imshow_text(
     if savepath is None:
         fig.show()
     else:
-        fig.write_image(pathlib.Path(savepath).expanduser().resolve())
+        set_perms(fig.write_image)(pathlib.Path(savepath).expanduser().resolve())
 
 
 if __name__ == "__main__":
