@@ -151,6 +151,32 @@ For example, the first few tokens for a timeline might look like this:
 
     to keep logs.
 
+-   _Note_: We've started experimenting with
+    [apptainer](https://apptainer.org)-based containerization, a successor to
+    [singularity](https://singularityware.github.io/index.html). In an
+    environment with apptainer available (e.g.
+    `/gpfs/data/bbj-lab/.envs/apptainer`), you can define something like
+
+    ```sh
+    python3() {
+        apptainer exec --nv /gpfs/data/bbj-lab/users/burkh4rt/env.sif python3 "$@"
+    }
+    ```
+
+    and then your calls to python3 will be using it. This is considered
+    experimental; any feedback is welcome.
+
+    You can can also create your own version of this container with:
+
+    ```sh
+    conda activate apptainer
+    export TMPDIR="/scratch/$(whoami)/cache"
+    export APPTAINER_TMPDIR="/scratch/$(whoami)/cache"
+    export APPTAINER_CACHEDIR="/scratch/$(whoami)/cache"
+
+    apptainer build env.sif env.def
+    ```
+
 ---
 
 [^1]:
@@ -280,4 +306,3 @@ torchrun() {
 ```
 
 -->
-
