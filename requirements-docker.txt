@@ -151,45 +151,6 @@ numpy==1.26.4
     #   transformers
     #   umap-learn
     #   xgboost
-nvidia-cublas-cu12==12.8.3.14
-    # via
-    #   nvidia-cudnn-cu12
-    #   nvidia-cusolver-cu12
-    #   torch
-nvidia-cuda-cupti-cu12==12.8.57
-    # via torch
-nvidia-cuda-nvrtc-cu12==12.8.61
-    # via torch
-nvidia-cuda-runtime-cu12==12.8.57
-    # via torch
-nvidia-cudnn-cu12==9.7.1.26
-    # via torch
-nvidia-cufft-cu12==11.3.3.41
-    # via torch
-nvidia-cufile-cu12==1.13.0.11
-    # via torch
-nvidia-curand-cu12==10.3.9.55
-    # via torch
-nvidia-cusolver-cu12==11.7.2.55
-    # via torch
-nvidia-cusparse-cu12==12.5.7.53
-    # via
-    #   nvidia-cusolver-cu12
-    #   torch
-nvidia-cusparselt-cu12==0.6.3
-    # via torch
-nvidia-nccl-cu12==2.26.2
-    # via
-    #   torch
-    #   xgboost
-nvidia-nvjitlink-cu12==12.8.61
-    # via
-    #   nvidia-cufft-cu12
-    #   nvidia-cusolver-cu12
-    #   nvidia-cusparse-cu12
-    #   torch
-nvidia-nvtx-cu12==12.8.55
-    # via torch
 optuna==4.2.0
     # via fms-ehrs (pyproject.toml)
 packaging==24.2
@@ -309,8 +270,6 @@ sqlalchemy==2.0.37
     #   optuna
 statsmodels==0.14.4
     # via fms-ehrs (pyproject.toml)
-sympy==1.13.3
-    # via torch
 tenacity==9.0.0
     # via plotly
 termcolor==2.5.0
@@ -319,7 +278,7 @@ threadpoolctl==3.5.0
     # via scikit-learn
 tokenizers==0.21.0
     # via transformers
-torch==2.7.1+cu128
+#torch==2.7.1+cu128
     # via
     #   fms-ehrs (pyproject.toml)
     #   accelerate
@@ -335,8 +294,6 @@ transformers==4.48.2
     # via
     #   fms-ehrs (pyproject.toml)
     #   trl
-triton==3.3.1
-    # via torch
 trl==0.13.0
     # via fms-ehrs (pyproject.toml)
 typing-extensions==4.12.2

@@ -55,8 +55,8 @@
         [tool.ruff.lint.isort]
             known-first-party = [ "fms_ehrs" ]
 
-[tool.setuptools.packages]
-    find = {}
+[tool.setuptools.packages.find]
+    include = [ "fms_ehrs" ]
 
 [build-system]
     build-backend = "setuptools.build_meta"
