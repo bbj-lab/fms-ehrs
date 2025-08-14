@@ -240,4 +240,44 @@ Install directly from github:
 pip install -e "git+https://github.com/bbj-lab/clif-tokenizer.git@main#egg=fms-ehrs"
 ```
 
+
+Apptainer:
+
+```sh
+export TMPDIR="/scratch/$(whoami)/cache"
+export APPTAINER_TMPDIR="/scratch/$(whoami)/cache"
+export APPTAINER_CACHEDIR="/scratch/$(whoami)/cache"
+
+apptainer build env.sif env.def
+apptainer run --nv env.sif
+apptainer exec --nv env.sif ls
+```
+
+`env.def`:
+```
+Bootstrap: docker
+From: python:3.12.11-bullseye
+
+%files
+    pyproject.toml
+    fms_ehrs/
+
+%post
+    pip install uv
+    uv pip install --torch-backend=cu128 --link-mode=copy .
+```
+
+Add to `preamble.sh`:
+
+```
+python3() {
+    apptainer exec --nv ~/env.sif python3 "$@"
+}
+
+torchrun() {
+    apptainer exec --nv ~/env.sif torchrun "$@"
+}
+```
+
 -->
+

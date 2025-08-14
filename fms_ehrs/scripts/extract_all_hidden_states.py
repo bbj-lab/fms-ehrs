@@ -131,7 +131,7 @@ def main(
                         feats[i, j:] = np.nan
                 features[small_batch - batch_num * big_batch_sz] = feats
                 # t.cuda.empty_cache()
-            set_perms(np.save)(
+            set_perms(np.save, compress=True)(
                 out_dirs[s].joinpath(
                     "all-features{x}-{m}-batch{n}.npy".format(
                         x="-all-layers" if all_layers else "",
