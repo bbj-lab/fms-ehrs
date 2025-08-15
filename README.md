@@ -177,6 +177,8 @@ For example, the first few tokens for a timeline might look like this:
     apptainer build env.sif env.def
     ```
 
+-   _For a demo on randi, see [this](./docs-internal.md)._
+
 ---
 
 [^1]:
@@ -198,7 +200,6 @@ Format:
 ruff format .
 ruff check .
 shfmt -w slurm/
-prettier --write *.md
 ```
 
 Send to randi:
