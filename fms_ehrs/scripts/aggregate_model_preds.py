@@ -15,6 +15,7 @@ from fms_ehrs.framework.plotting import (
     plot_precision_recall_curve,
     plot_roc_curve,
 )
+from fms_ehrs.framework.storage import fix_perms
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
@@ -48,6 +49,7 @@ for m in models:
         data_dir_test.joinpath(args.classifier + "-preds-" + m.stem + ".pkl"), "rb"
     ) as fp:
         results[m.stem] = pickle.load(fp)
+        fix_perms(fp)
 
 for outcome in outcomes:
     named_results = collections.OrderedDict()

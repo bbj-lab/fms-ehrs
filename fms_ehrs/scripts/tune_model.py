@@ -15,6 +15,7 @@ from trl import SFTConfig, SFTTrainer
 
 from fms_ehrs.framework.dataset import Datasets
 from fms_ehrs.framework.logger import get_logger
+from fms_ehrs.framework.storage import set_perms
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
@@ -130,7 +131,9 @@ def main(
         best_mdl_loc = model_dir.joinpath(
             "{m}-{j}-hp-{d}".format(m=model_version, j=jid, d=data_version)
         )
-        AutoModelForCausalLM.from_pretrained(best_ckpt).save_pretrained(best_mdl_loc)
+        set_perms(AutoModelForCausalLM.from_pretrained(best_ckpt).save_pretrained)(
+            best_mdl_loc
+        )
         return best_mdl_loc
 
     return None

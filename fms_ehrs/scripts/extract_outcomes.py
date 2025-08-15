@@ -11,6 +11,7 @@ import fire as fi
 import polars as pl
 
 from fms_ehrs.framework.logger import get_logger
+from fms_ehrs.framework.storage import set_perms
 from fms_ehrs.framework.vocabulary import Vocabulary
 
 logger = get_logger()
@@ -66,20 +67,22 @@ def main(
             )
         )
         (
-            pl.scan_parquet(data_dirs[s].joinpath("tokens_timelines.parquet"))
-            .with_columns(
-                icu_admission_24h=pl.col("tokens").list.contains(icu_token),
-                imv_event_24h=pl.col("tokens").list.contains(imv_token),
-            )
-            .join(
-                outcomes,
-                how="left",
-                on="hospitalization_id",
-                validate="1:1",
-                maintain_order="left",
-            )
-            .collect()
-            .write_parquet(data_dirs[s].joinpath("tokens_timelines_outcomes.parquet"))
+            set_perms(
+                pl.scan_parquet(data_dirs[s].joinpath("tokens_timelines.parquet"))
+                .with_columns(
+                    icu_admission_24h=pl.col("tokens").list.contains(icu_token),
+                    imv_event_24h=pl.col("tokens").list.contains(imv_token),
+                )
+                .join(
+                    outcomes,
+                    how="left",
+                    on="hospitalization_id",
+                    validate="1:1",
+                    maintain_order="left",
+                )
+                .collect()
+                .write_parquet
+            )(data_dirs[s].joinpath("tokens_timelines_outcomes.parquet"))
         )
 
 

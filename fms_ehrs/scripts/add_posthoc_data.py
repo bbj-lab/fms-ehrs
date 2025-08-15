@@ -10,6 +10,7 @@ import pathlib
 import polars as pl
 
 from fms_ehrs.framework.logger import get_logger
+from fms_ehrs.framework.storage import set_perms
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
@@ -65,7 +66,7 @@ for s in splits:
     logger.info(f"Adding {collated.shape[0]} events to {s} split...")
     if (i := collated.shape[0] - collated.select("new_idx").n_unique()) > 0:
         logger.info(f"Detected {i} overlapping hospitalization(s).")
-    collated.drop("new_idx").write_parquet(
+    set_perms(collated.drop("new_idx")).write_parquet(
         dir_out.joinpath(args.new_data_name + ".parquet")
     )
 
