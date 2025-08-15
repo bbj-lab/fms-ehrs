@@ -22,6 +22,7 @@ from transformers import (
 )
 
 from fms_ehrs.framework.logger import get_logger
+from fms_ehrs.framework.storage import set_perms
 from fms_ehrs.framework.util import rt_padding_to_left
 from fms_ehrs.framework.vocabulary import Vocabulary
 
@@ -157,15 +158,17 @@ def main(
             best_mdl_loc = out_dir.joinpath(
                 "{m}-{j}-hp".format(m=model_loc.stem, j=jid)
             )
-            AutoModelForSequenceClassification.from_pretrained(
-                best_ckpt
-            ).save_pretrained(best_mdl_loc)
+            set_perms(
+                AutoModelForSequenceClassification.from_pretrained(
+                    best_ckpt
+                ).save_pretrained
+            )(best_mdl_loc)
 
             return best_mdl_loc
 
     else:
         trainer.train()
-        trainer.save_model(
+        set_perms(trainer.save_model)(
             str(
                 best_mdl_loc := output_dir.joinpath(
                     "mdl-{m}-{j}-clsfr-{o}{u}".format(

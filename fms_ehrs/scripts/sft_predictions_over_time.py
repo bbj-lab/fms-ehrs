@@ -14,6 +14,7 @@ import torch as t
 from transformers import AutoModelForSequenceClassification, Trainer
 
 from fms_ehrs.framework.logger import get_logger
+from fms_ehrs.framework.storage import fix_perms
 from fms_ehrs.framework.vocabulary import Vocabulary
 
 logger = get_logger()
@@ -111,5 +112,6 @@ with open(
         },
         fp,
     )
+    fix_perms(fp)
 
 logger.info("---fin")

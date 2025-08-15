@@ -195,8 +195,8 @@ For example, the first few tokens for a timeline might look like this:
 
 Format:
 ```
-isort fms_ehrs/
-black fms_ehrs/
+ruff format .
+ruff check .
 shfmt -w slurm/
 prettier --write *.md
 ```
@@ -303,6 +303,19 @@ python3() {
 torchrun() {
     apptainer exec --nv ~/env.sif torchrun "$@"
 }
+```
+
+Don't do this on a mac -- you'll never get cuda:
+```
+brew install lima
+limactl start template://apptainer
+limactl shell apptainer
+mkdir -p ~/build
+apptainer build ~/build/env.sif env.def
+exit
+limactl cp apptainer:~/build/env.sif ~/Downloads/env.sif
+limactl stop apptainer
+limactl delete apptainer
 ```
 
 -->

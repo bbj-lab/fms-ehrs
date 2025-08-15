@@ -15,6 +15,7 @@ import sklearn as skl
 import tqdm
 
 from fms_ehrs.framework.logger import get_logger
+from fms_ehrs.framework.storage import fix_perms
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
@@ -119,5 +120,6 @@ with open(
     "wb",
 ) as fp:
     pickle.dump(ml_info, fp)
+    fix_perms(fp)
 
 logger.info("---fin")

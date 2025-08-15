@@ -13,6 +13,7 @@ import numpy as np
 import polars as pl
 
 from fms_ehrs.framework.logger import get_logger
+from fms_ehrs.framework.storage import set_perms
 from fms_ehrs.framework.util import redact_tokens_times
 from fms_ehrs.framework.vocabulary import Vocabulary
 
@@ -109,7 +110,7 @@ for s in splits:
     else:
         df = df_icu
 
-    df.write_parquet(d_out.joinpath("tokens_timelines_outcomes.parquet"))
+    set_perms(df.write_parquet)(d_out.joinpath("tokens_timelines_outcomes.parquet"))
     df.drop(outcome_columns, strict=False).write_parquet(
         d_out.joinpath("tokens_timelines.parquet")
     )

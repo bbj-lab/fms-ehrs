@@ -20,6 +20,7 @@ import sklearn.metrics as skl_mets
 
 from fms_ehrs.framework.logger import get_logger, log_classification_metrics
 from fms_ehrs.framework.plotting import colors
+from fms_ehrs.framework.storage import fix_perms, set_perms
 from fms_ehrs.framework.util import set_pd_options
 
 set_pd_options()
@@ -188,7 +189,7 @@ for v in versions:
         font_family="CMU Serif, Times New Roman, serif",
     )
     fig.update_traces(mode="lines+markers")
-    fig.write_image(
+    set_perms(fig.write_image)(
         out_dir.joinpath(
             "multilayer-{c}-aucs-ucmc-{m}-{v}{f}.pdf".format(
                 c=args.classifier, m=model_loc.stem, v=v, f="-fast" if args.fast else ""
@@ -226,5 +227,6 @@ if args.save_preds:
                 },
                 fp,
             )
+            fix_perms(fp)
 
 logger.info("---fin")
