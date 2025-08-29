@@ -14,6 +14,7 @@ import re
 import typing
 
 import numpy as np
+import pandas as pd
 import polars as pl
 
 from fms_ehrs.framework.vocabulary import Vocabulary
@@ -43,6 +44,7 @@ class ClifTokenizer:
         drop_deciles: bool = False,
         drop_nulls_nans: bool = False,
         n_top_reports: int = 100,
+        include_time_spacing_tokens: bool = False,
     ):
         """
         if no vocabulary is provided, we are in training mode; otherwise, the
@@ -73,6 +75,37 @@ class ClifTokenizer:
         self.drop_deciles = bool(drop_deciles)
         self.drop_nulls_nans = bool(drop_nulls_nans)
         self.n_top_reports = n_top_reports
+        self.include_time_spacing_tokens = bool(include_time_spacing_tokens)
+        self.t_tokens = (
+            "T_5m-15m",
+            "T_15m-1h",
+            "T_1h-2h",
+            "T_2h-6h",
+            "T_6h-12h",
+            "T_12h-1d",
+            "T_1d-3d",
+            "T_3d-1w",
+            "T_1w-2w",
+            "T_2w-1mt",
+            "T_1mt-3mt",
+            "T_3mt-6mt",
+            "T_6mt+",
+        )
+        self.t_breakpoints = (
+            pd.Timedelta("5 minutes").total_seconds(),
+            pd.Timedelta("15 minutes").total_seconds(),
+            pd.Timedelta("1 hour").total_seconds(),
+            pd.Timedelta("2 hours").total_seconds(),
+            pd.Timedelta("6 hours").total_seconds(),
+            pd.Timedelta("12 hours").total_seconds(),
+            pd.Timedelta("1 day").total_seconds(),
+            pd.Timedelta("3 days").total_seconds(),
+            pd.Timedelta("7 days").total_seconds(),
+            pd.Timedelta("14 days").total_seconds(),
+            pd.Timedelta("365.25 days").total_seconds() / 12,
+            3 * pd.Timedelta("365.25 days").total_seconds() / 12,
+            6 * pd.Timedelta("365.25 days").total_seconds() / 12,
+        )
 
     def load_tables(self) -> None:
         """lazy-load all parquet tables from the directory `self.data_dir`"""
@@ -89,12 +122,12 @@ class ClifTokenizer:
         if not self.vocab.has_aux(designator) and self.vocab.is_training:
             if self.quantizer == "deciles":
                 self.vocab.set_aux(
-                    designator, np.nanquantile(v, np.arange(0.1, 1.0, 0.1))
+                    designator, np.nanquantile(v, np.arange(0.1, 1.0, 0.1)).tolist()
                 )
             elif self.quantizer == "sigmas":
                 μ = np.nanmean(v)
                 σ = np.nanstd(v) + np.finfo(float).eps
-                self.vocab.set_aux(designator, μ + σ * np.arange(-3, 4))
+                self.vocab.set_aux(designator, (μ + σ * np.arange(-3, 4)).tolist())
 
     def get_quants(self, v: np.array, c: str, label: str = None) -> pl.Expr:
         """obtain corresponding quantiles using self.vocab object"""
@@ -561,6 +594,33 @@ class ClifTokenizer:
 
         return discharge_tokens
 
+    def time_spacing_inserter(self, tokens, times):
+        assert len(tokens) == len(times)
+        tdiffs = np.diff(times).astype("timedelta64[s]").astype(int)
+        try:
+            ix, td = zip(
+                *filter(
+                    lambda x: x[1] > 0,
+                    enumerate(np.digitize(tdiffs, bins=self.t_breakpoints).tolist()),
+                )
+            )
+        except ValueError:  # no digitized tdiffs > 0?
+            assert np.count_nonzero(np.digitize(tdiffs, bins=self.t_breakpoints)) == 0
+            return {"tokens": tokens, "times": times}
+        new_tokens = np.insert(
+            tokens,
+            np.array(ix) + 1,  # insert *after* ix
+            np.array(list(map(self.vocab, self.t_tokens)))[
+                np.array(td) - 1
+            ],  # when td is 0, it lies before our first breakpoint
+        )
+        new_times = np.insert(
+            times, np.array(ix) + 1, np.array(times)[np.array(ix) + 1]
+        ).astype(
+            np.datetime64
+        )  # spacing tokens assigned to the time at the end of the space
+        return {"tokens": new_tokens, "times": new_times}
+
     def get_events_frame(self) -> Frame:
         events = pl.concat(
             self.tbl[k].select("hospitalization_id", "event_time", "tokens", "times")
@@ -590,6 +650,26 @@ class ClifTokenizer:
         event_tokens = tokens_agg.join(
             times_agg, on="hospitalization_id", validate="1:1", maintain_order="left"
         )
+
+        if self.include_time_spacing_tokens:
+            event_tokens = event_tokens.with_columns(
+                pl.struct(["tokens", "times"])
+                .map_elements(
+                    lambda x: self.time_spacing_inserter(x["tokens"], x["times"])[
+                        "tokens"
+                    ],
+                    return_dtype=pl.List(pl.Int64),
+                )
+                .alias("tokens"),
+                pl.struct(["tokens", "times"])
+                .map_elements(
+                    lambda x: self.time_spacing_inserter(x["tokens"], x["times"])[
+                        "times"
+                    ],
+                    return_dtype=pl.List(pl.Datetime(time_unit="ms")),
+                )
+                .alias("times"),
+            )
         return event_tokens
 
     def cut_at_time(
@@ -802,7 +882,7 @@ if __name__ == "__main__":
         hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/clif-development-sample")
     else:
         # change following line to develop locally
-        hm = pathlib.Path("~/Documents/chicago/CLIF/clif-development-sample")
+        hm = pathlib.Path("~/Documents/chicago/CLIF/development-sample/raw")
 
     out_dir = hm.parent.joinpath(hm.stem + "-tokenized").expanduser()
     out_dir.mkdir(exist_ok=True)
@@ -813,6 +893,7 @@ if __name__ == "__main__":
         day_stay_filter=True,  # cut_at_24h=True
         valid_admission_window=("2110-01-01", "2111-12-31"),
         drop_nulls_nans=True,
+        include_time_spacing_tokens=True,
     )
     tt = tokens_timelines = tkzr.get_tokens_timelines()
 
@@ -827,3 +908,34 @@ if __name__ == "__main__":
     tokens_timelines2 = tkzr2.get_tokens_timelines()
     assert len(tkzr.vocab) == len(tkzr2.vocab)
     assert tkzr.vocab.lookup == tkzr2.vocab.lookup
+
+    # exhibit time spacing inserter logic
+    eg_tokens = np.arange(7)
+    eg_times = np.array(
+        [
+            "2000-01-01T00:00:00",
+            "2000-01-01T00:00:00",  # 7 min space here
+            "2000-01-01T00:07:00",
+            "2000-01-01T00:07:00",
+            "2000-01-01T00:07:00",  # 1 hr 23 min space here
+            "2000-01-01T01:30:00",
+            "2000-01-01T01:30:00",
+        ],
+        dtype="datetime64[s]",
+    )
+    eg_tkzr = ClifTokenizer(include_time_spacing_tokens=True)
+    new_tt = eg_tkzr.time_spacing_inserter(eg_tokens, eg_times)
+    print(list(map(eg_tkzr.vocab.reverse.__getitem__, new_tt["tokens"])))
+    # ['Q0', 'Q1', 'T_5m-15m', 'Q2', 'Q3', 'Q4', 'T_1h-2h', 'Q5', 'Q6']
+    print(new_tt["times"].tolist())
+    # [
+    #   datetime.datetime(2000, 1, 1, 0, 0),
+    #   datetime.datetime(2000, 1, 1, 0, 0),
+    #   datetime.datetime(2000, 1, 1, 0, 7), # spacer is assigned end time
+    #   datetime.datetime(2000, 1, 1, 0, 7),
+    #   datetime.datetime(2000, 1, 1, 0, 7),
+    #   datetime.datetime(2000, 1, 1, 0, 7),
+    #   datetime.datetime(2000, 1, 1, 1, 30), # spacer is assigned end time
+    #   datetime.datetime(2000, 1, 1, 1, 30),
+    #   datetime.datetime(2000, 1, 1, 1, 30)
+    # ]
