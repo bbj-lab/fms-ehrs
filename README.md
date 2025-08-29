@@ -151,6 +151,34 @@ For example, the first few tokens for a timeline might look like this:
 
     to keep logs.
 
+-   _Note_: We've started experimenting with
+    [apptainer](https://apptainer.org)-based containerization, a successor to
+    [singularity](https://singularityware.github.io/index.html). In an
+    environment with apptainer available (e.g.
+    `/gpfs/data/bbj-lab/.envs/apptainer`), you can define something like
+
+    ```sh
+    python3() {
+        apptainer exec --nv /gpfs/data/bbj-lab/users/burkh4rt/env.sif python3 "$@"
+    }
+    ```
+
+    and then your calls to python3 will be using it. This is considered
+    experimental; any feedback is welcome.
+
+    You can can also create your own version of this container with:
+
+    ```sh
+    conda activate apptainer
+    export TMPDIR="/scratch/$(whoami)/cache"
+    export APPTAINER_TMPDIR="/scratch/$(whoami)/cache"
+    export APPTAINER_CACHEDIR="/scratch/$(whoami)/cache"
+
+    apptainer build env.sif env.def
+    ```
+
+-   _For a demo on randi, see [this](./docs-internal.md)._
+
 ---
 
 [^1]:
@@ -161,7 +189,7 @@ For example, the first few tokens for a timeline might look like this:
 
 [^2]:
     M. Burkhart, B. Ramadan, L. Solo, W. Parker, & B. Beaulieu-Jones, Quantifying
-    surprise in clinical care: Detecting highly informative events in electronic
+    surprise in clinical care: detecting highly informative events in electronic
     health records with foundation models,
     [arXiv:2507.22798](https://doi.org/10.48550/arXiv.2507.22798)
 
@@ -169,10 +197,9 @@ For example, the first few tokens for a timeline might look like this:
 
 Format:
 ```
-isort fms_ehrs/
-black fms_ehrs/
+ruff format .
+ruff check .
 shfmt -w slurm/
-prettier --write *.md
 ```
 
 Send to randi:
@@ -200,8 +227,7 @@ source venv/bin/activate
 Troubleshoot:
 ```
 systemd-run --scope --user tmux new -s gpuq
-srun -p gpuq \
-  --reservation=gpudev \
+srun -p gpudev \
   --gres=gpu:1 \
   --time=8:00:00 \
   --job-name=adhoc \
@@ -238,6 +264,58 @@ Install directly from github:
 
 ```sh
 pip install -e "git+https://github.com/bbj-lab/clif-tokenizer.git@main#egg=fms-ehrs"
+```
+
+
+Apptainer:
+
+```sh
+export TMPDIR="/scratch/$(whoami)/cache"
+export APPTAINER_TMPDIR="/scratch/$(whoami)/cache"
+export APPTAINER_CACHEDIR="/scratch/$(whoami)/cache"
+
+apptainer build env.sif env.def
+apptainer run --nv env.sif
+apptainer exec --nv env.sif ls
+```
+
+`env.def`:
+```
+Bootstrap: docker
+From: python:3.12.11-bullseye
+
+%files
+    pyproject.toml
+    fms_ehrs/
+
+%post
+    pip install uv
+    uv pip install --torch-backend=cu128 --link-mode=copy .
+```
+
+Add to `preamble.sh`:
+
+```
+python3() {
+    apptainer exec --nv ~/env.sif python3 "$@"
+}
+
+torchrun() {
+    apptainer exec --nv ~/env.sif torchrun "$@"
+}
+```
+
+Don't do this on a mac -- you'll never get cuda:
+```
+brew install lima
+limactl start template://apptainer
+limactl shell apptainer
+mkdir -p ~/build
+apptainer build ~/build/env.sif env.def
+exit
+limactl cp apptainer:~/build/env.sif ~/Downloads/env.sif
+limactl stop apptainer
+limactl delete apptainer
 ```
 
 -->

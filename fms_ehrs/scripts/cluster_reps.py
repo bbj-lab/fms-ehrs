@@ -12,6 +12,7 @@ import numpy as np
 import sklearn as skl
 
 from fms_ehrs.framework.logger import get_logger
+from fms_ehrs.framework.storage import fix_perms
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
@@ -60,6 +61,7 @@ for v in versions:
         data_dirs[v].joinpath("dbscan-reps-{m}-m100.pkl".format(m=model_loc.stem)), "wb"
     ) as fp:
         pickle.dump(clusterer, fp)
+        fix_perms(fp)
 
 
 logger.info("---fin")

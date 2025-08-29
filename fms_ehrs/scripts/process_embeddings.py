@@ -13,6 +13,7 @@ import plotly.express as px
 import polars as pl
 
 from fms_ehrs.framework.logger import get_logger
+from fms_ehrs.framework.storage import set_perms
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
@@ -97,7 +98,7 @@ fig.update_layout(
     template="plotly_white",
 )
 fig.update_traces(marker=dict(size=1))
-fig.write_image(
+set_perms(fig.write_image)(
     out_dir.joinpath(
         "emb-{typ}-{m}-by-ds.pdf".format(typ=args.mapper, m=model_loc.stem)
     )
@@ -111,7 +112,7 @@ for out in outcomes[:2]:
         font_family="CMU Serif, Times New Roman, serif",
     )
     fig.update_traces(marker=dict(size=1))
-    fig.write_image(
+    set_perms(fig.write_image)(
         out_dir.joinpath(
             "emb-{typ}-{m}-{out}.pdf".format(typ=args.mapper, m=model_loc.stem, out=out)
         )

@@ -13,6 +13,7 @@ import sklearn as skl
 import umap
 
 from fms_ehrs.framework.logger import get_logger
+from fms_ehrs.framework.storage import set_perms
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
@@ -63,13 +64,13 @@ match args.mapper:
     case _:
         raise Exception(f"{args.mapper=} unsupported")
 
-np.save(
+set_perms(np.save)(
     data_dirs["orig"].joinpath(
         "features-{typ}-{m}.npy".format(typ=args.mapper, m=model_loc.stem)
     ),
     mapper.fit_transform(features["orig"]),
 )
-np.save(
+set_perms(np.save)(
     data_dirs["new"].joinpath(
         "features-{typ}-{m}.npy".format(typ=args.mapper, m=model_loc.stem)
     ),
