@@ -19,6 +19,7 @@ import tqdm
 
 from fms_ehrs.framework.logger import get_logger
 from fms_ehrs.framework.plotting import colors
+from fms_ehrs.framework.storage import set_perms
 from fms_ehrs.framework.util import collate_events_info
 
 plt.rcParams.update(
@@ -141,7 +142,7 @@ ax.scatter(df_e["information"], df_e["total_jump"], s=1, c=colors[1], alpha=0.5)
 ax.set_title("Total jump vs. Information (Eventwise)")
 ax.set_xlabel("information")
 ax.set_ylabel("total_jump")
-plt.savefig(
+set_perms(plt.savefig)(
     out_dir.joinpath(
         "jumps-vs-infm-{agg}-{m}-{d}.png".format(
             agg=args.aggregation, m=model_loc.stem, d=data_dir.stem
@@ -165,7 +166,7 @@ ax.scatter(df_he["information"], df_he["total_jump"], s=1, c=colors[1], alpha=0.
 ax.set_title("Total jump vs. Information (Informative events)")
 ax.set_xlabel("information")
 ax.set_ylabel("total_jump")
-plt.savefig(
+set_perms(plt.savefig)(
     out_dir.joinpath(
         "jumps-vs-infm-{agg}-{m}-{d}-he.png".format(
             agg=args.aggregation, m=model_loc.stem, d=data_dir.stem

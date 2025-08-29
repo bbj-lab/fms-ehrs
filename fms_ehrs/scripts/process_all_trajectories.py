@@ -12,6 +12,7 @@ import tqdm
 from joblib import Parallel, delayed
 
 from fms_ehrs.framework.logger import get_logger
+from fms_ehrs.framework.storage import set_perms
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
@@ -55,7 +56,7 @@ for s in args.splits:
         )
     )  # shape n_obs × tl_len-1
 
-    np.save(
+    set_perms(np.save)(
         data_dir.joinpath(
             f"{args.data_version}-tokenized",
             s,
@@ -82,7 +83,7 @@ for s in args.splits:
         )
     )  # shape n_obs × tl_len-1
 
-    np.save(
+    set_perms(np.save)(
         data_dir.joinpath(
             f"{args.data_version}-tokenized",
             s,

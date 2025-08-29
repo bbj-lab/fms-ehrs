@@ -18,6 +18,7 @@ import statsmodels.formula.api as smf
 
 from fms_ehrs.framework.logger import get_logger
 from fms_ehrs.framework.plotting import colors, plot_histogram
+from fms_ehrs.framework.storage import set_perms
 from fms_ehrs.framework.tokenizer import token_type, token_types, type_names
 from fms_ehrs.framework.util import collate_events_info
 from fms_ehrs.framework.vocabulary import Vocabulary
@@ -117,7 +118,7 @@ if args.make_plots:
         template="plotly_white",
         font_family="CMU Serif, Times New Roman, serif",
     )
-    fig.write_image(
+    set_perms(fig.write_image)(
         out_dir.joinpath(
             "twise-jumps-infs-{m}-{d}.pdf".format(m=model_loc.stem, d=data_dir.stem)
         )
@@ -146,7 +147,7 @@ if not args.skip_kde:
     ax.set_title("Jump length vs. Information (Tokenwise)")
     ax.set_xlabel("information")
     ax.set_ylabel("jump_length")
-    plt.savefig(
+    set_perms(plt.savefig)(
         out_dir.joinpath(
             "tokens-jumps-vs-infm-{m}-{d}.pdf".format(m=model_loc.stem, d=data_dir.stem)
         ),
@@ -209,7 +210,7 @@ if args.make_plots:
         template="plotly_white",
         font_family="CMU Serif, Times New Roman, serif",
     )
-    fig.write_image(
+    set_perms(fig.write_image)(
         out_dir.joinpath(
             "path-lens-vs-infm-{agg}-{m}-{d}.pdf".format(
                 agg=args.aggregation, m=model_loc.stem, d=data_dir.stem

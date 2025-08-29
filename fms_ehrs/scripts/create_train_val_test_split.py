@@ -12,6 +12,7 @@ import fire as fi
 import polars as pl
 
 from fms_ehrs.framework.logger import get_logger
+from fms_ehrs.framework.storage import set_perms
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
@@ -108,19 +109,25 @@ def main(
 
     # generate sub-tables
     for s in splits:
-        pl.scan_parquet(data_dir_in.joinpath("clif_patient.parquet")).join(
-            p_ids[s].lazy(), on="patient_id"
-        ).sink_parquet(dirs_out[s].joinpath("clif_patient.parquet"))
+        set_perms(
+            pl.scan_parquet(data_dir_in.joinpath("clif_patient.parquet"))
+            .join(p_ids[s].lazy(), on="patient_id")
+            .sink_parquet
+        )(dirs_out[s].joinpath("clif_patient.parquet"))
 
-        pl.scan_parquet(data_dir_in.joinpath("clif_hospitalization.parquet")).join(
-            h_ids[s].lazy(), on="hospitalization_id"
-        ).sink_parquet(dirs_out[s].joinpath("clif_hospitalization.parquet"))
+        set_perms(
+            pl.scan_parquet(data_dir_in.joinpath("clif_hospitalization.parquet"))
+            .join(h_ids[s].lazy(), on="hospitalization_id")
+            .sink_parquet
+        )(dirs_out[s].joinpath("clif_hospitalization.parquet"))
 
         for t in data_dir_in.glob("*.parquet"):
             if t.stem.split("_", 1)[1] not in ("hospitalization", "patient"):
-                pl.scan_parquet(t).join(
-                    h_ids[s].lazy(), on="hospitalization_id"
-                ).sink_parquet(dirs_out[s].joinpath(t.name))
+                set_perms(
+                    pl.scan_parquet(t)
+                    .join(h_ids[s].lazy(), on="hospitalization_id")
+                    .sink_parquet
+                )(dirs_out[s].joinpath(t.name))
 
 
 if __name__ == "__main__":

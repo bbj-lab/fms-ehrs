@@ -16,6 +16,7 @@ import polars as pl
 import sklearn as skl
 
 from fms_ehrs.framework.logger import get_logger, log_classification_metrics
+from fms_ehrs.framework.storage import fix_perms
 from fms_ehrs.framework.util import set_pd_options
 
 set_pd_options()
@@ -171,5 +172,6 @@ if args.save_preds:
                 },
                 fp,
             )
+            fix_perms(fp)
 
 logger.info("---fin")

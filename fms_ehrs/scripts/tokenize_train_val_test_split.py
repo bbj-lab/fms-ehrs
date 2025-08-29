@@ -10,6 +10,7 @@ import pathlib
 import fire as fi
 
 from fms_ehrs.framework.logger import get_logger
+from fms_ehrs.framework.storage import set_perms
 from fms_ehrs.framework.tokenizer import ClifTokenizer, summarize
 
 logger = get_logger()
@@ -62,7 +63,7 @@ def main(
         logger.info("train...")
         summarize(tkzr, tokens_timelines, logger=logger)
         tokens_timelines = tkzr.pad_and_truncate(tokens_timelines)
-        tokens_timelines.write_parquet(
+        set_perms(tokens_timelines.write_parquet)(
             dirs_out["train"].joinpath("tokens_timelines.parquet")
         )
         tkzr.vocab.save(dirs_out["train"].joinpath("vocab.gzip"))
@@ -85,7 +86,7 @@ def main(
             logger.info(f"{s}...")
             summarize(tkzr, tokens_timelines, logger=logger)
             tokens_timelines = tkzr.pad_and_truncate(tokens_timelines)
-            tokens_timelines.write_parquet(
+            set_perms(tokens_timelines.write_parquet)(
                 dirs_out[s].joinpath("tokens_timelines.parquet")
             )
 
