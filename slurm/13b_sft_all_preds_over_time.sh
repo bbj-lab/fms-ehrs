@@ -9,9 +9,6 @@
 
 source preamble.sh
 
-echo "SLURM_ARRAY_JOB_ID=${SLURM_ARRAY_JOB_ID}"
-echo "SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
-
 ni=2 nj=2
 i=$((SLURM_ARRAY_TASK_ID % ni)) j=$((SLURM_ARRAY_TASK_ID / ni))
 
@@ -30,7 +27,7 @@ models=(
     "mdl-llama1b-57928921-run1-58148405-clsfr-same_admission_death-urt"
 )
 
-python3 ../fms_ehrs/scripts/sft_predictions_over_time.py \
+python3 ../fms_ehrs/scripts/sft_all_preds_over_time.py \
     --data_dir "${data_dirs[i]}" \
     --data_version QC_day_stays_first_24h \
     --sft_model_loc "${hm}/mdls-archive/${models[j]}"
