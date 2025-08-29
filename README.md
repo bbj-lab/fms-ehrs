@@ -227,8 +227,7 @@ source venv/bin/activate
 Troubleshoot:
 ```
 systemd-run --scope --user tmux new -s gpuq
-srun -p gpuq \
-  --reservation=gpudev \
+srun -p gpudev \
   --gres=gpu:1 \
   --time=8:00:00 \
   --job-name=adhoc \
