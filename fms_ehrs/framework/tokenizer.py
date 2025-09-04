@@ -50,7 +50,7 @@ class ClifTokenizer:
         if no vocabulary is provided, we are in training mode; otherwise, the
         provided vocabulary is frozen
         """
-        self.data_dir = pathlib.Path(data_dir).expanduser()
+        self.data_dir = pathlib.Path(data_dir).expanduser().resolve()
         self.tbl = dict()
         self.quantizer = quantizer
         self.q_tokens = (
@@ -58,15 +58,7 @@ class ClifTokenizer:
             if self.quantizer == "deciles"
             else ("Q3-", "Q2-", "Q1-", "Q0-", "Q0+", "Q1+", "Q2+", "Q3+")
         )
-        self.special = ("TL_START", "TL_END", "PAD", "TRUNC", None, "nan")
-        if vocab_path is None:
-            self.vocab_path = None
-            self.vocab = Vocabulary(self.q_tokens + self.special)
-            self.vocab.is_training = True
-        else:
-            self.vocab_path = pathlib.Path(vocab_path).expanduser()
-            self.vocab = Vocabulary().load(self.vocab_path)
-            self.vocab.is_training = False
+        self.special: tuple = ("TL_START", "TL_END", "PAD", "TRUNC", None, "nan")
         self.max_padded_length = max_padded_len
         self.day_stay_filter = bool(day_stay_filter)
         self.cut_at_24h = bool(cut_at_24h)
@@ -106,6 +98,18 @@ class ClifTokenizer:
             3 * pd.Timedelta("365.25 days").total_seconds() / 12,
             6 * pd.Timedelta("365.25 days").total_seconds() / 12,
         )
+        if vocab_path is None:
+            self.vocab_path = None
+            self.vocab = Vocabulary(
+                self.q_tokens
+                + self.special
+                + (self.t_tokens if self.include_time_spacing_tokens else tuple())
+            )
+            self.vocab.is_training = True
+        else:
+            self.vocab_path = pathlib.Path(vocab_path).expanduser().resolve()
+            self.vocab = Vocabulary().load(self.vocab_path)
+            self.vocab.is_training = False
 
     def load_tables(self) -> None:
         """lazy-load all parquet tables from the directory `self.data_dir`"""
@@ -604,7 +608,7 @@ class ClifTokenizer:
                     enumerate(np.digitize(tdiffs, bins=self.t_breakpoints).tolist()),
                 )
             )
-        except ValueError:  # no digitized tdiffs > 0?
+        except ValueError:  # no digitized tdiffs > 0; no insertions to be made
             assert np.count_nonzero(np.digitize(tdiffs, bins=self.t_breakpoints)) == 0
             return {"tokens": tokens, "times": times}
         new_tokens = np.insert(
@@ -612,7 +616,7 @@ class ClifTokenizer:
             np.array(ix) + 1,  # insert *after* ix
             np.array(list(map(self.vocab, self.t_tokens)))[
                 np.array(td) - 1
-            ],  # when td is 0, it lies before our first breakpoint
+            ],  # when td is 0, it lies before our first breakpoint (<5min)
         )
         new_times = np.insert(
             times, np.array(ix) + 1, np.array(times)[np.array(ix) + 1]

@@ -31,6 +31,7 @@
         "trl==0.13.0",
         "tqdm>=4.67",
         "umap-learn==0.5.7",
+        "wandb",
         "xgboost>=2.1",
     ]
     license-files = [ "LICENSE.md" ]
