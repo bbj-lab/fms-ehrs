@@ -10,8 +10,8 @@ import pathlib
 import datasets as ds
 import numpy as np
 import torch as t
-from transformers import AutoModelForSequenceClassification
 from tqdm import tqdm
+from transformers import AutoModelForSequenceClassification
 
 from fms_ehrs.framework.logger import get_logger
 from fms_ehrs.framework.storage import set_perms
@@ -82,6 +82,14 @@ for batch_idx in tqdm(t.split(t.arange(n), args.batch_sz)):
             )
         ret[batch_idx, it] = t.nn.functional.softmax(x.logits, dim=-1)[:, 1].cpu()
 
+assert np.isclose(
+    t.nn.functional.softmax(
+        model.forward(input_ids=batch[-1].reshape(1, -1)).logits, dim=-1
+    )[:, 1]
+    .cpu()
+    .item(),
+    ret[-1, -1].item(),
+)
 
 set_perms(np.save, compress=True)(
     data_dirs["test"].joinpath(
