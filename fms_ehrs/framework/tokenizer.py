@@ -620,7 +620,7 @@ class ClifTokenizer:
         )  # spacing tokens assigned to the time at the end of the space
         return {"tokens": new_tokens, "times": new_times}
 
-    def collect_raw_events(self) -> Frame:
+    def get_raw_events(self) -> Frame:
         return pl.concat(
             self.tbl[k].select("hospitalization_id", "event_time", "tokens", "times")
             for k in self.tbl.keys()
@@ -628,7 +628,7 @@ class ClifTokenizer:
         )
 
     def get_events_frame(self) -> Frame:
-        events = self.collect_raw_events()
+        events = self.get_raw_events()
 
         # doing both aggregations at once doesn't seem to work; so we do them
         # separately, lazily, and then stitch them together

@@ -30,129 +30,96 @@ class Tokenizer21(ClifTokenizer):
             pathlib.Path(config_file).expanduser().resolve()
         )
 
-    def process_tables(self) -> None:
-        self.tbl["patient"] = (
-            self.tbl["patient"]
-            .group_by("patient_id")
-            .agg(
-                pl.col("race_category")
-                .str.to_lowercase()
-                .str.replace_all(" ", "_")
-                .first(),
-                pl.col("ethnicity_category")
-                .str.to_lowercase()
-                .str.replace_all(" ", "_")
-                .first(),
-                pl.col("sex_category")
-                .str.to_lowercase()
-                .str.replace_all(" ", "_")
-                .first(),
-            )
-            .with_columns(
-                pl.col("race_category").map_elements(
-                    lambda x: self.vocab("RACE_{}".format(x)),
-                    return_dtype=pl.Int64,
-                    skip_nulls=False,
-                ),
-                pl.col("ethnicity_category").map_elements(
-                    lambda x: self.vocab("ETHN_{}".format(x)),
-                    return_dtype=pl.Int64,
-                    skip_nulls=False,
-                ),
-                pl.col("sex_category").map_elements(
-                    lambda x: self.vocab("SEX_{}".format(x)),
-                    return_dtype=pl.Int64,
-                    skip_nulls=False,
-                ),
-            )
-            .with_columns(
-                tokens=pl.concat_list(
-                    "race_category", "ethnicity_category", "sex_category"
+    def run_time_qc(self, reference_frame) -> Frame:
+        return (
+            reference_frame.join(
+                pl.scan_parquet(
+                    self.data_dir.joinpath(
+                        f"{self.config['times_qc']['table']}.parquet"
+                    )
                 )
+                .group_by(self.config["atomic_key"])
+                .agg(
+                    event_start_alt=pl.col(self.config["times_qc"]["dttm"]).min(),
+                    event_end_alt=pl.col(self.config["times_qc"]["dttm"]).max(),
+                ),
+                how="left",
+                on=self.config["atomic_key"],
+                validate="1:1",
             )
-            .select("patient_id", "tokens")
-            .collect()
-        )
-
-        self.tbl["hospitalization"] = (
-            self.tbl["hospitalization"]
-            .group_by("hospitalization_id")
-            .agg(
-                pl.col("patient_id").first(),
-                pl.col("admission_dttm")
-                .first()
+            .with_columns(
+                pl.min_horizontal(
+                    self.config["reference"]["start_dttm"], "event_start_alt"
+                )
                 .cast(pl.Datetime(time_unit="ms"))
-                .alias("event_start"),
-                pl.col("discharge_dttm")
-                .first()
+                .alias(self.config["reference"]["start_dttm"]),
+                pl.max_horizontal(self.config["reference"]["end_dttm"], "event_end_alt")
                 .cast(pl.Datetime(time_unit="ms"))
-                .alias("event_end"),
-                pl.col("age_at_admission").first(),
-                pl.col("admission_type_name")
-                .str.to_lowercase()
-                .str.replace_all(" ", "_")
-                .first(),
-                pl.col("discharge_category")
-                .str.to_lowercase()
-                .str.replace_all(" ", "_")
-                .first(),
+                .alias(self.config["reference"]["end_dttm"]),
             )
+            .drop("event_start_alt", "event_end_alt")
             .filter(
-                pl.col("event_start").is_between(
-                    pl.lit(self.valid_admission_window[0]).cast(pl.Date),
-                    pl.lit(self.valid_admission_window[1]).cast(pl.Date),
-                )
-                if self.valid_admission_window is not None
-                else True
+                pl.col(self.config["reference"]["start_dttm"])
+                < pl.col(self.config["reference"]["end_dttm"])
             )
-            .with_columns(
-                pl.col("admission_type_name").map_elements(
-                    lambda x: self.vocab("ADMN_{}".format(x)),
-                    return_dtype=pl.Int64,
-                    skip_nulls=False,
-                ),
-                pl.col("discharge_category").map_elements(
-                    lambda x: self.vocab("DSCG_{}".format(x)),
-                    return_dtype=pl.Int64,
-                    skip_nulls=False,
-                ),
-            )
-            .select(
-                "patient_id",
-                "hospitalization_id",
-                "event_start",
-                "event_end",
-                "age_at_admission",
-                "admission_type_name",
-                "discharge_category",
-            )
-            .sort(by="hospitalization_id")
-            .collect()
         )
 
-        # tokenize age_at_admission here
-        c = "age_at_admission"
-        v = self.tbl["hospitalization"].select(c).to_numpy().ravel()
-        self.set_quants(v=v, c=c)
-        self.tbl["hospitalization"] = (
-            self.tbl["hospitalization"]
-            .with_columns(age_at_admission=self.get_quants(v=v, c=c))
-            .with_columns(admission_tokens=pl.concat_list(c, "admission_type_name"))
-            .drop(c, "admission_type_name")
+    def get_reference_frame(self) -> Frame:
+        df = pl.scan_parquet(
+            self.data_dir.joinpath(f"{self.config['reference']['table']}.parquet")
         )
-
-        self.tbl["vitals"] = (
-            self.tbl["vitals"]
-            .select(
-                "hospitalization_id",
-                pl.col("recorded_dttm")
-                .cast(pl.Datetime(time_unit="ms"))
-                .alias("event_time"),
+        for tkv in self.config["augmentation_tables"]:
+            df = df.join(
+                pl.scan_parquet(self.data_dir.joinpath(f"{tkv['table']}.parquet")),
+                on=tkv["key"],
+                validate=tkv["validation"],
+                how="left",
             )
-            .collect()
+        if "age" in self.config["reference"]:
+            age = (
+                df.select(self.config["reference"]["age"]).collect().to_numpy().ravel()
+            )
+            self.set_quants(
+                v=age, c="AGE"
+            )  # note this is a no-op if quants are already set for AGE
+            df = df.with_columns(quantized_age=self.get_quants(v=age, c="AGE"))
+        return self.run_time_qc(df)
+
+    def get_end(self, end_type: typing.Literal["prefix", "suffix"]) -> Frame:
+        time_col = (
+            self.config["reference"]["start_dttm"]
+            if end_type == "prefix"
+            else self.config["reference"]["end_dttm"]
+        )
+        return self.get_reference_frame().select(
+            pl.col(self.config["atomic_key"]).alias(self.config["atomic_key"]),
+            pl.col(time_col).cast(pl.Datetime(time_unit="ms")).alias("event_time"),
+            pl.concat_list(
+                ([self.vocab("TL_START")] if end_type == "prefix" else [])
+                + [
+                    (
+                        pl.col(col["column"])
+                        .str.to_lowercase()
+                        .str.replace_all(" ", "_")
+                        .map_elements(
+                            lambda x, prefix=col["prefix"]: self.vocab(f"{prefix}_{x}"),
+                            return_dtype=pl.Int64,
+                            skip_nulls=False,
+                        )
+                        if not col["column"].startswith("quantized")
+                        else pl.col(col["column"])
+                    )
+                    for col in self.config[end_type]
+                ]
+                + ([self.vocab("TL_END")] if end_type == "suffix" else [])
+            ).alias("tokens"),
+            pl.concat_list(
+                [pl.col(time_col).cast(pl.Datetime(time_unit="ms"))]
+                * (len(self.config[end_type]) + 1)
+            ).alias("times"),
         )
 
-    def gather_event(
+    def get_event(
         self,
         table: str,
         prefix: str,
@@ -167,28 +134,30 @@ class Tokenizer21(ClifTokenizer):
         if value is not None:
             return self.process_cat_val_frame(
                 df.select(
-                    pl.col(self.config["atomic_key"]).alias("hospitalization_id"),
+                    pl.col(self.config["atomic_key"]).alias(self.config["atomic_key"]),
                     pl.col(dttm).cast(pl.Datetime(time_unit="ms")).alias("event_time"),
                     pl.col(category)
                     .str.to_lowercase()
                     .str.replace_all(" ", "_")
+                    .str.strip_chars(".")
                     .alias("category"),
                     pl.col(value).alias("value"),
                 ).collect(),
                 label=prefix,
-            ).select("hospitalization_id", "event_time", "tokens", "times")
+            ).select(self.config["atomic_key"], "event_time", "tokens", "times")
         else:
             category_list = [category] if type(category) == str else category
             return df.select(
-                pl.col(self.config["atomic_key"]).alias("hospitalization_id"),
+                pl.col(self.config["atomic_key"]).alias(self.config["atomic_key"]),
                 pl.col(dttm).cast(pl.Datetime(time_unit="ms")).alias("event_time"),
                 pl.concat_list(
                     [
                         pl.col(cat)
                         .str.to_lowercase()
                         .str.replace_all(" ", "_")
+                        .str.strip_chars(".")
                         .map_elements(
-                            lambda x: self.vocab(f"{prefix}_{x}"),
+                            lambda x, prefix=prefix: self.vocab(f"{prefix}_{x}"),
                             return_dtype=pl.Int64,
                             skip_nulls=False,
                         )
@@ -200,8 +169,46 @@ class Tokenizer21(ClifTokenizer):
                 ).alias("times"),
             ).collect()
 
-    def collect_raw_events(self) -> Frame:
-        return pl.concat(self.gather_event(**evt) for evt in self.config["events"])
+    def get_raw_events(self) -> Frame:
+        return pl.concat(self.get_event(**evt) for evt in self.config["events"])
+
+    def get_tokens_timelines(self) -> Frame:
+
+        # combine the admission tokens, event tokens, and discharge tokens
+        tt = (
+            self.get_end("prefix")
+            .rename({"tokens": "prefix_tokens", "times": "prefix_times"})
+            .join(
+                self.get_events_frame(),
+                on=self.config["atomic_key"],
+                how="left",
+                validate="1:1",
+            )
+            .join(
+                self.get_end("suffix").rename(
+                    {"tokens": "suffix_tokens", "times": "suffix_times"}
+                ),
+                on=self.config["atomic_key"],
+                validate="1:1",
+            )
+            .with_columns(
+                tokens=pl.concat_list("prefix_tokens", "tokens", "suffix_tokens"),
+                times=pl.concat_list("prefix_times", "times", "suffix_times"),
+            )
+            .select("hospitalization_id", "tokens", "times")
+            .sort(by="hospitalization_id")
+        )
+
+        if self.day_stay_filter:
+            tt = tt.filter(
+                (pl.col("times").list.get(-1) - pl.col("times").list.get(0))
+                >= pl.duration(days=1)
+            )
+
+        if self.cut_at_24h:
+            tt = self.cut_at_time(tt)
+
+        return tt.collect()
 
 
 if __name__ == "__main__":

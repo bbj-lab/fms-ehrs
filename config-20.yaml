@@ -1,6 +1,32 @@
 ---
 atomic_key: hospitalization_id
 
+reference:
+    table: clif_hospitalization
+    start_dttm: admission_dttm
+    end_dttm: discharge_dttm
+    age: age_at_admission
+
+augmentation_tables:
+    - table: clif_patient
+      key: patient_id
+      validation: "m:1"
+
+times_qc:
+    table: clif_vitals
+    dttm: recorded_dttm
+
+prefix:
+    - column: race_category
+      prefix: RACE
+    - column: ethnicity_category
+      prefix: ETHN
+    - column: sex_category
+      prefix: SEX
+    - column: quantized_age
+    - column: admission_type_name
+      prefix: ADMN
+
 events:
     - table: clif_adt
       prefix: XFR
@@ -59,3 +85,7 @@ events:
           - position_category
       value: ~
       dttm: recorded_dttm
+
+suffix:
+    - column: discharge_category
+      prefix: DSCG
