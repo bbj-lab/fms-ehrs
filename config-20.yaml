@@ -1,0 +1,61 @@
+---
+atomic_key: hospitalization_id
+
+events:
+    - table: clif_adt
+      prefix: XFR
+      category: location_category
+      value: ~
+      dttm: in_dttm
+
+    - table: clif_labs
+      prefix: LAB
+      category: lab_category
+      value: lab_value_numeric
+      dttm: lab_result_dttm
+
+    - table: clif_vitals
+      prefix: VTL
+      category: vital_category
+      value: vital_value
+      dttm: recorded_dttm
+
+    - table: clif_medication_admin_continuous
+      prefix: MED
+      category: med_category
+      value: med_dose
+      dttm: admin_dttm
+
+    # quantitative assessments
+    - table: clif_patient_assessments
+      prefix: ASMT
+      filter: pl.col("numerical_value").is_not_null()
+      category: assessment_category
+      value: numerical_value
+      dttm: recorded_dttm
+
+    #qualitative assessments
+    - table: clif_patient_assessments
+      prefix: ASMT
+      filter: pl.col("numerical_value").is_null()
+      category:
+          - assessment_category
+          - categorical_value
+      value: ~
+      dttm: recorded_dttm
+
+    - table: clif_respiratory_support
+      prefix: RESP
+      category:
+          - mode_category
+          - device_category
+      value: ~
+      dttm: recorded_dttm
+
+    - table: clif_position
+      prefix: POSN
+      filter: pl.col("position_category") == "prone"
+      category:
+          - position_category
+      value: ~
+      dttm: recorded_dttm

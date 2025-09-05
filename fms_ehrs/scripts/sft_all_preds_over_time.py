@@ -77,7 +77,7 @@ for batch_idx in tqdm(t.split(t.arange(n), args.batch_sz)):
                 if it == 0
                 else model.forward(
                     input_ids=batch[:, it].reshape(-1, 1),
-                    past_key_values=x.past_key_values,
+                    past_key_values=x.past_key_values,  # noqa -- x will exist when called
                 )
             )
         ret[batch_idx, it] = t.nn.functional.softmax(x.logits, dim=-1)[:, 1].cpu()

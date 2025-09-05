@@ -181,7 +181,9 @@ class ClifTokenizer:
                 tokens=pl.concat_list("token", "token_quantile").cast(
                     pl.List(pl.Int64)
                 ),
-                times=pl.concat_list("event_time", "event_time"),
+                times=pl.concat_list("event_time", "event_time").cast(
+                    pl.List(pl.Datetime(time_unit="ms"))
+                ),
             )
         )
 
@@ -317,12 +319,9 @@ class ClifTokenizer:
                     return_dtype=pl.List(pl.Int64),
                     skip_nulls=False,
                 ),
-                times=pl.col("event_time").map_elements(
-                    lambda x: [x], return_dtype=pl.List(pl.Datetime), skip_nulls=False
-                ),
+                times=pl.concat_list([pl.col("event_time").cast(pl.Datetime("ms"))]),
             )
             .select("hospitalization_id", "event_time", "tokens", "times")
-            .cast({"times": pl.List(pl.Datetime(time_unit="ms"))})
             .collect()
         )
 
@@ -465,11 +464,8 @@ class ClifTokenizer:
                     return_dtype=pl.List(pl.Int64),
                     skip_nulls=False,
                 ),
-                times=pl.col("event_time").map_elements(
-                    lambda x: [x], return_dtype=pl.List(pl.Datetime), skip_nulls=False
-                ),
+                times=pl.concat_list([pl.col("event_time").cast(pl.Datetime("ms"))]),
             )
-            .cast({"times": pl.List(pl.Datetime(time_unit="ms"))})
             .collect()
         )
 
@@ -592,7 +588,6 @@ class ClifTokenizer:
                 ),
                 dis_times=pl.concat_list(*[pl.col("event_time")] * 2),
             )
-            .cast({"dis_times": pl.List(pl.Datetime(time_unit="ms"))})
             .select("hospitalization_id", "event_time", "dis_tokens", "dis_times")
         )
 
@@ -625,12 +620,15 @@ class ClifTokenizer:
         )  # spacing tokens assigned to the time at the end of the space
         return {"tokens": new_tokens, "times": new_times}
 
-    def get_events_frame(self) -> Frame:
-        events = pl.concat(
+    def collect_raw_events(self) -> Frame:
+        return pl.concat(
             self.tbl[k].select("hospitalization_id", "event_time", "tokens", "times")
             for k in self.tbl.keys()
             if k not in ("patient", "hospitalization")
         )
+
+    def get_events_frame(self) -> Frame:
+        events = self.collect_raw_events()
 
         # doing both aggregations at once doesn't seem to work; so we do them
         # separately, lazily, and then stitch them together
@@ -897,7 +895,7 @@ if __name__ == "__main__":
         day_stay_filter=True,  # cut_at_24h=True
         valid_admission_window=("2110-01-01", "2111-12-31"),
         drop_nulls_nans=True,
-        include_time_spacing_tokens=True,
+        # include_time_spacing_tokens=True,
     )
     tt = tokens_timelines = tkzr.get_tokens_timelines()
 
