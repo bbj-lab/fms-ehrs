@@ -1,17 +1,28 @@
+%YAML 1.2
 ---
 atomic_key: hospitalization_id
 
+options:
+    day_stay_filter: !!bool true
+    max_padded_len: !!int 1024
+    quantizer: deciles
+    include_time_spacing_tokens: !!bool false
+
+# primary reference table for static data
+# to which other tables will be joined
 reference:
     table: clif_hospitalization
     start_dttm: admission_dttm
     end_dttm: discharge_dttm
     age: age_at_admission
 
+# other tables to join to the reference table
 augmentation_tables:
     - table: clif_patient
       key: patient_id
       validation: "m:1"
 
+# run QC for times if necessary
 times_qc:
     table: clif_vitals
     dttm: recorded_dttm
