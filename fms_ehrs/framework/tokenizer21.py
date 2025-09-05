@@ -13,55 +13,91 @@ import polars as pl
 import ruamel.yaml as yaml
 
 from fms_ehrs.framework.tokenizer import ClifTokenizer, summarize
+from fms_ehrs.framework.tokenizer0 import BaseTokenizer
 
 Frame: typing.TypeAlias = pl.DataFrame | pl.LazyFrame
 Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
 
 
-class Tokenizer21(ClifTokenizer):
+class Tokenizer21(BaseTokenizer):
     """
     tokenizes a directory containing a set of parquet files corresponding to
     the CLIF-2.1 standard
     """
 
-    def __init__(self, config_file: Pathlike = None, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        *,
+        data_dir: Pathlike = pathlib.Path("../.."),
+        vocab_path: Pathlike = None,
+        max_padded_len: int = None,
+        quantizer: typing.Literal["deciles", "sigmas"] = None,
+        cut_at_24h: bool = False,
+        include_time_spacing_tokens: bool = None,
+        config_file: Pathlike = None,
+    ):
         self.config = yaml.YAML(typ="safe").load(
             pathlib.Path(config_file).expanduser().resolve()
         )
+        super().__init__(
+            data_dir=data_dir,
+            vocab_path=vocab_path,
+            max_padded_len=(
+                max_padded_len
+                if max_padded_len is not None
+                else self.config["options"]["max_padded_len"]
+            ),
+            quantizer=(
+                quantizer
+                if quantizer is not None
+                else self.config["options"]["quantizer"]
+            ),
+            include_time_spacing_tokens=(
+                include_time_spacing_tokens
+                if include_time_spacing_tokens is not None
+                else self.config["options"]["include_time_spacing_tokens"]
+            ),
+        )
+        self.cut_at_24h: bool = cut_at_24h
 
     def run_time_qc(self, reference_frame) -> Frame:
         return (
-            reference_frame.join(
-                pl.scan_parquet(
-                    self.data_dir.joinpath(
-                        f"{self.config['times_qc']['table']}.parquet"
+            (
+                reference_frame.join(
+                    pl.scan_parquet(
+                        self.data_dir.joinpath(
+                            f"{self.config['times_qc']['table']}.parquet"
+                        )
                     )
+                    .group_by(self.config["atomic_key"])
+                    .agg(
+                        event_start_alt=pl.col(self.config["times_qc"]["dttm"]).min(),
+                        event_end_alt=pl.col(self.config["times_qc"]["dttm"]).max(),
+                    ),
+                    how="left",
+                    on=self.config["atomic_key"],
+                    validate="1:1",
                 )
-                .group_by(self.config["atomic_key"])
-                .agg(
-                    event_start_alt=pl.col(self.config["times_qc"]["dttm"]).min(),
-                    event_end_alt=pl.col(self.config["times_qc"]["dttm"]).max(),
-                ),
-                how="left",
-                on=self.config["atomic_key"],
-                validate="1:1",
-            )
-            .with_columns(
-                pl.min_horizontal(
-                    self.config["reference"]["start_dttm"], "event_start_alt"
+                .with_columns(
+                    pl.min_horizontal(
+                        self.config["reference"]["start_dttm"], "event_start_alt"
+                    )
+                    .cast(pl.Datetime(time_unit="ms"))
+                    .alias(self.config["reference"]["start_dttm"]),
+                    pl.max_horizontal(
+                        self.config["reference"]["end_dttm"], "event_end_alt"
+                    )
+                    .cast(pl.Datetime(time_unit="ms"))
+                    .alias(self.config["reference"]["end_dttm"]),
                 )
-                .cast(pl.Datetime(time_unit="ms"))
-                .alias(self.config["reference"]["start_dttm"]),
-                pl.max_horizontal(self.config["reference"]["end_dttm"], "event_end_alt")
-                .cast(pl.Datetime(time_unit="ms"))
-                .alias(self.config["reference"]["end_dttm"]),
+                .drop("event_start_alt", "event_end_alt")
+                .filter(
+                    pl.col(self.config["reference"]["start_dttm"])
+                    < pl.col(self.config["reference"]["end_dttm"])
+                )
             )
-            .drop("event_start_alt", "event_end_alt")
-            .filter(
-                pl.col(self.config["reference"]["start_dttm"])
-                < pl.col(self.config["reference"]["end_dttm"])
-            )
+            if "times_qc" in self.config
+            else reference_frame
         )
 
     def get_reference_frame(self) -> Frame:
@@ -169,17 +205,60 @@ class Tokenizer21(ClifTokenizer):
                 ).alias("times"),
             ).collect()
 
-    def get_raw_events(self) -> Frame:
-        return pl.concat(self.get_event(**evt) for evt in self.config["events"])
+    def get_events(self) -> Frame:
+        raw_events = pl.concat(self.get_event(**evt) for evt in self.config["events"])
+
+        # doing both aggregations at once doesn't seem to work; so we do them
+        # separately, lazily, and then stitch them together
+
+        tokens_agg = (
+            raw_events.lazy()
+            # order concurrent events by vocabulary, which itself was formed with
+            # contiguous categories
+            .sort("event_time", pl.col("tokens").list.first())
+            .group_by("hospitalization_id", maintain_order=True)
+            .agg([pl.col("tokens").explode()])
+        )
+
+        times_agg = (
+            raw_events.lazy()
+            .sort("event_time")
+            .group_by("hospitalization_id", maintain_order=True)
+            .agg([pl.col("times").explode()])
+        )
+
+        event_tokens = tokens_agg.join(
+            times_agg, on="hospitalization_id", validate="1:1", maintain_order="left"
+        )
+
+        if self.include_time_spacing_tokens:
+            event_tokens = event_tokens.with_columns(
+                pl.struct(["tokens", "times"])
+                .map_elements(
+                    lambda x: self.time_spacing_inserter(x["tokens"], x["times"])[
+                        "tokens"
+                    ],
+                    return_dtype=pl.List(pl.Int64),
+                )
+                .alias("tokens"),
+                pl.struct(["tokens", "times"])
+                .map_elements(
+                    lambda x: self.time_spacing_inserter(x["tokens"], x["times"])[
+                        "times"
+                    ],
+                    return_dtype=pl.List(pl.Datetime(time_unit="ms")),
+                )
+                .alias("times"),
+            )
+        return event_tokens
 
     def get_tokens_timelines(self) -> Frame:
-
         # combine the admission tokens, event tokens, and discharge tokens
         tt = (
             self.get_end("prefix")
             .rename({"tokens": "prefix_tokens", "times": "prefix_times"})
             .join(
-                self.get_events_frame(),
+                self.get_events(),
                 on=self.config["atomic_key"],
                 how="left",
                 validate="1:1",
@@ -199,26 +278,29 @@ class Tokenizer21(ClifTokenizer):
             .sort(by="hospitalization_id")
         )
 
-        if self.day_stay_filter:
+        if self.config["options"]["day_stay_filter"]:
             tt = tt.filter(
                 (pl.col("times").list.get(-1) - pl.col("times").list.get(0))
                 >= pl.duration(days=1)
             )
 
         if self.cut_at_24h:
-            tt = self.cut_at_time(tt)
+            tt = super().cut_at_time(tt)
 
         return tt.collect()
 
 
 if __name__ == "__main__":
-    tkzr_old = ClifTokenizer(data_dir="~/Documents/chicago/CLIF/development-sample/raw")
+    tkzr_old = ClifTokenizer(
+        day_stay_filter=True, data_dir="~/Documents/chicago/CLIF/development-sample/raw"
+    )
     tt_old = tkzr_old.get_tokens_timelines()
     summarize(tkzr_old, tt_old)
 
     tkzr_new = Tokenizer21(
         config_file="../../config-20.yaml",
         data_dir="~/Documents/chicago/CLIF/development-sample/raw",
+        # cut_at_24h=True,
     )
     tt_new = tkzr_new.get_tokens_timelines()
     summarize(tkzr_new, tt_new)
