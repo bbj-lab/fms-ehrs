@@ -86,9 +86,9 @@ class BaseTokenizer:
             self.vocab = Vocabulary().load(self.vocab_path)
             self.vocab.is_training = False
 
-    def set_quants(self, v: np.array, c: str, label: str = None) -> None:
+    def set_quants(self, v: np.array, c: str, prefix: str = None) -> None:
         """store training quantile information in the self.vocab object"""
-        designator = f"{label}_{c}" if label is not None else c
+        designator = f"{prefix}_{c}" if prefix is not None else c
         if not self.vocab.has_aux(designator) and self.vocab.is_training:
             if self.quantizer == "deciles":
                 self.vocab.set_aux(
@@ -99,9 +99,9 @@ class BaseTokenizer:
                 σ = np.nanstd(v) + np.finfo(float).eps
                 self.vocab.set_aux(designator, (μ + σ * np.arange(-3, 4)).tolist())
 
-    def get_quants(self, v: np.array, c: str, label: str = None) -> pl.Expr:
+    def get_quants(self, v: np.array, c: str, prefix: str = None) -> pl.Expr:
         """obtain corresponding quantiles using self.vocab object"""
-        designator = f"{label}_{c}" if label is not None else c
+        designator = f"{prefix}_{c}" if prefix is not None else c
         return pl.lit(
             (
                 pl.Series(
@@ -116,7 +116,7 @@ class BaseTokenizer:
             )
         ).cast(pl.Int64)
 
-    def process_single_category(self, x: Frame, label: str) -> Frame:
+    def process_single_category(self, x: Frame, prefix: str) -> Frame:
         """
         Quantize a sub-table consisting of a single category
 
@@ -133,11 +133,11 @@ class BaseTokenizer:
         """
         v = x.select("value").to_numpy().ravel()
         c = x.select("category").row(0)[0]
-        self.set_quants(v=v, c=c, label=label)
+        self.set_quants(v=v, c=c, prefix=prefix)
         return (
             x.with_columns(
-                token=pl.lit(self.vocab(f"{label}_{c}")).cast(pl.Int64),
-                token_quantile=self.get_quants(v=v, c=c, label=label),
+                token=pl.lit(self.vocab(f"{prefix}_{c}")).cast(pl.Int64),
+                token_quantile=self.get_quants(v=v, c=c, prefix=prefix),
             )
             .filter(~pl.col("token").is_in([self.vocab(None), self.vocab("nan")]))
             .filter(

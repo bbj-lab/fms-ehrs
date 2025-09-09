@@ -60,7 +60,7 @@ class Tokenizer21(BaseTokenizer):
         )
         self.cut_at_24h: bool = cut_at_24h
 
-    def run_time_qc(self, reference_frame) -> Frame:
+    def run_times_qc(self, reference_frame) -> Frame:
         return (
             (
                 reference_frame.join(
@@ -119,7 +119,7 @@ class Tokenizer21(BaseTokenizer):
                 v=age, c="AGE"
             )  # note this is a no-op if quants are already set for AGE
             df = df.with_columns(quantized_age=self.get_quants(v=age, c="AGE"))
-        return self.run_time_qc(df)
+        return self.run_times_qc(df)
 
     def get_end(self, end_type: typing.Literal["prefix", "suffix"]) -> Frame:
         time_col = (
@@ -128,7 +128,7 @@ class Tokenizer21(BaseTokenizer):
             else self.config["reference"]["end_time"]
         )
         return self.get_reference_frame().select(
-            pl.col(self.config["subject_id"]).alias(self.config["subject_id"]),
+            pl.col(self.config["subject_id"]),
             pl.col(time_col).cast(pl.Datetime(time_unit="ms")).alias("event_time"),
             pl.concat_list(
                 ([self.vocab("TL_START")] if end_type == "prefix" else [])
@@ -173,7 +173,7 @@ class Tokenizer21(BaseTokenizer):
             # pass to category-value tokenizer
             return self.process_cat_val_frame(
                 df.select(
-                    pl.col(self.config["subject_id"]).alias(self.config["subject_id"]),
+                    pl.col(self.config["subject_id"]),
                     pl.col(time).cast(pl.Datetime(time_unit="ms")).alias("event_time"),
                     pl.col(code)
                     .str.to_lowercase()
@@ -190,7 +190,7 @@ class Tokenizer21(BaseTokenizer):
             )
             # tokenize provided categories directly
             return df.select(
-                pl.col(self.config["subject_id"]).alias(self.config["subject_id"]),
+                pl.col(self.config["subject_id"]),
                 pl.col(time).cast(pl.Datetime(time_unit="ms")).alias("event_time"),
                 pl.concat_list(
                     [
