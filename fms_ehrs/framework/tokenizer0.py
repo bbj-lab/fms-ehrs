@@ -4,6 +4,7 @@
 a framework on which tokenizers may be built
 """
 
+import logging
 import os
 import pathlib
 import typing
@@ -245,6 +246,63 @@ class BaseTokenizer:
         self.vocab.print_aux()
 
 
+def summarize(
+    tokenizer: BaseTokenizer,
+    tokens_timelines: Frame,
+    k: int = 20,
+    logger: logging.Logger = None,
+) -> None:
+    """provide posthoc summary statistics"""
+
+    post = logger.info if logger is not None else print
+
+    post("Timelines generated: {}".format(tokens_timelines.shape[0]))
+    post("Vocabulary size: {}".format(len(tokenizer.vocab)))
+
+    post(
+        "Summary stats of timeline lengths: \n {}".format(
+            tokens_timelines.select(pl.col("tokens").list.len()).describe()
+        )
+    )
+
+    for s in range(3):
+        post(
+            "Example timeline: \n {}".format(
+                [
+                    tokenizer.vocab.reverse[t]
+                    for t in tokens_timelines.sample(1, seed=s).select("tokens").item()
+                ]
+            )
+        )
+
+    post(
+        "Summary stats of timeline duration: \n {}".format(
+            tokens_timelines.select(
+                pl.col("times").list.min().alias("start_time"),
+                pl.col("times").list.max().alias("end_time"),
+            )
+            .select((pl.col("end_time") - pl.col("start_time")).alias("duration"))
+            .describe()
+        )
+    )
+
+    with pl.Config(tbl_rows=len(tokenizer.vocab)):
+        post(
+            "Top {k} tokens by usage: \n {out}".format(
+                k=k,
+                out=tokens_timelines.select("tokens")
+                .explode("tokens")
+                .rename({"tokens": "token"})
+                .join(tokenizer.vocab.get_frame(), on="token")
+                .select("word")
+                .to_series()
+                .value_counts()
+                .sort("count", descending=True)
+                .head(k),
+            )
+        )
+
+
 if __name__ == "__main__":
     # exhibit time spacing inserter logic
     eg_tokens = np.arange(7)
@@ -261,10 +319,10 @@ if __name__ == "__main__":
         dtype="datetime64[s]",
     )
     eg_tkzr = BaseTokenizer(include_time_spacing_tokens=True)
-    new_tt = eg_tkzr.time_spacing_inserter(eg_tokens, eg_times)
-    print(list(map(eg_tkzr.vocab.reverse.__getitem__, new_tt["tokens"])))
+    tt = eg_tkzr.time_spacing_inserter(eg_tokens, eg_times)
+    print(list(map(eg_tkzr.vocab.reverse.__getitem__, tt["tokens"])))
     # ['Q0', 'Q1', 'T_5m-15m', 'Q2', 'Q3', 'Q4', 'T_1h-2h', 'Q5', 'Q6']
-    print(new_tt["times"].tolist())
+    print(tt["times"].tolist())
     # [
     #   datetime.datetime(2000, 1, 1, 0, 0),
     #   datetime.datetime(2000, 1, 1, 0, 0),

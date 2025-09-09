@@ -12,8 +12,8 @@ import typing
 import polars as pl
 import ruamel.yaml as yaml
 
-from fms_ehrs.framework.tokenizer import ClifTokenizer, summarize
-from fms_ehrs.framework.tokenizer0 import BaseTokenizer
+from fms_ehrs.framework.tokenizer import ClifTokenizer
+from fms_ehrs.framework.tokenizer0 import BaseTokenizer, summarize
 
 Frame: typing.TypeAlias = pl.DataFrame | pl.LazyFrame
 Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
@@ -46,7 +46,7 @@ class Tokenizer21(BaseTokenizer):
                 max_padded_len
                 if max_padded_len is not None
                 else self.config["options"]["max_padded_len"]
-            ),
+            ),  # passed argument overrides config default
             quantizer=(
                 quantizer
                 if quantizer is not None
@@ -69,31 +69,31 @@ class Tokenizer21(BaseTokenizer):
                             f"{self.config['times_qc']['table']}.parquet"
                         )
                     )
-                    .group_by(self.config["atomic_key"])
+                    .group_by(self.config["subject_id"])
                     .agg(
-                        event_start_alt=pl.col(self.config["times_qc"]["dttm"]).min(),
-                        event_end_alt=pl.col(self.config["times_qc"]["dttm"]).max(),
+                        start_time_alt=pl.col(self.config["times_qc"]["time"]).min(),
+                        end_time_alt=pl.col(self.config["times_qc"]["time"]).max(),
                     ),
                     how="left",
-                    on=self.config["atomic_key"],
+                    on=self.config["subject_id"],
                     validate="1:1",
                 )
                 .with_columns(
                     pl.min_horizontal(
-                        self.config["reference"]["start_dttm"], "event_start_alt"
+                        self.config["reference"]["start_time"], "start_time_alt"
                     )
                     .cast(pl.Datetime(time_unit="ms"))
-                    .alias(self.config["reference"]["start_dttm"]),
+                    .alias(self.config["reference"]["start_time"]),
                     pl.max_horizontal(
-                        self.config["reference"]["end_dttm"], "event_end_alt"
+                        self.config["reference"]["end_time"], "end_time_alt"
                     )
                     .cast(pl.Datetime(time_unit="ms"))
-                    .alias(self.config["reference"]["end_dttm"]),
+                    .alias(self.config["reference"]["end_time"]),
                 )
-                .drop("event_start_alt", "event_end_alt")
+                .drop("start_time_alt", "end_time_alt")
                 .filter(
-                    pl.col(self.config["reference"]["start_dttm"])
-                    < pl.col(self.config["reference"]["end_dttm"])
+                    pl.col(self.config["reference"]["start_time"])
+                    < pl.col(self.config["reference"]["end_time"])
                 )
             )
             if "times_qc" in self.config
@@ -123,12 +123,12 @@ class Tokenizer21(BaseTokenizer):
 
     def get_end(self, end_type: typing.Literal["prefix", "suffix"]) -> Frame:
         time_col = (
-            self.config["reference"]["start_dttm"]
+            self.config["reference"]["start_time"]
             if end_type == "prefix"
-            else self.config["reference"]["end_dttm"]
+            else self.config["reference"]["end_time"]
         )
         return self.get_reference_frame().select(
-            pl.col(self.config["atomic_key"]).alias(self.config["atomic_key"]),
+            pl.col(self.config["subject_id"]).alias(self.config["subject_id"]),
             pl.col(time_col).cast(pl.Datetime(time_unit="ms")).alias("event_time"),
             pl.concat_list(
                 ([self.vocab("TL_START")] if end_type == "prefix" else [])
@@ -158,34 +158,40 @@ class Tokenizer21(BaseTokenizer):
     def get_event(
         self,
         table: str,
-        prefix: str,
-        category: str,
-        value: str,
-        dttm: str,
+        *,
+        prefix: str = None,
+        time: str,
+        code: str,
+        numeric_value: str = None,
+        text_value: str = None,
         filter: str = None,
     ):
         df = pl.scan_parquet(self.data_dir.joinpath(f"{table}.parquet")).filter(
             eval(filter) if filter is not None else True
         )
-        if value is not None:
+        if numeric_value is not None:
+            # pass to category-value tokenizer
             return self.process_cat_val_frame(
                 df.select(
-                    pl.col(self.config["atomic_key"]).alias(self.config["atomic_key"]),
-                    pl.col(dttm).cast(pl.Datetime(time_unit="ms")).alias("event_time"),
-                    pl.col(category)
+                    pl.col(self.config["subject_id"]).alias(self.config["subject_id"]),
+                    pl.col(time).cast(pl.Datetime(time_unit="ms")).alias("event_time"),
+                    pl.col(code)
                     .str.to_lowercase()
                     .str.replace_all(" ", "_")
                     .str.strip_chars(".")
                     .alias("category"),
-                    pl.col(value).alias("value"),
+                    pl.col(numeric_value).alias("value"),
                 ).collect(),
                 label=prefix,
-            ).select(self.config["atomic_key"], "event_time", "tokens", "times")
+            ).select(self.config["subject_id"], "event_time", "tokens", "times")
         else:
-            category_list = [category] if type(category) == str else category
+            category_list = ([code] if type(code) is str else code) + (
+                [text_value] if text_value is not None else []
+            )
+            # tokenize provided categories directly
             return df.select(
-                pl.col(self.config["atomic_key"]).alias(self.config["atomic_key"]),
-                pl.col(dttm).cast(pl.Datetime(time_unit="ms")).alias("event_time"),
+                pl.col(self.config["subject_id"]).alias(self.config["subject_id"]),
+                pl.col(time).cast(pl.Datetime(time_unit="ms")).alias("event_time"),
                 pl.concat_list(
                     [
                         pl.col(cat)
@@ -201,34 +207,17 @@ class Tokenizer21(BaseTokenizer):
                     ]
                 ).alias("tokens"),
                 pl.concat_list(
-                    [pl.col(dttm).cast(pl.Datetime("ms"))] * len(category_list)
+                    [pl.col(time).cast(pl.Datetime("ms"))] * len(category_list)
                 ).alias("times"),
             ).collect()
 
     def get_events(self) -> Frame:
-        raw_events = pl.concat(self.get_event(**evt) for evt in self.config["events"])
-
-        # doing both aggregations at once doesn't seem to work; so we do them
-        # separately, lazily, and then stitch them together
-
-        tokens_agg = (
-            raw_events.lazy()
-            # order concurrent events by vocabulary, which itself was formed with
-            # contiguous categories
+        event_tokens = (
+            pl.concat(self.get_event(**evt) for evt in self.config["events"])
+            .lazy()
             .sort("event_time", pl.col("tokens").list.first())
             .group_by("hospitalization_id", maintain_order=True)
-            .agg([pl.col("tokens").explode()])
-        )
-
-        times_agg = (
-            raw_events.lazy()
-            .sort("event_time")
-            .group_by("hospitalization_id", maintain_order=True)
-            .agg([pl.col("times").explode()])
-        )
-
-        event_tokens = tokens_agg.join(
-            times_agg, on="hospitalization_id", validate="1:1", maintain_order="left"
+            .agg(tokens=pl.col("tokens").explode(), times=pl.col("times").explode())
         )
 
         if self.include_time_spacing_tokens:
@@ -253,13 +242,13 @@ class Tokenizer21(BaseTokenizer):
         return event_tokens
 
     def get_tokens_timelines(self) -> Frame:
-        # combine the admission tokens, event tokens, and discharge tokens
+        # combine the prefix tokens, event tokens, and suffix tokens
         tt = (
             self.get_end("prefix")
             .rename({"tokens": "prefix_tokens", "times": "prefix_times"})
             .join(
                 self.get_events(),
-                on=self.config["atomic_key"],
+                on=self.config["subject_id"],
                 how="left",
                 validate="1:1",
             )
@@ -267,7 +256,7 @@ class Tokenizer21(BaseTokenizer):
                 self.get_end("suffix").rename(
                     {"tokens": "suffix_tokens", "times": "suffix_times"}
                 ),
-                on=self.config["atomic_key"],
+                on=self.config["subject_id"],
                 validate="1:1",
             )
             .with_columns(
@@ -298,9 +287,8 @@ if __name__ == "__main__":
     summarize(tkzr_old, tt_old)
 
     tkzr_new = Tokenizer21(
-        config_file="../../config-20.yaml",
+        config_file="../config/config-20.yaml",
         data_dir="~/Documents/chicago/CLIF/development-sample/raw",
-        # cut_at_24h=True,
     )
     tt_new = tkzr_new.get_tokens_timelines()
     summarize(tkzr_new, tt_new)
