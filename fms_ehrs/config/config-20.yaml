@@ -1,6 +1,6 @@
 %YAML 1.2
 ---
-atomic_key: hospitalization_id
+subject_id: hospitalization_id
 
 options:
     day_stay_filter: !!bool true
@@ -12,8 +12,8 @@ options:
 # to which other tables will be joined
 reference:
     table: clif_hospitalization
-    start_dttm: admission_dttm
-    end_dttm: discharge_dttm
+    start_time: admission_dttm
+    end_time: discharge_dttm
     age: age_at_admission
 
 # other tables to join to the reference table
@@ -25,7 +25,7 @@ augmentation_tables:
 # run QC for times if necessary
 times_qc:
     table: clif_vitals
-    dttm: recorded_dttm
+    time: recorded_dttm
 
 prefix:
     - column: race_category
@@ -41,61 +41,66 @@ prefix:
 events:
     - table: clif_adt
       prefix: XFR
-      category: location_category
-      value: ~
-      dttm: in_dttm
+      code: location_category
+      numeric_value: ~
+      text_value: ~
+      time: in_dttm
 
     - table: clif_labs
       prefix: LAB
-      category: lab_category
-      value: lab_value_numeric
-      dttm: lab_result_dttm
+      code: lab_category
+      numeric_value: lab_value_numeric
+      text_value: ~
+      time: lab_result_dttm
 
     - table: clif_vitals
       prefix: VTL
-      category: vital_category
-      value: vital_value
-      dttm: recorded_dttm
+      code: vital_category
+      numeric_value: vital_value
+      text_value: ~
+      time: recorded_dttm
 
     - table: clif_medication_admin_continuous
       prefix: MED
-      category: med_category
-      value: med_dose
-      dttm: admin_dttm
+      code: med_category
+      numeric_value: med_dose
+      text_value: ~
+      time: admin_dttm
 
     # quantitative assessments
     - table: clif_patient_assessments
       prefix: ASMT
       filter: pl.col("numerical_value").is_not_null()
-      category: assessment_category
-      value: numerical_value
-      dttm: recorded_dttm
+      code: assessment_category
+      numeric_value: numerical_value
+      text_value: ~
+      time: recorded_dttm
 
     #qualitative assessments
     - table: clif_patient_assessments
       prefix: ASMT
       filter: pl.col("numerical_value").is_null()
-      category:
-          - assessment_category
-          - categorical_value
-      value: ~
-      dttm: recorded_dttm
+      code: assessment_category
+      numeric_value: ~
+      text_value: categorical_value
+      time: recorded_dttm
 
     - table: clif_respiratory_support
       prefix: RESP
-      category:
+      code:
           - mode_category
           - device_category
-      value: ~
-      dttm: recorded_dttm
+      numeric_value: ~
+      text_value: ~
+      time: recorded_dttm
 
     - table: clif_position
       prefix: POSN
       filter: pl.col("position_category") == "prone"
-      category:
-          - position_category
-      value: ~
-      dttm: recorded_dttm
+      code: position_category
+      numeric_value: ~
+      text_value: ~
+      time: recorded_dttm
 
 suffix:
     - column: discharge_category

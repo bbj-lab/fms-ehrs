@@ -7,7 +7,6 @@ it to tokenized timelines at the hospitalization_id level
 
 import collections
 import functools
-import logging
 import os
 import pathlib
 import re
@@ -15,7 +14,7 @@ import typing
 
 import polars as pl
 
-from fms_ehrs.framework.tokenizer0 import BaseTokenizer
+from fms_ehrs.framework.tokenizer0 import BaseTokenizer, summarize
 
 Frame: typing.TypeAlias = pl.DataFrame | pl.LazyFrame
 Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
@@ -620,63 +619,6 @@ class ClifTokenizer(BaseTokenizer):
 
     def print_aux(self) -> None:
         self.vocab.print_aux()
-
-
-def summarize(
-    tokenizer: ClifTokenizer,
-    tokens_timelines: Frame,
-    k: int = 20,
-    logger: logging.Logger = None,
-) -> None:
-    """provide posthoc summary statistics"""
-
-    post = logger.info if logger is not None else print
-
-    post("Timelines generated: {}".format(tokens_timelines.shape[0]))
-    post("Vocabulary size: {}".format(len(tokenizer.vocab)))
-
-    post(
-        "Summary stats of timeline lengths: \n {}".format(
-            tokens_timelines.select(pl.col("tokens").list.len()).describe()
-        )
-    )
-
-    for s in range(3):
-        post(
-            "Example timeline: \n {}".format(
-                [
-                    tokenizer.vocab.reverse[t]
-                    for t in tokens_timelines.sample(1, seed=s).select("tokens").item()
-                ]
-            )
-        )
-
-    post(
-        "Summary stats of timeline duration: \n {}".format(
-            tokens_timelines.select(
-                pl.col("times").list.min().alias("start_time"),
-                pl.col("times").list.max().alias("end_time"),
-            )
-            .select((pl.col("end_time") - pl.col("start_time")).alias("duration"))
-            .describe()
-        )
-    )
-
-    with pl.Config(tbl_rows=len(tokenizer.vocab)):
-        post(
-            "Top {k} tokens by usage: \n {out}".format(
-                k=k,
-                out=tokens_timelines.select("tokens")
-                .explode("tokens")
-                .rename({"tokens": "token"})
-                .join(tokenizer.vocab.get_frame(), on="token")
-                .select("word")
-                .to_series()
-                .value_counts()
-                .sort("count", descending=True)
-                .head(k),
-            )
-        )
 
 
 @functools.cache
