@@ -588,38 +588,6 @@ class ClifTokenizer(BaseTokenizer):
 
         return tt.collect()
 
-    def pad_and_truncate(self, tokens_timelines: Frame) -> Frame:
-        if self.max_padded_length is not None:
-            tt = tokens_timelines.lazy().with_columns(
-                seq_len=pl.col("tokens").list.len()
-            )
-            tt_under = tt.filter(
-                pl.col("seq_len") <= self.max_padded_length
-            ).with_columns(
-                padded=pl.concat_list(
-                    "tokens",
-                    pl.lit(self.vocab("PAD")).repeat_by(
-                        self.max_padded_length - pl.col("seq_len")
-                    ),
-                )
-            )
-            tt_over = tt.filter(
-                pl.col("seq_len") > self.max_padded_length
-            ).with_columns(
-                padded=pl.concat_list(
-                    pl.col("tokens").list.slice(
-                        offset=0, length=self.max_padded_length - 1
-                    ),
-                    pl.lit(self.vocab("TRUNC")),
-                )
-            )
-            return pl.concat([tt_under, tt_over]).collect()
-        else:
-            return tokens_timelines
-
-    def print_aux(self) -> None:
-        self.vocab.print_aux()
-
 
 @functools.cache
 def token_type(word: str) -> str:
