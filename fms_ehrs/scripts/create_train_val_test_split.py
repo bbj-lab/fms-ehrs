@@ -50,9 +50,9 @@ def main(
         hosp_prepoc = (
             pl.scan_parquet(data_dir_in.joinpath("clif_hospitalization.parquet"))
             .filter(pl.col("age_at_admission") >= 18)
-            .cast({"admission_time": pl.Datetime(time_unit="ms")})
+            .cast({"admission_dttm": pl.Datetime(time_unit="ms")})
             .filter(
-                pl.col("admission_time").is_between(
+                pl.col("admission_dttm").is_between(
                     pl.lit(valid_admission_window[0]).cast(pl.Date),
                     pl.lit(valid_admission_window[1]).cast(pl.Date),
                 )
@@ -64,7 +64,7 @@ def main(
         # partition patient ids
         patient_ids = (
             hosp_prepoc.group_by("patient_id")
-            .agg(pl.col("admission_time").min().alias("first_admission"))
+            .agg(pl.col("admission_dttm").min().alias("first_admission"))
             .sort("first_admission")
             .select("patient_id")
             .collect()

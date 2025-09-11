@@ -245,6 +245,19 @@ class BaseTokenizer:
     def print_aux(self) -> None:
         self.vocab.print_aux()
 
+    def get_token_type(self, tk: str | None) -> str:
+        if tk in self.special:
+            return "SPECIAL"
+        elif tk in self.q_tokens:
+            return "QUANT"
+        elif self.include_time_spacing_tokens and tk in self.t_tokens:
+            return "T_SPACER"
+        else:
+            return tk.split("_")[0]
+
+    def get_token_type_from_int(self, ti: int) -> str:
+        return self.get_token_type(self.vocab.reverse[ti])
+
 
 def summarize(
     tokenizer: BaseTokenizer,
@@ -302,6 +315,18 @@ def summarize(
             )
         )
 
+    with pl.Config(tbl_rows=len(tokenizer.vocab)):
+        post(
+            tokens_timelines.select(
+                pl.col("tokens")
+                .explode()
+                .map_elements(tokenizer.get_token_type_from_int, return_dtype=str)
+            )
+            .to_series()
+            .value_counts()
+            .sort(by="count", descending=True)
+        )
+
 
 if __name__ == "__main__":
     # exhibit time spacing inserter logic
@@ -334,3 +359,7 @@ if __name__ == "__main__":
     #   datetime.datetime(2000, 1, 1, 1, 30),
     #   datetime.datetime(2000, 1, 1, 1, 30)
     # ]
+
+    print(eg_tkzr.get_token_type("Q3"))
+    print(eg_tkzr.get_token_type(None))
+    print(eg_tkzr.get_token_type_from_int(3))
