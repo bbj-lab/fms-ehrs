@@ -45,6 +45,18 @@ events:
       code: location_category
       time: in_dttm
 
+    - table: clif_code_status
+      prefix: CODE
+      code: code_status_category
+      time: start_dttm
+      reference_key: patient_id
+
+    - table: clif_crrt_therapy
+      prefix: CRRT
+      code: crrt_mode_category
+      numeric_value: blood_flow_rate
+      time: recorded_dttm
+
     - table: clif_labs
       prefix: LAB
       code: lab_category
@@ -91,6 +103,23 @@ events:
       filter: pl.col("position_category") == "prone"
       code: position_category
       time: recorded_dttm
+
+    - table: clif_microbiology_culture
+      prefix: CLTR
+      code: method_category
+      text_value:
+          - fluid_category
+          - organism_category
+      time: lab_result_dttm
+
+    - table: clif_microbiology_nonculture
+      prefix: NCLT
+      code: method_category
+      text_value:
+          - fluid_category
+          - organism_category
+          - result_category
+      time: lab_result_dttm
 
 suffix:
     - column: discharge_category

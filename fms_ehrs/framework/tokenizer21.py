@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
 """
-provides a simple tokenizing interface to take tabular data and convert
-it to tokenized timelines at the hospitalization_id level
+provides a configurable tokenizer object to take tabular data and convert
+it to tokenized timelines at the subject_id level
 """
 
 import os
@@ -12,7 +12,6 @@ import typing
 import polars as pl
 import ruamel.yaml as yaml
 
-from fms_ehrs.framework.tokenizer import ClifTokenizer
 from fms_ehrs.framework.tokenizer0 import BaseTokenizer, summarize
 
 Frame: typing.TypeAlias = pl.DataFrame | pl.LazyFrame
@@ -59,6 +58,7 @@ class Tokenizer21(BaseTokenizer):
             ),
         )
         self.cut_at_24h: bool = cut_at_24h
+        self.reference_frame = None
 
     def run_times_qc(self, reference_frame) -> Frame:
         return (
@@ -101,6 +101,8 @@ class Tokenizer21(BaseTokenizer):
         )
 
     def get_reference_frame(self) -> Frame:
+        if self.reference_frame is not None:
+            return self.reference_frame
         df = pl.scan_parquet(
             self.data_dir.joinpath(f"{self.config['reference']['table']}.parquet")
         )
@@ -119,7 +121,8 @@ class Tokenizer21(BaseTokenizer):
                 v=age, c="AGE"
             )  # note this is a no-op if quants are already set for AGE
             df = df.with_columns(quantized_age=self.get_quants(v=age, c="AGE"))
-        return self.run_times_qc(df)
+        self.reference_frame = self.run_times_qc(df)
+        return self.reference_frame
 
     def get_end(self, end_type: typing.Literal["prefix", "suffix"]) -> Frame:
         time_col = (
@@ -165,10 +168,20 @@ class Tokenizer21(BaseTokenizer):
         numeric_value: str = None,
         text_value: str = None,
         filter: str = None,
+        reference_key: str = None,
     ):
         df = pl.scan_parquet(self.data_dir.joinpath(f"{table}.parquet")).filter(
             eval(filter) if filter is not None else True
         )
+        if reference_key is not None:
+            df = df.join(self.reference_frame, on=reference_key, how="inner").filter(
+                pl.col(time)
+                .cast(pl.Datetime(time_unit="ms"))
+                .is_between(
+                    self.config["reference"]["start_time"],
+                    self.config["reference"]["end_time"],
+                )
+            )
         if numeric_value is not None:
             # pass to category-value tokenizer
             return self.process_cat_val_frame(
@@ -176,6 +189,7 @@ class Tokenizer21(BaseTokenizer):
                     pl.col(self.config["subject_id"]),
                     pl.col(time).cast(pl.Datetime(time_unit="ms")).alias("event_time"),
                     pl.col(code)
+                    .cast(str)
                     .str.to_lowercase()
                     .str.replace_all(" ", "_")
                     .str.strip_chars(".")
@@ -185,9 +199,9 @@ class Tokenizer21(BaseTokenizer):
                 label=prefix,
             ).select(self.config["subject_id"], "event_time", "tokens", "times")
         else:
-            category_list = ([code] if type(code) is str else code) + (
-                [text_value] if text_value is not None else []
-            )
+            category_list = [code] if type(code) is str else code
+            if text_value is not None:
+                category_list += [text_value] if type(text_value) is str else text_value
             # tokenize provided categories directly
             return df.select(
                 pl.col(self.config["subject_id"]),
@@ -195,6 +209,7 @@ class Tokenizer21(BaseTokenizer):
                 pl.concat_list(
                     [
                         pl.col(cat)
+                        .cast(str)
                         .str.to_lowercase()
                         .str.replace_all(" ", "_")
                         .str.strip_chars(".")
@@ -257,6 +272,7 @@ class Tokenizer21(BaseTokenizer):
                     {"tokens": "suffix_tokens", "times": "suffix_times"}
                 ),
                 on=self.config["subject_id"],
+                how="left",
                 validate="1:1",
             )
             .with_columns(
@@ -280,15 +296,30 @@ class Tokenizer21(BaseTokenizer):
 
 
 if __name__ == "__main__":
-    tkzr_old = ClifTokenizer(
-        day_stay_filter=True, data_dir="~/Documents/chicago/CLIF/development-sample/raw"
+    dev_dir = (
+        pathlib.Path("~/Documents/chicago/CLIF/development-sample/raw-21")
+        .expanduser()
+        .resolve()
     )
-    tt_old = tkzr_old.get_tokens_timelines()
-    summarize(tkzr_old, tt_old)
 
-    tkzr_new = Tokenizer21(
-        config_file="../config/config-20.yaml",
-        data_dir="~/Documents/chicago/CLIF/development-sample/raw",
+    # tkzr20 = Tokenizer21(config_file="../config/config-20.yaml", data_dir=dev_dir)
+    # tt20 = tkzr20.get_tokens_timelines()
+    # summarize(tkzr20, tt20)
+
+    tkzr21 = Tokenizer21(
+        config_file="../config/config-21.yaml",
+        data_dir=dev_dir,
+        include_time_spacing_tokens=True,
     )
-    tt_new = tkzr_new.get_tokens_timelines()
-    summarize(tkzr_new, tt_new)
+    tt21 = tkzr21.get_tokens_timelines()
+    summarize(tkzr21, tt21)
+
+    x = pl.read_parquet(dev_dir.joinpath("clif_medication_admin_intermittent.parquet"))
+    with pl.Config(tbl_cols=-1):
+        print(x)
+
+    pl.read_parquet(
+        dev_dir.joinpath("clif_medication_admin_intermittent.parquet")
+    ).select("mar_action_name").to_series().value_counts().sort(
+        "count", descending=True
+    )

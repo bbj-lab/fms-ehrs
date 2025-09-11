@@ -42,7 +42,7 @@ new_data = (
     pl.scan_csv(new_data_loc)
     .with_columns(
         pl.col(args.patient_id_col).cast(str).alias("patient_id"),
-        pl.col(args.time_col).str.to_datetime().alias("event_time").cast(pl.Datetime),
+        pl.col(args.time_col).str.to_datetime().alias("event_dttm").cast(pl.Datetime),
     )
     .with_row_index("new_idx")
 )
@@ -55,12 +55,12 @@ for s in splits:
         .select(
             "patient_id",
             "hospitalization_id",
-            pl.col("admission_time").dt.replace_time_zone(None),
-            pl.col("discharge_time").dt.replace_time_zone(None),
+            pl.col("admission_dttm").dt.replace_time_zone(None),
+            pl.col("discharge_dttm").dt.replace_time_zone(None),
         )
         .join(new_data, on="patient_id")
-        .filter(pl.col("event_time").is_between("admission_time", "discharge_time"))
-        .drop("patient_id", "admission_time", "discharge_time")
+        .filter(pl.col("event_dttm").is_between("admission_dttm", "discharge_dttm"))
+        .drop("patient_id", "admission_dttm", "discharge_dttm")
         .collect()
     )
     logger.info(f"Adding {collated.shape[0]} events to {s} split...")
