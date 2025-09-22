@@ -9,8 +9,14 @@ import pathlib
 import typing
 
 import fire as fi
+import numpy as np
 import torch as t
-from transformers import AutoConfig, AutoModelForCausalLM, EarlyStoppingCallback
+from transformers import (
+    AutoConfig,
+    AutoModelForCausalLM,
+    EarlyStoppingCallback,
+    TrainerCallback,
+)
 from trl import SFTConfig, SFTTrainer
 
 from fms_ehrs.framework.dataset import Datasets
@@ -22,6 +28,21 @@ logger.info("running {}".format(__file__))
 logger.log_env()
 
 
+class NanStoppingCallback(TrainerCallback):
+    """stop training on encountering a nan objective"""
+
+    def __init__(self):
+        super().__init__()
+
+    def on_evaluate(self, args, state, control, metrics=None, **kwargs):
+        if metrics is not None:
+            for k, v in metrics.items():
+                if not np.isfinite(v):
+                    if state.is_world_process_zero:
+                        logger.warning(f"Encountered non-finite metric {k} ({v}).")
+                    control.should_training_stop = True
+
+
 @logger.log_calls
 def main(
     *,
@@ -31,12 +52,18 @@ def main(
     model_version: str = "llama1b",
     model_name: str = "meta-llama/Llama-3.2-1B",
     per_device_train_batch_size: int = 4,
+    max_grad_norm: float = 1.0,
+    lr_min: float = 5e-5,
+    lr_max: float = 5e-4,
+    gr_acc_min: int = 1,
+    gr_acc_max: int = 3,
     data_dir: os.PathLike = None,
     model_dir: os.PathLike = None,
     collation: typing.Literal["padded", "packed"] = "packed",
     jid: str = os.getenv("SLURM_JOB_ID", ""),
     wandb_project: str = None,
     n_trials: int = 5,
+    iterable_dataset: bool = True,
     **kwargs,
 ):
     """pass additional model configuration parameters with kwargs"""
@@ -74,17 +101,23 @@ def main(
 
     def optuna_hp_space(trial):
         return {
-            "learning_rate": trial.suggest_float("learning_rate", 5e-5, 5e-4, log=True),
+            "learning_rate": trial.suggest_float(
+                "learning_rate", lr_min, lr_max, log=True
+            ),
             "gradient_accumulation_steps": trial.suggest_int(
-                "gradient_accumulation_steps", 1, 3
+                "gradient_accumulation_steps", gr_acc_min, gr_acc_max
             ),
         }
 
     max_steps = (
-        dataset.n_train
-        * n_epochs
-        // per_device_train_batch_size
-        // t.cuda.device_count()
+        (
+            dataset.n_train
+            * n_epochs
+            // per_device_train_batch_size
+            // t.cuda.device_count()
+        )
+        if iterable_dataset
+        else -1
     )
 
     # train model
@@ -95,9 +128,8 @@ def main(
         output_dir=str(output_dir),
         per_device_train_batch_size=per_device_train_batch_size,
         per_device_eval_batch_size=4,
-        gradient_accumulation_steps=2,  # simulate larger batch sizes
-        learning_rate=2e-4,  # 2e-4 -- cf. https://arxiv.org/pdf/2412.16178 tbl. 6
-        num_train_epochs=1,
+        max_grad_norm=max_grad_norm,
+        num_train_epochs=1,  # this is handled in our dataset object
         save_total_limit=1,
         metric_for_best_model="eval_loss",
         load_best_model_at_end=True,
@@ -111,10 +143,15 @@ def main(
     trainer = SFTTrainer(
         model=model_init(),
         model_init=model_init,
-        train_dataset=dataset.get_train_dataset(n_epochs=n_epochs),
-        eval_dataset=dataset.get_val_dataset(),
+        train_dataset=dataset.get_train_dataset(
+            n_epochs=n_epochs, iterable=iterable_dataset
+        ),
+        eval_dataset=dataset.get_val_dataset(iterable=iterable_dataset),
         args=training_args,
-        callbacks=[EarlyStoppingCallback(early_stopping_patience=3)],
+        callbacks=[
+            EarlyStoppingCallback(early_stopping_patience=3),
+            NanStoppingCallback(),
+        ],
     )
 
     best_trial = trainer.hyperparameter_search(
@@ -141,3 +178,32 @@ def main(
 
 if __name__ == "__main__":
     fi.Fire(main)
+
+
+import pathlib
+import polars as pl
+from fms_ehrs.framework.vocabulary import Vocabulary
+
+splits = ("train", "val", "test")
+data_dir = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/data-mimic/W++-tokenized")
+vocab = Vocabulary().load(data_dir.joinpath("train", "vocab.gzip"))
+dfs = dict()
+for s in splits:
+    dfs[s] = pl.read_parquet(
+        data_dir.joinpath(s, "tokens_timelines.parquet")
+    ).with_columns(
+        prefix=pl.col("tokens")
+        .list.head(n=6)
+        .list.eval(
+            pl.element().map_elements(
+                lambda v: vocab.reverse[v], return_dtype=pl.String
+            )
+        ),
+        suffix=pl.col("tokens")
+        .list.tail(2)
+        .list.eval(
+            pl.element().map_elements(
+                lambda v: vocab.reverse[v], return_dtype=pl.String
+            )
+        ),
+    )

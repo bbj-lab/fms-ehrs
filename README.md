@@ -178,10 +178,6 @@ For example, the first few tokens for a timeline might look like this:
     apptainer build env.sif env.def
     ```
 
--   _For a demo on randi, see [this](./docs-internal.md)._
-
----
-
 [^1]:
     M. Burkhart, B. Ramadan, Z. Liao, K. Chhikara, J. Rojas, W. Parker, & B.
     Beaulieu-Jones, Foundation models for electronic health records:
@@ -216,10 +212,10 @@ rsync -avht \
 
 Run on randi:
 ```
-systemd-run --scope --user tmux new -s t2q
+systemd-run --scope --user tmux new -s t3q
 srun -p tier3q \
-  --mem=100GB \
-  --time=8:00:00 \
+  --mem=33GB \
+  --time=1:00:00 \
   --job-name=adhoc \
   --pty bash -i
 source venv/bin/activate
