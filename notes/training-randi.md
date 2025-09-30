@@ -16,7 +16,9 @@
    [general resource](https://slurm.schedmd.com/gres.html) with something like
    `#SBATCH --gres=gpu:8` to get 8×A100 (40GB PCIe) GPUs. If you don't need 8,
    then you can decrease this number, but make sure to also change
-   `--nproc-per_node=8` to match whatever you request: ![](../img/slurm.png)
+   `--nproc-per_node=8` to match whatever you request:
+
+    ![](../img/slurm.png)
 
 <!-- prettier-ignore-start -->
 > [!NOTE]
@@ -51,7 +53,9 @@
    future to better understand outcomes), places a randomly determined number of
    padding tokens in between each one (to help the model learn to ignore
    padding), and packs them in row-major (C-style) ordering into arrays of
-   dimension `batch_size 1024`: ![](../img/packing.png)
+   dimension `batch_size 1024`:
+
+    ![](../img/packing.png)
 
     The dataset object is created here:
 
@@ -159,7 +163,9 @@
    each row (and these sequences are truncated at 24h -- in the same way that
    they are when we test on them), but since each sequence has a different
    length, we use the padding tokens as filler in order to form them into
-   batches: ![](../img/padding.png).
+   batches:
+
+    ![](../img/padding.png).
 
     The code to create the fine-tuning dataset looks like:
 
