@@ -20,6 +20,8 @@
 
     ![](../img/slurm.png)
 
+    Specify memory requirements with `--mem-per-cpu`.
+
 <!-- prettier-ignore-start -->
 > [!NOTE]
 >  If you don't occupy a full node, you may encounter port conflicts
@@ -42,6 +44,12 @@
    You can run `nvtop` (https://github.com/Syllo/nvtop) and make sure you are
    actually using all the resources you requested. It looks like this:
    ![](../img/nvtop.png)
+
+<!-- prettier-ignore-start -->
+> [!NOTE]
+> If you run `nvtop` and some of the gpus are consistently at zero,
+> you're not using them and may want to check your approach.
+<!-- prettier-ignore-end -->
 
 4. Our default script sends training data and metrics to a visualization platform
    called [weights and biases](wandb.ai). You can monitor eval loss / train loss
