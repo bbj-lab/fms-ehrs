@@ -263,4 +263,10 @@ Install directly from github:
 pip install -e "git+https://github.com/bbj-lab/clif-tokenizer.git@main#egg=fms-ehrs"
 ```
 
+Fix permissions:
+
+```sh
+chgrp -R cri-bbj_lab *
+chmod -R +770 *
+```
 -->
