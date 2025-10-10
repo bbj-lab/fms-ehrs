@@ -177,10 +177,6 @@ For example, the first few tokens for a timeline might look like this:
     apptainer build env.sif env.def
     ```
 
--   _For a demo on randi, see [this](./docs-internal.md)._
-
----
-
 [^1]:
     M. Burkhart, B. Ramadan, Z. Liao, K. Chhikara, J. Rojas, W. Parker, & B.
     Beaulieu-Jones, Foundation models for electronic health records:
@@ -215,6 +211,7 @@ rsync -avht \
 
 Run on randi:
 ```
+systemd-run --scope --user tmux new -s t3q
 systemd-run --scope --user tmux new -s t2q
 srun -p tier2q \
   --mem=25GB \
@@ -316,6 +313,13 @@ exit
 limactl cp apptainer:~/build/env.sif ~/Downloads/env.sif
 limactl stop apptainer
 limactl delete apptainer
+```
+
+Fix permissions:
+
+```sh
+chgrp -R cri-bbj_lab *
+chmod -R +770 *
 ```
 
 -->

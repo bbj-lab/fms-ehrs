@@ -16,7 +16,10 @@ from fms_ehrs.framework.logger import get_logger
 from fms_ehrs.framework.storage import set_perms
 from fms_ehrs.framework.util import ragged_lists_to_array
 
-pio.defaults.mathjax = None
+try:
+    pio.defaults.mathjax = None
+except AttributeError:
+    pio.kaleido.scope.mathjax = None
 
 logger = get_logger()
 logger.info("running {}".format(__file__))

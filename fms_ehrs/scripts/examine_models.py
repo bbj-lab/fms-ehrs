@@ -24,7 +24,10 @@ from fms_ehrs.framework.plotting import colors
 from fms_ehrs.framework.tokenizer import token_type
 from fms_ehrs.framework.vocabulary import Vocabulary
 
-pio.defaults.mathjax = None
+try:
+    pio.defaults.mathjax = None
+except AttributeError:
+    pio.kaleido.scope.mathjax = None
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
