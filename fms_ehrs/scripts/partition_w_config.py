@@ -188,5 +188,17 @@ for s in splits:
                     .join(sbj_ids[s].lazy(), on=sbj_id_str)
                     .sink_parquet
                 )(dirs_out[s].joinpath(t.name))
+                continue
             except pl.exceptions.ColumnNotFoundError as e:
                 logger.warning(f"Failed to find {sbj_id_str} in {t}")
+            try:
+                set_perms(
+                    pl.scan_parquet(t)
+                    .join(grp_ids[s].lazy(), on=grp_id_str)
+                    .sink_parquet
+                )(dirs_out[s].joinpath(t.name))
+                continue
+            except pl.exceptions.ColumnNotFoundError as e:
+                logger.warning(f"Failed to find {grp_id_str} in {t}")
+
+logger.info("---fin")

@@ -4,6 +4,7 @@
 a framework on which tokenizers may be built
 """
 
+import datetime
 import logging
 import os
 import pathlib
@@ -180,12 +181,12 @@ class BaseTokenizer:
                 np.array(td) - 1
             ],  # when td is 0, it lies before our first breakpoint (<5min)
         )
-        new_times = np.insert(
-            times, np.array(ix) + 1, np.array(times)[np.array(ix) + 1]
-        ).astype(
-            np.datetime64
+        new_times = (
+            np.insert(times, np.array(ix) + 1, np.array(times)[np.array(ix) + 1])
+            .astype("datetime64[ms]")
+            .astype(datetime.datetime)
         )  # spacing tokens assigned to the time at the end of the space
-        return {"tokens": new_tokens, "times": new_times}
+        return {"tokens": list(new_tokens), "times": list(new_times)}
 
     @staticmethod
     def cut_at_time(
@@ -347,7 +348,7 @@ if __name__ == "__main__":
     tt = eg_tkzr.time_spacing_inserter(eg_tokens, eg_times)
     print(list(map(eg_tkzr.vocab.reverse.__getitem__, tt["tokens"])))
     # ['Q0', 'Q1', 'T_5m-15m', 'Q2', 'Q3', 'Q4', 'T_1h-2h', 'Q5', 'Q6']
-    print(tt["times"].tolist())
+    print(tt["times"])
     # [
     #   datetime.datetime(2000, 1, 1, 0, 0),
     #   datetime.datetime(2000, 1, 1, 0, 0),
@@ -361,5 +362,8 @@ if __name__ == "__main__":
     # ]
 
     print(eg_tkzr.get_token_type("Q3"))
+    # QUANT
     print(eg_tkzr.get_token_type(None))
+    # SPECIAL
     print(eg_tkzr.get_token_type_from_int(3))
+    # QUANT
