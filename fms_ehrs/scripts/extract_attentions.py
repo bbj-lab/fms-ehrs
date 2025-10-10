@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 
 """
-grab the sequence of logits from the test set
+extract attention maps and values (from queries, keys, & values);
+consider token importance metrics as described in Guo, Kamigaito, Watanabe's
+"Attention score is not all you need for token importance indicator in KV cache
+reduction: Value also matters" (Empirical Methods in Natural Language Processing, 2024)
 """
 
 import argparse
@@ -16,11 +19,13 @@ from datasets import concatenate_datasets, load_dataset
 from plotly import express as px
 from plotly import graph_objects as go
 from plotly import io as pio
+from plotly.subplots import make_subplots
 from transformers import AutoModelForCausalLM
 
 from fms_ehrs.framework.logger import get_logger
 from fms_ehrs.framework.storage import fix_perms, set_perms
 from fms_ehrs.framework.vocabulary import Vocabulary
+from fms_ehrs.framework.plotting import imshow_text
 
 Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
 Dictlike: typing.TypeAlias = collections.OrderedDict | dict
@@ -36,7 +41,7 @@ logger.log_env()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data_dir", type=pathlib.Path, default="../../data-mimic")
-parser.add_argument("--data_version", type=str, default="W++_first_24h")
+parser.add_argument("--data_version", type=str, default="W++")
 parser.add_argument(
     "--model_loc",
     type=pathlib.Path,
@@ -50,17 +55,16 @@ parser.add_argument(
         "24640534",  # cf. Fig. 2
         "26886976",  # Fig. 3
         "29022625",  # Fig. 4
-        "20606203",
-        "29298288",
-        "28910506",
-        "28812737",
-        "20606203",
-        "29866426",
+        # "20606203",
+        # "29298288",
+        # "28910506",
+        # "28812737",
+        # "20606203",
+        # "29866426",
     ],
 )
 parser.add_argument("--out_dir", type=pathlib.Path, default="../../figs")
 parser.add_argument("--final_layer", action="store_true")
-parser.add_argument("--log_scale", action="store_true")
 parser.add_argument("--max_len", type=int, default=42)
 args, unknowns = parser.parse_known_args()
 
@@ -149,54 +153,39 @@ selected_decoded = np.array(
     ]
 )
 
-importances = collections.OrderedDict()
-importances["H2O"] = attns.sum(axis=(0, 2, 3))
-importances["H2O-VA"] = (
-    attns * np.linalg.norm(vals, axis=-1, ord=1, keepdims=True)
-).sum(axis=(0, 2, 3))
-importances["✂️👐🏻-10"] = (
-    attns * (np.tri(vals.shape[3]) - np.tri(vals.shape[3], k=-10))
-).sum(axis=(0, 2, 3))
-importances["✂️👐🏻-10-VA"] = (
+metrics = collections.OrderedDict()
+metrics["value-norms"] = np.linalg.norm(vals, axis=-1, ord=1).sum(axis=(0, 2))
+metrics["H2O"] = attns.sum(axis=(0, 2, 3))
+metrics["H2O-VA"] = (attns * np.linalg.norm(vals, axis=-1, ord=1, keepdims=True)).sum(
+    axis=(0, 2, 3)
+)
+metrics["SH-10"] = (attns * (np.tri(vals.shape[3]) - np.tri(vals.shape[3], k=-10))).sum(
+    axis=(0, 2, 3)
+)
+metrics["SH-10-VA"] = (
     attns
     * (np.tri(vals.shape[3]) - np.tri(vals.shape[3], k=-10))
     * np.linalg.norm(vals, axis=-1, ord=1, keepdims=True)
 ).sum(axis=(0, 2, 3))
-importances["✂️👐🏻-20"] = (
-    attns * (np.tri(vals.shape[3]) - np.tri(vals.shape[3], k=-20))
-).sum(axis=(0, 2, 3))
-importances["✂️👐🏻-20-VA"] = (
+metrics["SH-20"] = (attns * (np.tri(vals.shape[3]) - np.tri(vals.shape[3], k=-20))).sum(
+    axis=(0, 2, 3)
+)
+metrics["SH-20-VA"] = (
     attns
     * (np.tri(vals.shape[3]) - np.tri(vals.shape[3], k=-20))
     * np.linalg.norm(vals, axis=-1, ord=1, keepdims=True)
 ).sum(axis=(0, 2, 3))
 
-assert np.all(importances["H2O"] + 0.01 >= importances["✂️👐🏻-20"])
-assert np.all(importances["✂️👐🏻-20"] + 0.01 >= importances["✂️👐🏻-10"])
-
-# importances = np.nanmean(
-#     np.where(
-#         np.isfinite(
-#             a := (np.log if args.log_scale else lambda _: _)(
-#                 agg_attn[:, : args.max_len, : args.max_len]
-#             )
-#         ),
-#         a,
-#         np.nan,
-#     ),
-#     axis=1,
-# )
-# importances[:, -10:] = importances.mean(
-#     axis=-1, keepdims=True
-# )  # this doesn't work well on things that don't have a history
-q95 = np.quantile(importances["H2O-VA"][:, : args.max_len], 0.9, axis=1)
+metrics_normalized = {
+    k: v[:, : args.max_len] / v[:, : args.max_len].sum(axis=-1, keepdims=True)
+    for k, v in metrics.items()
+}
 
 for i in range(len(agg_attn)):
-    fig = go.Figure(
-        data=go.Heatmap(
-            z=(np.log if args.log_scale else lambda _: _)(
-                agg_attn[i, : args.max_len, : args.max_len]
-            ),
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.01)
+    fig.add_trace(
+        go.Heatmap(
+            z=np.log(agg_attn[i, : args.max_len, : args.max_len]),
             x=list(range(args.max_len)),
             y=list(range(args.max_len)),
             colorscale=px.colors.sequential.Viridis,
@@ -205,22 +194,39 @@ for i in range(len(agg_attn)):
             zsmooth=False,
             xgap=1,
             ygap=1,
-        )
+            name="top",
+            colorbar=dict(title="attentions", len=0.5, y=0.775),
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Heatmap(
+            z=np.vstack([v[i, : args.max_len] for v in metrics_normalized.values()]),
+            x=list(range(args.max_len)),
+            y=list(range(args.max_len)),
+            colorscale=px.colors.sequential.Viridis,
+            reversescale=False,
+            showscale=True,
+            zsmooth=False,
+            xgap=1,
+            ygap=1,
+            name="bottom",
+            colorbar=dict(title="values & metrics", len=0.5, orientation="h", y=0.1),
+        ),
+        row=2,
+        col=1,
     )
     fig.update_layout(
         xaxis=dict(
             showgrid=False,
             zeroline=False,
             tickvals=list(range(args.max_len)),
-            ticktext=[
-                x if importances["H2O-VA"][i][j] < q95[i] else "<b>{}</b>".format(x)
-                for j, x in enumerate(selected_decoded[i, : args.max_len])
-            ],
+            ticktext=selected_decoded[i, : args.max_len],
             showticklabels=True,
-            tickangle=-45,
-            tickfont=dict(size=36),
-            ticklabelstandoff=-100,
-            side="bottom" if args.log_scale else "top",
+            tickangle=-90,
+            tickfont=dict(size=20),
+            side="bottom",
         ),
         yaxis=dict(
             showgrid=False,
@@ -229,14 +235,34 @@ for i in range(len(agg_attn)):
             autorange="reversed",
             tickvals=list(range(args.max_len)),
             ticktext=selected_decoded[i, : args.max_len],
-            tickfont=dict(size=36),
+            tickfont=dict(size=20),
+            # scaleanchor="x",
         ),
-        height=3000,
-        width=3000,
+        height=2000,
+        width=2000,
         font_family="CMU Serif, Times New Roman, serif",
         xaxis_scaleanchor="y",
         plot_bgcolor="white",
         template="plotly_white",
+    )
+    fig.update_yaxes(
+        showgrid=False,
+        zeroline=False,
+        showticklabels=True,
+        autorange="reversed",
+        tickvals=list(np.arange(len(metrics.keys())) + 0.5),
+        ticktext=list(metrics.keys()),
+        tickfont=dict(size=20),
+        scaleanchor="x",
+        row=2,
+        col=1,
+    )
+    fig.update_xaxes(
+        showgrid=False,
+        zeroline=False,
+        showticklabels=False,
+        row=2,
+        col=1,
     )
     set_perms(fig.write_image)(
         pathlib.Path(
@@ -250,5 +276,27 @@ for i in range(len(agg_attn)):
         .expanduser()
         .resolve()
     )
+
+args.max_len = 210
+n_cols = 6
+n_rows = args.max_len // n_cols
+max_len = n_rows * n_cols
+height = (700 * n_rows) // 42
+
+for k, v in metrics.items():
+    for i in range(len(agg_attn)):
+        imshow_text(
+            values=v[i][:max_len].reshape((-1, n_cols)),
+            text=selected_decoded[i, :max_len].reshape((-1, n_cols)),
+            savepath=out_dir.joinpath(
+                "tls-{}-{}.pdf".format(selected_data["hospitalization_id"][i], k)
+            ),
+            autosize=False,
+            zmin=v[:, :max_len].min(),
+            zmax=v[:, 8:max_len].max(),
+            height=height,
+            width=1000,
+            margin=dict(l=0, r=0, t=0, b=0),
+        )
 
 logger.info("---fin")
