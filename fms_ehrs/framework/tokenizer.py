@@ -1,30 +1,27 @@
 #!/usr/bin/env python3
 
 """
-provides a simple tokenizing interface to take tabular CLIF data and convert
-it to tokenized timelines at the hospitalization_id level
+provides a configurable tokenizer object to take tabular data and convert
+it to tokenized timelines at the subject_id level
 """
 
-import collections
-import functools
 import os
 import pathlib
-import re
 import typing
 
 import polars as pl
+import ruamel.yaml as yaml
 
-from fms_ehrs.framework.tokenizer0 import BaseTokenizer, summarize
+from fms_ehrs.framework.tokenizer_base import BaseTokenizer, summarize
 
 Frame: typing.TypeAlias = pl.DataFrame | pl.LazyFrame
 Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
 
 
-class ClifTokenizer(BaseTokenizer):
+class Tokenizer21(BaseTokenizer):
     """
     tokenizes a directory containing a set of parquet files corresponding to
-    the CLIF-2.0 standard; note that the `cut_at_24h` flag implements a very
-    conservative cut and typically removes some timelines
+    the CLIF-2.1 standard
     """
 
     def __init__(
@@ -33,528 +30,265 @@ class ClifTokenizer(BaseTokenizer):
         data_dir: Pathlike = pathlib.Path("../.."),
         vocab_path: Pathlike = None,
         max_padded_len: int = None,
-        day_stay_filter: bool = False,
+        quantizer: typing.Literal["deciles", "sigmas"] = None,
         cut_at_24h: bool = False,
-        valid_admission_window: tuple[str, str] = None,
-        lab_time: typing.Literal["collect", "result"] = "result",
-        quantizer: typing.Literal["deciles", "sigmas"] = "deciles",
-        drop_deciles: bool = False,
-        drop_nulls_nans: bool = False,
-        n_top_reports: int = 100,
-        include_time_spacing_tokens: bool = False,
+        include_time_spacing_tokens: bool = None,
+        config_file: Pathlike = None,
     ):
-        """
-        if no vocabulary is provided, we are in training mode; otherwise, the
-        provided vocabulary is frozen
-        """
+        self.config = yaml.YAML(typ="safe").load(
+            pathlib.Path(config_file).expanduser().resolve()
+        )
         super().__init__(
             data_dir=data_dir,
             vocab_path=vocab_path,
-            max_padded_len=max_padded_len,
-            quantizer=quantizer,
-            include_time_spacing_tokens=include_time_spacing_tokens,
+            max_padded_len=(
+                max_padded_len
+                if max_padded_len is not None
+                else self.config["options"]["max_padded_len"]
+            ),  # passed argument overrides config default
+            quantizer=(
+                quantizer
+                if quantizer is not None
+                else self.config["options"]["quantizer"]
+            ),
+            include_time_spacing_tokens=(
+                include_time_spacing_tokens
+                if include_time_spacing_tokens is not None
+                else self.config["options"]["include_time_spacing_tokens"]
+            ),
         )
-        self.tbl = dict()
-        self.day_stay_filter = bool(day_stay_filter)
-        self.cut_at_24h = bool(cut_at_24h)
-        self.valid_admission_window = valid_admission_window
-        self.lab_time = lab_time
-        self.drop_deciles = bool(drop_deciles)
-        self.drop_nulls_nans = bool(drop_nulls_nans)
-        self.n_top_reports = n_top_reports
-        self.include_time_spacing_tokens = bool(include_time_spacing_tokens)
+        self.cut_at_24h: bool = cut_at_24h
+        self.reference_frame = None
 
-    def load_tables(self) -> None:
-        """lazy-load all parquet tables from the directory `self.data_dir`"""
-        self.tbl = {
+    def run_times_qc(self, reference_frame) -> Frame:
+        return (
             (
-                p.stem.split("_")[1] if "assessments" not in p.stem else "assessments"
-            ): pl.scan_parquet(p)
-            for p in self.data_dir.glob("*.parquet")
-        }
-
-    def process_tables(self) -> None:
-        self.tbl["patient"] = (
-            self.tbl["patient"]
-            .group_by("patient_id")
-            .agg(
-                pl.col("race_category")
-                .str.to_lowercase()
-                .str.replace_all(" ", "_")
-                .first(),
-                pl.col("ethnicity_category")
-                .str.to_lowercase()
-                .str.replace_all(" ", "_")
-                .first(),
-                pl.col("sex_category")
-                .str.to_lowercase()
-                .str.replace_all(" ", "_")
-                .first(),
-            )
-            .with_columns(
-                pl.col("race_category").map_elements(
-                    lambda x: self.vocab("RACE_{}".format(x)),
-                    return_dtype=pl.Int64,
-                    skip_nulls=False,
-                ),
-                pl.col("ethnicity_category").map_elements(
-                    lambda x: self.vocab("ETHN_{}".format(x)),
-                    return_dtype=pl.Int64,
-                    skip_nulls=False,
-                ),
-                pl.col("sex_category").map_elements(
-                    lambda x: self.vocab("SEX_{}".format(x)),
-                    return_dtype=pl.Int64,
-                    skip_nulls=False,
-                ),
-            )
-            .with_columns(
-                tokens=pl.concat_list(
-                    "race_category", "ethnicity_category", "sex_category"
-                )
-            )
-            .select("patient_id", "tokens")
-            .collect()
-        )
-
-        self.tbl["hospitalization"] = (
-            self.tbl["hospitalization"]
-            .group_by("hospitalization_id")
-            .agg(
-                pl.col("patient_id").first(),
-                pl.col("admission_dttm")
-                .first()
-                .cast(pl.Datetime(time_unit="ms"))
-                .alias("event_start"),
-                pl.col("discharge_dttm")
-                .first()
-                .cast(pl.Datetime(time_unit="ms"))
-                .alias("event_end"),
-                pl.col("age_at_admission").first(),
-                pl.col("admission_type_name")
-                .str.to_lowercase()
-                .str.replace_all(" ", "_")
-                .first(),
-                pl.col("discharge_category")
-                .str.to_lowercase()
-                .str.replace_all(" ", "_")
-                .first(),
-            )
-            .filter(
-                pl.col("event_start").is_between(
-                    pl.lit(self.valid_admission_window[0]).cast(pl.Date),
-                    pl.lit(self.valid_admission_window[1]).cast(pl.Date),
-                )
-                if self.valid_admission_window is not None
-                else True
-            )
-            .with_columns(
-                pl.col("admission_type_name").map_elements(
-                    lambda x: self.vocab("ADMN_{}".format(x)),
-                    return_dtype=pl.Int64,
-                    skip_nulls=False,
-                ),
-                pl.col("discharge_category").map_elements(
-                    lambda x: self.vocab("DSCG_{}".format(x)),
-                    return_dtype=pl.Int64,
-                    skip_nulls=False,
-                ),
-            )
-            .select(
-                "patient_id",
-                "hospitalization_id",
-                "event_start",
-                "event_end",
-                "age_at_admission",
-                "admission_type_name",
-                "discharge_category",
-            )
-            .sort(by="hospitalization_id")
-            .collect()
-        )
-
-        # tokenize age_at_admission here
-        c = "age_at_admission"
-        v = self.tbl["hospitalization"].select(c).to_numpy().ravel()
-        self.set_quants(v=v, c=c)
-        self.tbl["hospitalization"] = (
-            self.tbl["hospitalization"]
-            .with_columns(age_at_admission=self.get_quants(v=v, c=c))
-            .with_columns(admission_tokens=pl.concat_list(c, "admission_type_name"))
-            .drop(c, "admission_type_name")
-        )
-
-        self.tbl["adt"] = (
-            self.tbl["adt"]
-            .with_columns(
-                event_time=pl.col("in_dttm").cast(pl.Datetime(time_unit="ms")),
-                category=pl.col("location_category").str.to_lowercase(),
-            )
-            .with_columns(
-                tokens=pl.col("category")
-                .str.to_lowercase()
-                .map_elements(
-                    lambda x: [self.vocab("ADT_{}".format(x))],
-                    return_dtype=pl.List(pl.Int64),
-                    skip_nulls=False,
-                ),
-                times=pl.concat_list([pl.col("event_time").cast(pl.Datetime("ms"))]),
-            )
-            .select("hospitalization_id", "event_time", "tokens", "times")
-            .collect()
-        )
-
-        self.tbl["labs"] = (
-            self.tbl["labs"]
-            .filter(~pl.col("lab_category").is_null())
-            .select(
-                "hospitalization_id",
-                pl.col(f"lab_{self.lab_time}_dttm")
-                .cast(pl.Datetime(time_unit="ms"))
-                .alias("event_time"),
-                pl.col("lab_category").str.to_lowercase().alias("category"),
-                pl.col("lab_value_numeric").alias("value"),
-            )
-            .collect()
-        )
-        self.tbl["labs"] = self.process_cat_val_frame(self.tbl["labs"], label="LAB")
-
-        self.tbl["vitals"] = (
-            self.tbl["vitals"]
-            .select(
-                "hospitalization_id",
-                pl.col("recorded_dttm")
-                .cast(pl.Datetime(time_unit="ms"))
-                .alias("event_time"),
-                pl.col("vital_category")
-                .cast(pl.String)
-                .str.to_lowercase()
-                .alias("category"),
-                pl.col("vital_value").alias("value"),
-            )
-            .collect()
-        )
-        self.tbl["vitals"] = self.process_cat_val_frame(self.tbl["vitals"], label="VTL")
-
-        self.tbl["medication"] = (
-            self.tbl["medication"]
-            .select(
-                "hospitalization_id",
-                pl.col("admin_dttm")
-                .cast(pl.Datetime(time_unit="ms"))
-                .alias("event_time"),
-                pl.col("med_category").str.to_lowercase().alias("category"),
-                pl.col("med_dose").alias("value"),
-            )
-            .collect()
-        )
-        self.tbl["medication"] = self.process_cat_val_frame(
-            self.tbl["medication"], label="MED"
-        )
-
-        # seems like there's a column for assessment, and then either a
-        # numerical_value OR a categorical_value, depending on the assessment
-        self.tbl["assessments"] = (
-            self.tbl["assessments"]
-            .with_columns(
-                event_time=pl.col("recorded_dttm").cast(pl.Datetime(time_unit="ms")),
-                category=pl.col("assessment_category").str.to_lowercase(),
-                value=pl.col("numerical_value"),
-            )
-            .collect()
-        )
-
-        # handle categorical assessments separately from numerical assessments
-        asmt_num = self.tbl["assessments"].filter(~pl.col("value").is_null())
-        asmt_num = self.process_cat_val_frame(asmt_num, label="ASMT").select(
-            "hospitalization_id", "event_time", "tokens", "times"
-        )
-
-        asmt_cat = (
-            self.tbl["assessments"]
-            .filter(pl.col("value").is_null())
-            .filter(~pl.col("categorical_value").is_null())
-            .with_columns(
-                pl.col("category")
-                .str.to_lowercase()
-                .str.replace_all(" ", "_")
-                .map_elements(
-                    lambda x: self.vocab("ASMT_cat_{}".format(x)),
-                    return_dtype=pl.Int64,
-                    skip_nulls=False,
-                ),
-                pl.col("categorical_value")
-                .str.to_lowercase()
-                .str.replace_all(" ", "_")
-                .map_elements(
-                    lambda x: self.vocab("ASMT_val_{}".format(x)),
-                    return_dtype=pl.Int64,
-                    skip_nulls=False,
-                ),
-            )
-            .with_columns(
-                tokens=pl.concat_list("category", "categorical_value"),
-                times=pl.concat_list("event_time", "event_time"),
-            )
-            .select("hospitalization_id", "event_time", "tokens", "times")
-        )
-
-        self.tbl["assessments"] = pl.concat((asmt_num, asmt_cat))
-
-        self.tbl["respiratory"] = (
-            self.tbl["respiratory"]
-            .with_columns(
-                pl.col("mode_category")
-                .str.to_lowercase()
-                .str.replace_all(" ", "_")
-                .map_elements(
-                    lambda x: self.vocab("RESP_mode_{}".format(x)),
-                    return_dtype=pl.Int64,
-                    skip_nulls=False,
-                ),
-                pl.col("device_category")
-                .str.to_lowercase()
-                .str.replace_all(" ", "_")
-                .map_elements(
-                    lambda x: self.vocab("RESP_devc_{}".format(x)),
-                    return_dtype=pl.Int64,
-                    skip_nulls=False,
-                ),
-                event_time=pl.col("recorded_dttm").cast(pl.Datetime(time_unit="ms")),
-            )
-            .with_columns(
-                tokens=pl.concat_list("mode_category", "device_category"),
-                times=pl.concat_list("event_time", "event_time"),
-            )
-            .select("hospitalization_id", "event_time", "tokens", "times")
-            .collect()
-        )
-
-        # include a token for prone position; this is relatively rare
-        self.tbl["position"] = (
-            self.tbl["position"]
-            .filter(pl.col("position_category") == "prone")
-            .with_columns(
-                event_time=pl.col("recorded_dttm").cast(pl.Datetime(time_unit="ms"))
-            )
-            .with_columns(
-                tokens=pl.col("position_category").map_elements(
-                    lambda x: [self.vocab("POSN_{}".format(x))],
-                    return_dtype=pl.List(pl.Int64),
-                    skip_nulls=False,
-                ),
-                times=pl.concat_list([pl.col("event_time").cast(pl.Datetime("ms"))]),
-            )
-            .collect()
-        )
-
-        # process machine measurements from ECG's if available
-        if "measurements" in self.tbl:
-            self.tbl["measurements"] = self.tbl["measurements"].with_columns(
-                reports=pl.concat_list(
-                    *[
-                        pl.col(f"report_{i}").str.strip_chars(" .").str.to_uppercase()
-                        for i in range(18)
-                    ]
-                ).list.eval(pl.element().drop_nulls()),
-                event_time=pl.col("event_dttm").cast(pl.Datetime(time_unit="ms")),
-            )
-
-            if (
-                not self.vocab.has_aux("ECG_machine_measurements")
-                and self.vocab.is_training
-            ):
-                self.vocab.set_aux(
-                    "ECG_machine_measurements",
-                    set(
-                        self.tbl["measurements"]
-                        .select(pl.col("reports").explode())
-                        .group_by("reports")
-                        .len()
-                        .sort("len")
-                        .tail(self.n_top_reports)
-                        .collect()
-                        .to_series()
-                        .to_list()
+                reference_frame.join(
+                    pl.scan_parquet(
+                        self.data_dir.joinpath(
+                            f"{self.config['times_qc']['table']}.parquet"
+                        )
+                    )
+                    .group_by(self.config["subject_id"])
+                    .agg(
+                        start_time_alt=pl.col(self.config["times_qc"]["time"]).min(),
+                        end_time_alt=pl.col(self.config["times_qc"]["time"]).max(),
                     ),
+                    how="left",
+                    on=self.config["subject_id"],
+                    validate="1:1",
                 )
-
-            self.tbl["measurements"] = (
-                self.tbl["measurements"]
                 .with_columns(
-                    pl.col("reports")
-                    .list.eval(
-                        pl.element().filter(
-                            pl.element().is_in(
-                                self.vocab.get_aux("machine_measurements")
-                            )
-                        )
+                    pl.min_horizontal(
+                        self.config["reference"]["start_time"], "start_time_alt"
                     )
-                    .list.eval(
-                        pl.element().map_elements(
-                            lambda x: self.vocab("ECG_{}".replace(" ", "_").format(x)),
+                    .cast(pl.Datetime(time_unit="ms"))
+                    .alias(self.config["reference"]["start_time"]),
+                    pl.max_horizontal(
+                        self.config["reference"]["end_time"], "end_time_alt"
+                    )
+                    .cast(pl.Datetime(time_unit="ms"))
+                    .alias(self.config["reference"]["end_time"]),
+                )
+                .drop("start_time_alt", "end_time_alt")
+                .filter(
+                    pl.col(self.config["reference"]["start_time"])
+                    < pl.col(self.config["reference"]["end_time"])
+                )
+            )
+            if "times_qc" in self.config
+            else reference_frame
+        )
+
+    def get_reference_frame(self) -> Frame:
+        if self.reference_frame is not None:
+            return self.reference_frame
+        df = pl.scan_parquet(
+            self.data_dir.joinpath(f"{self.config['reference']['table']}.parquet")
+        )
+        for tkv in self.config["augmentation_tables"]:
+            df = df.join(
+                pl.scan_parquet(self.data_dir.joinpath(f"{tkv['table']}.parquet")),
+                on=tkv["key"],
+                validate=tkv["validation"],
+                how="left",
+            )
+        if "age" in self.config["reference"]:
+            age = (
+                df.select(self.config["reference"]["age"]).collect().to_numpy().ravel()
+            )
+            self.set_quants(
+                v=age, c="AGE"
+            )  # note this is a no-op if quants are already set for AGE
+            df = df.with_columns(quantized_age=self.get_quants(v=age, c="AGE"))
+        self.reference_frame = self.run_times_qc(df)
+        return self.reference_frame
+
+    def get_end(self, end_type: typing.Literal["prefix", "suffix"]) -> Frame:
+        time_col = (
+            self.config["reference"]["start_time"]
+            if end_type == "prefix"
+            else self.config["reference"]["end_time"]
+        )
+        return self.get_reference_frame().select(
+            pl.col(self.config["subject_id"]),
+            pl.col(time_col).cast(pl.Datetime(time_unit="ms")).alias("event_time"),
+            pl.concat_list(
+                ([self.vocab("TL_START")] if end_type == "prefix" else [])
+                + [
+                    (
+                        pl.col(col["column"])
+                        .str.to_lowercase()
+                        .str.replace_all(" ", "_")
+                        .map_elements(
+                            lambda x, prefix=col["prefix"]: self.vocab(f"{prefix}_{x}"),
                             return_dtype=pl.Int64,
+                            skip_nulls=False,
                         )
+                        if not col["column"].startswith("quantized")
+                        else pl.col(col["column"])
                     )
-                    .alias("tokens")
+                    for col in self.config[end_type]
+                ]
+                + ([self.vocab("TL_END")] if end_type == "suffix" else [])
+            ).alias("tokens"),
+            pl.concat_list(
+                [pl.col(time_col).cast(pl.Datetime(time_unit="ms"))]
+                * (len(self.config[end_type]) + 1)
+            ).alias("times"),
+        )
+
+    def get_event(
+        self,
+        table: str,
+        *,
+        prefix: str = None,
+        time: str,
+        code: str,
+        numeric_value: str = None,
+        text_value: str = None,
+        filter: str = None,
+        reference_key: str = None,
+    ):
+        df = pl.scan_parquet(self.data_dir.joinpath(f"{table}.parquet")).filter(
+            eval(filter) if filter is not None else True
+        )
+        if reference_key is not None:
+            df = df.join(self.reference_frame, on=reference_key, how="inner").filter(
+                pl.col(time)
+                .cast(pl.Datetime(time_unit="ms"))
+                .is_between(
+                    self.config["reference"]["start_time"],
+                    self.config["reference"]["end_time"],
                 )
-                .with_columns(
-                    pl.struct(["event_time", pl.col("tokens").list.len()])
-                    .map_elements(
-                        lambda row: [row["event_time"]] * row["tokens"],
-                        return_dtype=pl.List(pl.Datetime),
-                    )
-                    .alias("times")
-                )
-                .cast({"times": pl.List(pl.Datetime(time_unit="ms"))})
-                .collect()
             )
+        if numeric_value is not None:
+            # pass to category-value tokenizer
+            return self.process_cat_val_frame(
+                df.select(
+                    pl.col(self.config["subject_id"]),
+                    pl.col(time).cast(pl.Datetime(time_unit="ms")).alias("event_time"),
+                    pl.col(code)
+                    .cast(str)
+                    .str.to_lowercase()
+                    .str.replace_all(" ", "_")
+                    .str.strip_chars(".")
+                    .alias("category"),
+                    pl.col(numeric_value).alias("value"),
+                ).collect(),
+                label=prefix,
+            ).select(self.config["subject_id"], "event_time", "tokens", "times")
+        else:
+            category_list = [code] if type(code) is str else code
+            if text_value is not None:
+                category_list += [text_value] if type(text_value) is str else text_value
+            # tokenize provided categories directly
+            return df.select(
+                pl.col(self.config["subject_id"]),
+                pl.col(time).cast(pl.Datetime(time_unit="ms")).alias("event_time"),
+                pl.concat_list(
+                    [
+                        pl.col(cat)
+                        .cast(str)
+                        .str.to_lowercase()
+                        .str.replace_all(" ", "_")
+                        .str.strip_chars(".")
+                        .map_elements(
+                            lambda x, prefix=prefix: self.vocab(f"{prefix}_{x}"),
+                            return_dtype=pl.Int64,
+                            skip_nulls=False,
+                        )
+                        for cat in category_list
+                    ]
+                ).alias("tokens"),
+                pl.concat_list(
+                    [pl.col(time).cast(pl.Datetime("ms"))] * len(category_list)
+                ).alias("times"),
+            ).collect()
 
-    def run_times_qc(self) -> None:
-        alt_times = (
-            self.tbl["vitals"]
-            .group_by("hospitalization_id")
-            .agg(
-                event_start_alt=pl.col("event_time").min(),
-                event_end_alt=pl.col("event_time").max(),
-            )
-        )
-
-        self.tbl["hospitalization"] = (
-            self.tbl["hospitalization"]
-            .join(alt_times, how="left", on="hospitalization_id", validate="1:1")
-            .with_columns(
-                event_start=pl.min_horizontal("event_start", "event_start_alt"),
-                event_end=pl.max_horizontal("event_end", "event_end_alt"),
-            )
-            .drop("event_start_alt", "event_end_alt")
-            .filter(pl.col("event_start") < pl.col("event_end"))
-        )
-
-    def get_admission_frame(self) -> Frame:
-        ## prepend patient-level tokens to each admission event
-        admission_tokens = (
-            self.tbl["patient"]
-            .join(self.tbl["hospitalization"], on="patient_id", validate="1:m")
-            .cast({"event_start": pl.Datetime(time_unit="ms")})
-            .with_columns(
-                adm_tokens=pl.concat_list(
-                    pl.lit(self.vocab("TL_START")),
-                    pl.col("tokens"),
-                    pl.col("admission_tokens"),
-                ),
-                adm_times=pl.concat_list(*[pl.col("event_start")] * 6),
-            )
-            .select(
-                "hospitalization_id",
-                pl.col("event_start").alias("event_time"),
-                "adm_tokens",
-                "adm_times",
-            )
-        )
-
-        return admission_tokens
-
-    def get_discharge_frame(self) -> Frame:
-        # gather discharge tokens
-        discharge_tokens = (
-            self.tbl["hospitalization"]
-            .rename({"event_end": "event_time"})
-            .cast({"event_time": pl.Datetime(time_unit="ms")})
-            .with_columns(
-                dis_tokens=pl.concat_list(
-                    "discharge_category", pl.lit(self.vocab("TL_END"))
-                ),
-                dis_times=pl.concat_list(*[pl.col("event_time")] * 2),
-            )
-            .select("hospitalization_id", "event_time", "dis_tokens", "dis_times")
-        )
-
-        return discharge_tokens
-
-    def get_raw_events(self) -> Frame:
-        return pl.concat(
-            self.tbl[k].select("hospitalization_id", "event_time", "tokens", "times")
-            for k in self.tbl.keys()
-            if k not in ("patient", "hospitalization")
-        )
-
-    def get_events_frame(self) -> Frame:
-        events = self.get_raw_events()
-
-        # doing both aggregations at once doesn't seem to work; so we do them
-        # separately, lazily, and then stitch them together
-
-        tokens_agg = (
-            events.lazy()
-            # order concurrent events by vocabulary, which itself was formed with
-            # contiguous categories
+    def get_events(self) -> Frame:
+        event_tokens = (
+            pl.concat(self.get_event(**evt) for evt in self.config["events"])
+            .lazy()
             .sort("event_time", pl.col("tokens").list.first())
             .group_by("hospitalization_id", maintain_order=True)
-            .agg([pl.col("tokens").explode()])
-        )
-
-        times_agg = (
-            events.lazy()
-            .sort("event_time")
-            .group_by("hospitalization_id", maintain_order=True)
-            .agg([pl.col("times").explode()])
-        )
-
-        event_tokens = tokens_agg.join(
-            times_agg, on="hospitalization_id", validate="1:1", maintain_order="left"
+            .agg(tokens=pl.col("tokens").explode(), times=pl.col("times").explode())
         )
 
         if self.include_time_spacing_tokens:
-            event_tokens = event_tokens.with_columns(
-                pl.struct(["tokens", "times"])
-                .map_elements(
-                    lambda x: self.time_spacing_inserter(x["tokens"], x["times"])[
-                        "tokens"
-                    ],
-                    return_dtype=pl.List(pl.Int64),
+            event_tokens = (
+                event_tokens.with_columns(
+                    pl.struct(["tokens", "times"])
+                    .map_elements(
+                        lambda x: self.time_spacing_inserter(x["tokens"], x["times"]),
+                        return_dtype=pl.Struct(
+                            [
+                                pl.Field("tokens", pl.List(pl.Int64)),
+                                pl.Field("times", pl.List(pl.Datetime())),
+                            ]
+                        ),
+                    )
+                    .alias("inserted")
                 )
-                .alias("tokens"),
-                pl.struct(["tokens", "times"])
-                .map_elements(
-                    lambda x: self.time_spacing_inserter(x["tokens"], x["times"])[
-                        "times"
-                    ],
-                    return_dtype=pl.List(pl.Datetime(time_unit="ms")),
+                .with_columns(
+                    pl.col("inserted").struct.field("tokens").alias("tokens"),
+                    pl.col("inserted")
+                    .struct.field("times")
+                    .cast(pl.List(pl.Datetime(time_unit="ms")))
+                    .alias("times"),
                 )
-                .alias("times"),
+                .drop("inserted")
             )
         return event_tokens
 
     def get_tokens_timelines(self) -> Frame:
-        self.load_tables()
-        self.process_tables()
-        self.run_times_qc()
-
-        # combine the admission tokens, event tokens, and discharge tokens
+        # combine the prefix tokens, event tokens, and suffix tokens
         tt = (
-            self.get_admission_frame()
-            .lazy()
+            self.get_end("prefix")
+            .rename({"tokens": "prefix_tokens", "times": "prefix_times"})
             .join(
-                self.get_events_frame(),
-                on="hospitalization_id",
+                self.get_events(),
+                on=self.config["subject_id"],
                 how="left",
                 validate="1:1",
             )
             .join(
-                self.get_discharge_frame().lazy(),
-                on="hospitalization_id",
+                self.get_end("suffix").rename(
+                    {"tokens": "suffix_tokens", "times": "suffix_times"}
+                ),
+                on=self.config["subject_id"],
+                how="left",
                 validate="1:1",
             )
             .with_columns(
-                tokens=pl.concat_list("adm_tokens", "tokens", "dis_tokens"),
-                times=pl.concat_list("adm_times", "times", "dis_times"),
+                tokens=pl.concat_list("prefix_tokens", "tokens", "suffix_tokens"),
+                times=pl.concat_list("prefix_times", "times", "suffix_times"),
             )
             .select("hospitalization_id", "tokens", "times")
             .sort(by="hospitalization_id")
         )
 
-        if self.day_stay_filter:
+        if self.config["options"]["day_stay_filter"]:
             tt = tt.filter(
                 (pl.col("times").list.get(-1) - pl.col("times").list.get(0))
                 >= pl.duration(days=1)
@@ -563,89 +297,34 @@ class ClifTokenizer(BaseTokenizer):
         if self.cut_at_24h:
             tt = super().cut_at_time(tt)
 
-        if self.drop_deciles or self.drop_nulls_nans:
-            filtered = (
-                tt.explode("tokens", "times")
-                .filter(pl.col("tokens") >= 10 if self.drop_deciles else pl.lit(True))
-                .filter(
-                    (~pl.col("tokens").is_in([self.vocab(None), self.vocab("nan")]))
-                    if self.drop_nulls_nans
-                    else pl.lit(True)
-                )
-            )
-            new_times = filtered.group_by(
-                "hospitalization_id", maintain_order=True
-            ).agg([pl.col("times")])
-            new_tokens = filtered.group_by(
-                "hospitalization_id", maintain_order=True
-            ).agg([pl.col("tokens")])
-            tt = new_tokens.join(
-                new_times,
-                on="hospitalization_id",
-                validate="1:1",
-                maintain_order="left",
-            )
-
         return tt.collect()
 
 
-@functools.cache
-def token_type(word: str) -> str:
-    if word in ClifTokenizer().special:
-        return "SPECIAL"
-    elif re.fullmatch(r"Q\d", word) or re.fullmatch(r"Q[0-3][+-]", word):
-        return "Q"
-    else:
-        return word.split("_")[0]
-
-
-type_names = collections.OrderedDict(
-    Q="Q",
-    RACE="RACE",
-    ETHN="ETHNICITY",
-    SEX="SEX",
-    ADMN="ADMISSION",
-    ADT="TRANSFER",
-    ASMT="ASSESSMENT",
-    LAB="LAB",
-    MED="MEDICATION",
-    POSN="POSITION",
-    RESP="RESPIRATION",
-    VTL="VITALS",
-    DSCG="DISCHARGE",
-    SPECIAL="SPECIAL",
-)
-token_types = tuple(type_names.keys())
-
 if __name__ == "__main__":
-    if os.uname().nodename.startswith("cri"):
-        hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/clif-development-sample")
-    else:
-        # change following line to develop locally
-        hm = pathlib.Path("~/Documents/chicago/CLIF/development-sample/raw")
-
-    out_dir = hm.parent.joinpath(hm.stem + "-tokenized").expanduser()
-    out_dir.mkdir(exist_ok=True)
-
-    tkzr = ClifTokenizer(
-        data_dir=hm,
-        max_padded_len=1024,
-        day_stay_filter=True,
-        cut_at_24h=True,
-        valid_admission_window=("2110-01-01", "2111-12-31"),
-        drop_nulls_nans=True,
-        # include_time_spacing_tokens=True,
+    dev_dir = (
+        pathlib.Path("~/Documents/chicago/CLIF/development-sample/raw-21")
+        .expanduser()
+        .resolve()
     )
-    tt = tokens_timelines = tkzr.get_tokens_timelines()
 
-    tkzr.print_aux()
-    summarize(tkzr, tokens_timelines)
+    # tkzr20 = Tokenizer21(config_file="../config/config-20.yaml", data_dir=dev_dir)
+    # tt20 = tkzr20.get_tokens_timelines()
+    # summarize(tkzr20, tt20)
 
-    tokens_timelines = tkzr.pad_and_truncate(tokens_timelines)
-    tokens_timelines.write_parquet(out_dir.joinpath("tokens_timelines.parquet"))
-    tkzr.vocab.save(out_dir.joinpath("vocab.gzip"))
+    tkzr21 = Tokenizer21(
+        config_file="../config/config-21.yaml",
+        data_dir=dev_dir,
+        include_time_spacing_tokens=True,
+    )
+    tt21 = tkzr21.get_tokens_timelines()
+    summarize(tkzr21, tt21)
 
-    tkzr2 = ClifTokenizer(data_dir=hm, vocab_path=out_dir.joinpath("vocab.gzip"))
-    tokens_timelines2 = tkzr2.get_tokens_timelines()
-    assert len(tkzr.vocab) == len(tkzr2.vocab)
-    assert tkzr.vocab.lookup == tkzr2.vocab.lookup
+    x = pl.read_parquet(dev_dir.joinpath("clif_medication_admin_intermittent.parquet"))
+    with pl.Config(tbl_cols=-1):
+        print(x)
+
+    pl.read_parquet(
+        dev_dir.joinpath("clif_medication_admin_intermittent.parquet")
+    ).select("mar_action_name").to_series().value_counts().sort(
+        "count", descending=True
+    )

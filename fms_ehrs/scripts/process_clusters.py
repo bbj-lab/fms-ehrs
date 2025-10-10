@@ -16,7 +16,10 @@ import polars as pl
 from fms_ehrs.framework.logger import get_logger
 from fms_ehrs.framework.storage import set_perms, fix_perms
 
-pio.defaults.mathjax = None
+try:
+    pio.defaults.mathjax = None
+except AttributeError:
+    pio.kaleido.scope.mathjax = None
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
