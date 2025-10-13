@@ -191,7 +191,7 @@ def plot_precision_recall_curve(
 
 
 def plot_histogram(
-    arr: np.array,
+    arr: np.ndarray,
     *,
     title: str = "Histogram",
     nbins: int = 50,
@@ -271,8 +271,8 @@ def plot_histograms(
 
 
 def imshow_text(
-    values: np.array,
-    text: np.array,
+    values: np.ndarray,
+    text: np.ndarray,
     *,
     title: str = "",
     savepath=None,

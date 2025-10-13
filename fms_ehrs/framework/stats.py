@@ -15,8 +15,8 @@ Generator: typing.TypeAlias = np.random._generator.Generator
 
 
 def bootstrap_ci(
-    y_true: np.array,
-    y_score: np.array,
+    y_true: np.ndarray,
+    y_score: np.ndarray,
     *,
     n_samples: int = 10_000,
     alpha: float = 0.05,
@@ -27,7 +27,7 @@ def bootstrap_ci(
         "brier",
     ),
     n_jobs: int = -1,
-):
+) -> dict:
     """
     Calculates a bootstrapped percentile interval for objectives `objs` as
     described in §13.3 of Efron & Tibshirani's "An Introduction to the Bootstrap"
@@ -63,9 +63,9 @@ def bootstrap_ci(
 
 
 def bootstrap_pval(
-    y_true: np.array,
-    y_score0: np.array,
-    y_score1: np.array,
+    y_true: np.ndarray,
+    y_score0: np.ndarray,
+    y_score1: np.ndarray,
     *,
     n_samples: int = 10_000,
     rng: Generator = np.random.default_rng(seed=42),
@@ -76,7 +76,7 @@ def bootstrap_pval(
         "brier",
     ),
     n_jobs: int = -1,
-):
+) -> dict:
     """
     Performs a bootstrapped test for the null hypothesis that `y_score0` &
     `y_score1` are equally good predictions of y_true (in terms of `objs`), as
@@ -142,7 +142,7 @@ def generate_classifier_preds(
     num_preds: int = 1,
     frac_1: float = 0.8,
     rng: Generator = np.random.default_rng(seed=42),
-):
+) -> tuple[np.ndarray]:
     assert 0 <= frac_1 <= 1
     y_seed = rng.uniform(size=n)
     y_true = (y_seed > 1 - frac_1).astype(int)

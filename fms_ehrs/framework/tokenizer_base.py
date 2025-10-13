@@ -87,7 +87,7 @@ class BaseTokenizer:
             self.vocab = Vocabulary().load(self.vocab_path)
             self.vocab.is_training = False
 
-    def set_quants(self, v: np.array, c: str, prefix: str = None) -> None:
+    def set_quants(self, v: np.ndarray, c: str, prefix: str = None) -> None:
         """store training quantile information in the self.vocab object"""
         designator = f"{prefix}_{c}" if prefix is not None else c
         if not self.vocab.has_aux(designator) and self.vocab.is_training:
@@ -100,7 +100,7 @@ class BaseTokenizer:
                 σ = np.nanstd(v) + np.finfo(float).eps
                 self.vocab.set_aux(designator, (μ + σ * np.arange(-3, 4)).tolist())
 
-    def get_quants(self, v: np.array, c: str, prefix: str = None) -> pl.Expr:
+    def get_quants(self, v: np.ndarray, c: str, prefix: str = None) -> pl.Expr:
         """obtain corresponding quantiles using self.vocab object"""
         designator = f"{prefix}_{c}" if prefix is not None else c
         return pl.lit(
