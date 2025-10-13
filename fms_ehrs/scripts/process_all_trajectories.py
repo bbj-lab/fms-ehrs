@@ -68,7 +68,7 @@ for s in args.splits:
     """alignments
     """
 
-    def get_alignments_from_shard(f: pathlib.Path) -> np.array:
+    def get_alignments_from_shard(f: pathlib.Path) -> np.ndarray:
         x = np.load(f)
         return np.einsum(
             "ijk,ijk->ij",

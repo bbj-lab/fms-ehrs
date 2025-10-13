@@ -22,7 +22,7 @@ Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
 Dictlike: typing.TypeAlias = collections.OrderedDict | dict
 
 
-def mvg_avg(x: np.array, w: int = 4) -> np.array:
+def mvg_avg(x: np.ndarray, w: int = 4) -> np.ndarray:
     """
     moving average for flat array `x` with window size `w`;
     returns array of same length as x
@@ -54,7 +54,7 @@ def rt_padding_to_left(
     )
 
 
-def ragged_lists_to_array(ls_arr: typing.List[np.array]) -> np.array:
+def ragged_lists_to_array(ls_arr: typing.List[np.ndarray]) -> np.ndarray:
     """
     form an 2d-array from a collection of variably-sized 1d-arrays
     """
@@ -66,8 +66,8 @@ def ragged_lists_to_array(ls_arr: typing.List[np.array]) -> np.array:
 
 
 def extract_examples(
-    timelines: np.array,
-    criteria: np.array,
+    timelines: np.ndarray,
+    criteria: np.ndarray,
     vocab: Vocabulary,
     flags: list = None,
     k: int = 10,
@@ -75,7 +75,7 @@ def extract_examples(
     lag: int = 0,
     logger: logging.Logger = get_logger(),
     top_k: bool = True,
-    ids: np.array = None,
+    ids: np.ndarray = None,
 ) -> None:
     """
     produce `k` decoded snippets of `timelines` with tokens decoded from `vocab`
@@ -121,8 +121,8 @@ def extract_examples(
 
 
 def collate_events_info(
-    times: np.array,
-    info: np.array,
+    times: np.ndarray,
+    info: np.ndarray,
     aggregation: typing.Literal["max", "sum", "perplexity"] = "sum",
 ):
     """given an array of `tokens` that occur at `times` and have context-
@@ -146,16 +146,16 @@ def collate_events_info(
 
 
 def redact_tokens_times(
-    tks_arr: typing.List[np.array],
-    tms_arr: typing.List[np.array],
-    inf_arr: np.array,
+    tks_arr: typing.List[np.ndarray],
+    tms_arr: typing.List[np.ndarray],
+    inf_arr: np.ndarray,
     *,
     k: int = None,
     pct: float = None,
     method: typing.Literal["top", "bottom", "random"] = "top",
     aggregation: typing.Literal["max", "sum", "perplexity"] = "max",
     rng: np.random._generator.Generator = np.random.default_rng(seed=42),
-) -> tuple[np.array, np.array]:
+) -> tuple[np.ndarray, np.ndarray]:
     """given an array `tks_arr` of arrays of tokens and an array `tms_arr` of
     arrays of times, and an array `inf_arr` containing the information content
     up to a certain cutoff of the tokens in each timeline, iterate through the
