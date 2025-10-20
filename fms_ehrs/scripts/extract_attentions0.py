@@ -26,7 +26,7 @@ from transformers import AutoModelForCausalLM
 from fms_ehrs.framework.logger import get_logger
 from fms_ehrs.framework.plotting import imshow_text
 from fms_ehrs.framework.storage import fix_perms, set_perms
-from fms_ehrs.framework.util import agg_str2fn, token_importance
+from fms_ehrs.framework.util import agg_str2fn, token_importance0
 from fms_ehrs.framework.vocabulary import Vocabulary
 
 Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
@@ -116,6 +116,7 @@ model = AutoModelForCausalLM.from_pretrained(
     model_loc, attn_implementation="eager"
 )  # in eval mode by default
 d = model.config.hidden_size
+w_out = model.model.layers[0].self_attn.o_proj.weight
 model = model.to(device)
 
 with t.inference_mode():
@@ -124,20 +125,34 @@ with t.inference_mode():
         output_attentions=True,
         use_cache=True,
     )
-attns = np.stack([_.cpu() for _ in x.attentions])[0][
-    np.newaxis
-]  # 1 × batch_size × num_heads × sequence_length × sequence_length
-vals = np.stack([_[1].cpu() for _ in x.past_key_values])[0][
-    np.newaxis
-]  # 1 × batch_size × num_heads × sequence_length × d_vals
+attns = np.stack(
+    [_[0].cpu() for _ in x.attentions]
+)  # batch_size × num_heads × sequence_length × sequence_length
+vals = np.stack(
+    [_[1][0].cpu() for _ in x.past_key_values]
+)  # batch_size × num_head_groups × sequence_length × d_vals
 
 # Llama3 uses grouped query attention
 # see, https://www.ibm.com/think/topics/grouped-query-attention
 # the following function does ungrouping for us:
 # https://github.com/meta-llama/llama/blob/4d92db8a1db6c7f663252bf3477d2c4b8bad2385/llama/model.py#L77
-n_groups = attns.shape[2] // vals.shape[2]
-if n_groups > 1:
-    vals = np.repeat(vals, repeats=n_groups, axis=2)
+if (n_per_gp := attns.shape[1] // vals.shape[1]) > 1:
+    vals = np.repeat(
+        vals, repeats=n_per_gp, axis=1
+    )  # now, batch_size × num_heads × sequence_length × d_vals
+
+weighted_vals = (
+    np.concatenate(tuple(np.moveaxis(vals, 1, 0)), axis=-1)
+    @ w_out.detach().cpu().numpy().T
+)  #  (batch_size × sequence_length × (num_heads * head_dim)) @ (d × (num_heads * head_dim)).T
+
+adjusted_vals = np.stack(
+    np.split(weighted_vals, attns.shape[1], axis=-1), axis=1
+)  # batch_size × num_heads × sequence_length × head_dim
+
+normed_vals = np.linalg.norm(
+    adjusted_vals, axis=-1, ord=1, keepdims=True
+)  # batch_size × num_heads × sequence_length × 1
 
 selected_decoded = np.array(
     [
@@ -151,28 +166,23 @@ selected_decoded = np.array(
         ]
         for x in selected_data["input_ids"][: len(selected_data)].numpy()
     ]
-)
+)  # batch_size × sequence_length
 
 
 for agg_fn_str in args.agg_fns:
     agg_attn = agg_str2fn(agg_fn_str)(
-        attns, axis=(0, 2)
+        attns, axis=1
     )  # now: batch_size × sequence_length × sequence_length
-
     metrics = collections.OrderedDict()
-    metrics["value-norms"] = agg_str2fn(agg_fn_str)(
-        np.linalg.norm(vals, axis=-1, ord=1), axis=(0, 2)
+    metrics["value-norms"] = agg_str2fn(agg_fn_str)(normed_vals, axis=(1, -1))
+    metrics["H2O"] = token_importance0(attns, aggregation=agg_fn_str)
+    metrics["H2O-VA"] = token_importance0(
+        attns, normed_values=normed_vals, aggregation=agg_fn_str
     )
-    metrics["H2O"] = token_importance(attns, aggregation=agg_fn_str)
-    metrics["H2O-VA"] = token_importance(attns, values=vals, aggregation=agg_fn_str)
-    metrics["SH-100"] = token_importance(attns, window=100, aggregation=agg_fn_str)
-    metrics["SH-100-VA"] = token_importance(
-        attns, values=vals, window=100, aggregation=agg_fn_str
+    metrics["SH-100"] = token_importance0(attns, window=100, aggregation=agg_fn_str)
+    metrics["SH-100-VA"] = token_importance0(
+        attns, normed_values=normed_vals, window=100, aggregation=agg_fn_str
     )
-    # metrics["SH-20"] = token_importance(attns, window=20, aggregation=agg_fn_str)
-    # metrics["SH-20-VA"] = token_importance(
-    #     attns, values=vals, window=20, aggregation=agg_fn_str
-    # )
 
     metrics_normalized = {
         k: v[:, : args.max_len] / v[:, : args.max_len].sum(axis=-1, keepdims=True)
@@ -282,7 +292,7 @@ for agg_fn_str in args.agg_fns:
     max_len = n_rows * n_cols
     height = (700 * n_rows) // 42
 
-    for k, v in metrics.items():
+    for k, v in metrics_normalized.items():
         for i in range(len(selected_data)):
             imshow_text(
                 values=v[i][:max_len].reshape((-1, n_cols)),

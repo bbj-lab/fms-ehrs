@@ -223,7 +223,7 @@ source venv/bin/activate
 
 Troubleshoot:
 ```
-systemd-run --scope --user tmux new -s gpuq
+systemd-run --scope --user tmux new -s gpuq || tmux a -t gpuq
 srun -p gpudev \
   --gres=gpu:1 \
   --time=8:00:00 \
