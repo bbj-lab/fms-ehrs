@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 
 """
-extract attention maps and values (from queries, keys, & values);
+extract attention maps and values (from queries, keys, & values)
+*for a smallish (1 batch) sample of hospitalizations*;
 consider token importance metrics as described in Guo, Kamigaito, Watanabe's
 "Attention score is not all you need for token importance indicator in KV cache
 reduction: Value also matters" (Empirical Methods in Natural Language Processing, 2024)
@@ -9,7 +10,6 @@ reduction: Value also matters" (Empirical Methods in Natural Language Processing
 
 import argparse
 import collections
-import functools
 import os
 import pathlib
 import typing
@@ -24,9 +24,10 @@ from plotly.subplots import make_subplots
 from transformers import AutoModelForCausalLM
 
 from fms_ehrs.framework.logger import get_logger
-from fms_ehrs.framework.storage import fix_perms, set_perms
-from fms_ehrs.framework.vocabulary import Vocabulary
 from fms_ehrs.framework.plotting import imshow_text
+from fms_ehrs.framework.storage import fix_perms, set_perms
+from fms_ehrs.framework.util import agg_str2fn, token_importance
+from fms_ehrs.framework.vocabulary import Vocabulary
 
 Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
 Dictlike: typing.TypeAlias = collections.OrderedDict | dict
@@ -44,9 +45,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--data_dir", type=pathlib.Path, default="../../data-mimic")
 parser.add_argument("--data_version", type=str, default="QC_day_stays")
 parser.add_argument(
-    "--model_loc",
-    type=pathlib.Path,
-    default="../../mdls-archive/llama1b-57928921-run1",
+    "--model_loc", type=pathlib.Path, default="../../mdls-archive/llama1b-57928921-run1"
 )
 parser.add_argument(
     "--ids",
@@ -82,7 +81,7 @@ data_dir, model_loc, out_dir = map(
 out_dir.mkdir(parents=True, exist_ok=True)
 fix_perms(out_dir)
 
-t.cuda.set_device(device := t.device(f"cuda:0"))
+t.cuda.set_device(device := t.device("cuda:0"))
 
 # load and prep data
 splits = ("train", "val", "test")
@@ -125,12 +124,12 @@ with t.inference_mode():
         output_attentions=True,
         use_cache=True,
     )
-attns = np.stack(
-    [_.cpu() for _ in x.attentions]
-)  # n_layers × batch_size × num_heads × sequence_length × sequence_length
-vals = np.stack(
-    [_[1].cpu() for _ in x.past_key_values]
-)  # n_layers × batch_size × num_heads × sequence_length × d_vals
+attns = np.stack([_.cpu() for _ in x.attentions])[0][
+    np.newaxis
+]  # 1 × batch_size × num_heads × sequence_length × sequence_length
+vals = np.stack([_[1].cpu() for _ in x.past_key_values])[0][
+    np.newaxis
+]  # 1 × batch_size × num_heads × sequence_length × d_vals
 
 # Llama3 uses grouped query attention
 # see, https://www.ibm.com/think/topics/grouped-query-attention
@@ -154,45 +153,26 @@ selected_decoded = np.array(
     ]
 )
 
-raw_norms = np.linalg.norm(vals, axis=-1, ord=1, keepdims=True)
-lookahead = lambda w: np.tri(vals.shape[3]) - np.tri(vals.shape[3], k=-w)
-
-
-def mean_log(arr: np.ndarray, **kwargs) -> np.ndarray:
-    return np.nanmean(np.log(arr), **kwargs)
-
-
-def median_log(arr: np.ndarray, **kwargs) -> np.ndarray:
-    return np.nanmedian(np.log(arr), **kwargs)
-
 
 for agg_fn_str in args.agg_fns:
-    match agg_fn_str:
-        case "sum" | "mean" | "max" | "median":
-            agg_fn = getattr(np, agg_fn_str)
-        case "mean_log":
-            agg_fn = mean_log
-        case "median_log":
-            agg_fn = median_log
-        case _ if agg_fn_str.startswith("Q"):
-            agg_fn = functools.partial(np.quantile, q=int(agg_fn_str[1:]) / 100)
-
-    agg_attn = agg_fn(
+    agg_attn = agg_str2fn(agg_fn_str)(
         attns, axis=(0, 2)
     )  # now: batch_size × sequence_length × sequence_length
 
     metrics = collections.OrderedDict()
-    metrics["value-norms"] = agg_fn(raw_norms, axis=(0, 2, 4))
-    metrics["H2O"] = agg_fn(np.sum(attns, axis=3), axis=(0, 2))
-    metrics["H2O-VA"] = agg_fn(np.sum(attns * raw_norms, axis=3), axis=(0, 2))
-    metrics["SH-10"] = agg_fn(np.sum(attns * lookahead(10), axis=3), axis=(0, 2))
-    metrics["SH-10-VA"] = agg_fn(
-        np.sum(attns * lookahead(10) * raw_norms, axis=3), axis=(0, 2)
+    metrics["value-norms"] = agg_str2fn(agg_fn_str)(
+        np.linalg.norm(vals, axis=-1, ord=1), axis=(0, 2)
     )
-    metrics["SH-20"] = agg_fn(np.sum(attns * lookahead(20), axis=3), axis=(0, 2))
-    metrics["SH-20-VA"] = agg_fn(
-        np.sum(attns * lookahead(20) * raw_norms, axis=3), axis=(0, 2)
+    metrics["H2O"] = token_importance(attns, aggregation=agg_fn_str)
+    metrics["H2O-VA"] = token_importance(attns, values=vals, aggregation=agg_fn_str)
+    metrics["SH-100"] = token_importance(attns, window=100, aggregation=agg_fn_str)
+    metrics["SH-100-VA"] = token_importance(
+        attns, values=vals, window=100, aggregation=agg_fn_str
     )
+    # metrics["SH-20"] = token_importance(attns, window=20, aggregation=agg_fn_str)
+    # metrics["SH-20-VA"] = token_importance(
+    #     attns, values=vals, window=20, aggregation=agg_fn_str
+    # )
 
     metrics_normalized = {
         k: v[:, : args.max_len] / v[:, : args.max_len].sum(axis=-1, keepdims=True)
@@ -280,11 +260,7 @@ for agg_fn_str in args.agg_fns:
             col=1,
         )
         fig.update_xaxes(
-            showgrid=False,
-            zeroline=False,
-            showticklabels=False,
-            row=2,
-            col=1,
+            showgrid=False, zeroline=False, showticklabels=False, row=2, col=1
         )
         set_perms(fig.write_image)(
             pathlib.Path(
@@ -321,8 +297,8 @@ for agg_fn_str in args.agg_fns:
                     )
                 ),
                 autosize=False,
-                zmin=v[:, :max_len].min(),
-                zmax=v[:, 8:max_len].max(),
+                zmin=v[i, :max_len].min(),
+                zmax=v[i, 8:max_len].max(),
                 height=height,
                 width=1000,
                 margin=dict(l=0, r=0, t=0, b=0),

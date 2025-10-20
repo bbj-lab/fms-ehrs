@@ -6,6 +6,7 @@ utility functions
 
 import collections
 import copy
+import functools
 import logging
 import os
 import pathlib
@@ -189,6 +190,91 @@ def redact_tokens_times(
         tks_new[i] = tks[~np.isin(idx, to_drop)]
         tms_new[i] = tms[~np.isin(idx, to_drop)]
     return tks_new, tms_new
+
+
+def mean_log(arr: np.ndarray, **kwargs) -> np.ndarray:
+    return np.nanmean(np.log(arr), **kwargs)
+
+
+def median_log(arr: np.ndarray, **kwargs) -> np.ndarray:
+    return np.nanmedian(np.log(arr), **kwargs)
+
+
+@functools.cache
+def lookahead(n: int, w: int) -> np.ndarray:
+    """return a mask with lookahead window `w` on an n n matrix"""
+    return np.tri(n) - np.tri(n, k=-w)
+
+
+def agg_str2fn(agg_fn_str: str) -> typing.Callable:
+    """turn string representation of aggregation function into a function"""
+    match agg_fn_str:
+        case "mean_log":
+            return mean_log
+        case "median_log":
+            return median_log
+        case _ if agg_fn_str.startswith("Q"):
+            return functools.partial(np.quantile, q=int(agg_fn_str[1:]) / 100)
+        case _:
+            return getattr(np, agg_fn_str)
+
+
+def token_importance(
+    attentions,
+    values=None,
+    *,
+    window: int = None,
+    aggregation: typing.Literal[
+        "sum", "mean", "max", "median", "mean_log", "median_log", "Q70", "Q90", "Q95"
+    ] = "sum",
+):
+    """
+    take `attentions` (n_layers × batch_size × num_heads × sequence_length
+    × sequence_length) and `values` (n_layers × batch_size × num_heads
+    × sequence_length × d_vals) and return token importances (batch_size),
+    calculated with a lookahead window of `window`, in a way that is either
+    `value_aware` or not
+    """
+
+    return agg_str2fn(aggregation)(
+        np.sum(
+            attentions
+            * (lookahead(attentions.shape[-1], window) if window is not None else 1)
+            * (
+                np.linalg.norm(values, axis=-1, ord=1, keepdims=True)
+                if values is not None
+                else 1
+            ),
+            axis=3,
+        ),
+        axis=(0, 2),
+    )
+
+
+def token_importance0(
+    attentions,
+    normed_values=None,
+    *,
+    window: int = None,
+    aggregation: typing.Literal[
+        "sum", "mean", "max", "median", "mean_log", "median_log", "Q70", "Q90", "Q95"
+    ] = "sum",
+):
+    """
+    take `attentions` (batch_size × num_heads × sequence_length × sequence_length)
+    and [optional] `normed_values` (batch_size × num_heads × sequence_length × 1)
+    and return token importances (batch_size), calculated with a lookahead window
+    of `window`, in a way that is "value aware" if normed_values are provided
+    """
+    return agg_str2fn(aggregation)(
+        np.sum(
+            attentions
+            * (lookahead(attentions.shape[-1], window) if window is not None else 1)
+            * (normed_values if normed_values is not None else 1),
+            axis=2,
+        ),
+        axis=1,
+    )
 
 
 def count_top_q(values: list, q: float) -> typing.List[int]:
