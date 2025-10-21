@@ -8,6 +8,7 @@ This separates the tokenization process from data processing and doesn't rely on
 import logging
 import os
 import pathlib
+import re
 import typing
 
 import numpy as np
@@ -146,25 +147,44 @@ class Tokenizer:
             )
         ).cast(pl.Int64)
     
-    def process_cat_val_frame(self, df: Frame, label: str) -> pl.LazyFrame:
-        """Process a dataframe with categorical values and numerical values (from BaseTokenizer)."""
-        # Use partition_by approach - much cleaner and more robust
-        # This automatically handles empty categories and None values
-        if isinstance(df, pl.LazyFrame):
-            # Collect the data first (needed for partition_by)
-            collected_df = df.collect()
-        else:
-            collected_df = df
-            
-        # Use partition_by - this automatically filters out empty categories
-        result = pl.concat(
-            self._process_single_category(x, label, "time") 
-            for x in collected_df.partition_by("code")
-        )
-        
-        # Return as LazyFrame to maintain consistency
-        return result.lazy()
+    # def process_cat_val_frame(self, df: Frame, label: str) -> pl.LazyFrame:
+    #     """Process event data by grouping by code (item ID) and generating [prefix_code, quantile] tokens."""
+    #     # Use group_by with map_groups to process each code group lazily by only collecting the data
+    #     # for each group as needed.
+    #     # This avoids collecting the entire dataset while still processing groups individually
+    #     return (
+    #         df.group_by("code", maintain_order=True)
+    #         .map_groups(
+    #             lambda group: self._process_single_category(group, label, "time"),
+    #             schema={
+    #                 "subject_id": pl.Utf8,
+    #                 "time": pl.Datetime(time_unit="ms"),
+    #                 "code": pl.Utf8,
+    #                 "numeric_value": pl.Float64,
+    #                 "text_value": pl.Utf8,
+    #                 "tokens": pl.List(pl.Int64),
+    #                 "times": pl.List(pl.Datetime(time_unit="ms"))
+    #             }
+    #         )
+    #     )      
     
+    def process_cat_val_frame_with_text(self, df: Frame, label: str) -> pl.LazyFrame:
+        """Process event data by grouping by code (item ID) and generating [prefix_code, quantile, text] tokens."""
+        # Group by code to compute quantiles
+        return (
+            df.group_by("code", maintain_order=True)
+            .map_groups(
+                lambda group: self._process_single_category_with_text(group, label, "time"),
+                schema={
+                    "subject_id": pl.Utf8,
+                    "hadm_id": pl.Utf8,
+                    "time": pl.Datetime(time_unit="ms"),
+                    "code": pl.Utf8,
+                    "tokens": pl.List(pl.Int64),
+                    "times": pl.List(pl.Datetime(time_unit="ms"))
+                }
+            )
+        )
     
     def process_categorical_value(self, df: Frame, category_col: str, value_col: str, 
                                 label: str, time_col: str = "event_time") -> Frame:
@@ -198,6 +218,137 @@ class Tokenizer:
                 ),
             )
         )
+    
+    def _process_single_category_with_text(self, x: Frame, label: str, time_col: str) -> Frame:
+        """Process a single category group with both numeric and text values."""
+        
+        # Debug: Check what type of object we're getting
+
+        # Ensure that ms precision is used for time.
+        # This is necessary even though the data processor already casts all Datetimes to 'ms' precision
+        # because when polars converts a python list to a polars list column, it infers the precision from the individual datetime values 
+        # rather than preserving the original precision.
+        x = x.with_columns(
+            pl.col(time_col).cast(pl.Datetime(time_unit="ms")).alias(time_col)
+        )
+        
+        # Get numeric values for quantile computation
+        v = x["numeric_value"].to_numpy().ravel()
+        c = x["code"][0]
+        
+        # Get max text length from config
+        max_text_length = self.config.get("max_text_value_length", 10)
+        
+        # Set quantiles for numeric values
+        self.set_quants(v=v, c=c, label=label)
+        
+        # Get quantiles for the entire array once (outside the loop)
+        # Use the same logic as get_quants but return numpy array directly
+        designator = f"{label}_{c}" if label is not None else c
+        if self.vocab.has_aux(designator):
+            quantile_values = np.where(
+                np.isfinite(v),
+                np.digitize(v, bins=self.vocab.get_aux(designator)),
+                self.vocab("nan"),
+            )
+        else:
+            quantile_values = np.full(len(v), self.vocab(None))
+        
+        # Process each row
+        tokens_list = []
+        times_list = []
+        
+        for i in range(len(x)):
+            row_tokens = []
+            row_times = []
+            
+            
+            # Always add code token
+            code_token = self.vocab(f"{label}_{c}")
+            if code_token not in [self.vocab(None), self.vocab("nan")]:
+                row_tokens.append(code_token)
+                row_times.append(x[time_col][i])
+            
+            # Add quantile token if numeric value exists
+            try:
+                numeric_val = x["numeric_value"][i]
+            except Exception as e:
+                print(f"DEBUG INDEXING ERROR: i={i}, x type={type(x)}, x['numeric_value'] type={type(x['numeric_value'])}")
+                print(f"DEBUG INDEXING ERROR: x shape={x.shape}, x columns={x.columns}")
+                print(f"DEBUG INDEXING ERROR: Exception={e}")
+                raise e
+            if numeric_val is not None and not np.isnan(numeric_val):
+                quantile_token = quantile_values[i]
+                if quantile_token not in [self.vocab(None), self.vocab("nan")]:
+                    row_tokens.append(quantile_token)
+                    row_times.append(x[time_col][i])
+            
+            # Add text value if it exists and passes filters
+            text_val = x["text_value"][i]
+            if text_val is not None and str(text_val).strip():
+                text_str = str(text_val).strip()
+                
+                # First, try to cast to numbers - if it's a number, skip it
+                try:
+                    float(text_str)
+                    text_str = None  # This is a number, skip it
+                except ValueError:
+                    # This is not a number, proceed with text processing
+                    
+                    # Clean text: remove spaces and keep only alphanumeric characters
+                    text_str = re.sub(r'[^a-zA-Z0-9]', '', text_str)
+                    
+                    # Filter out text values that are too long
+                    if len(text_str) > max_text_length:
+                        text_str = None
+                    
+                    # Filter out empty strings after cleaning
+                    if text_str is not None and len(text_str) == 0:
+                        text_str = None
+                
+                # Add text value as a token if it passed all filters
+                if text_str is not None:
+                    text_token = self.vocab(f"TEXT_{text_str}")
+                    if text_token not in [self.vocab(None), self.vocab("nan")]:
+                        row_tokens.append(text_token)
+                        row_times.append(x[time_col][i])
+            
+            # Only add if we have at least one token (code token should always be there)
+            if row_tokens:
+                tokens_list.append(row_tokens)
+                times_list.append(row_times)
+        
+        # Convert to DataFrame
+        if tokens_list:
+            result = pl.DataFrame({
+                "subject_id": x["subject_id"].to_list(),
+                "hadm_id": x["hadm_id"].to_list(),
+                "time": x[time_col].to_list(),
+                "code": [c] * len(tokens_list),
+                "tokens": tokens_list,
+                "times": times_list
+            }).with_columns(
+                pl.col("times").cast(pl.List(pl.Datetime(time_unit="ms")))
+            )
+            return result
+        else:
+            # Return empty DataFrame with correct schema
+            print("DEBUG: No tokens generated, returning empty DataFrame")
+            return pl.DataFrame({
+                "subject_id": [],
+                "hadm_id": [],
+                "time": [],
+                "code": [],
+                "tokens": [],
+                "times": []
+            }, schema={
+                "subject_id": pl.Utf8,
+                "hadm_id": pl.Utf8,
+                "time": pl.Datetime(time_unit="ms"),
+                "code": pl.Utf8,
+                "tokens": pl.List(pl.Int64),
+                "times": pl.List(pl.Datetime(time_unit="ms"))
+            })
     
     def time_spacing_inserter(self, tokens, times):
         """Insert time spacing tokens between events based on time differences."""
@@ -288,12 +439,12 @@ class Tokenizer:
         Process prefix data into tokenized format using config.
         
         Args:
-            data: LazyFrame with columns: subject_id, admission_time, 
+            data: LazyFrame with columns: subject_id, hadm_id, admission_time, 
                      race, ethnicity, sex, age_at_admission, 
                      admission_type
                      
         Returns:
-            LazyFrame with columns: subject_id, prefix_tokens, prefix_times
+            LazyFrame with columns: subject_id, hadm_id, prefix_tokens, prefix_times
         """
         # Process each prefix column according to config
         all_tokens = []
@@ -324,7 +475,7 @@ class Tokenizer:
                     .map_elements(
                         lambda x, p=prefix: self.vocab(f"{p}_{x}"),
                         return_dtype=pl.Int64,
-                        skip_nulls=False,
+                        skip_nulls=True,
                     )
                 )
                 all_tokens.append(formatted_values)
@@ -337,7 +488,7 @@ class Tokenizer:
         return data.with_columns(
             prefix_tokens=pl.concat_list(all_tokens),
             prefix_times=pl.concat_list(all_times)
-        ).select("subject_id", "admission_time", "prefix_tokens", "prefix_times")
+        ).select("subject_id", "hadm_id", "admission_time", "prefix_tokens", "prefix_times")
     
     def get_event(self, data_processor, event_config: dict) -> pl.LazyFrame:
         """
@@ -350,117 +501,64 @@ class Tokenizer:
         Returns:
             DataFrame with columns: hospitalization_id, time, tokens, times
         """
+        print(f"\n🔍 DEBUG get_event - Processing: {event_config.get('table', 'UNKNOWN')}")
         # Get the lazy query for this event
         df = data_processor.get_event_query(event_config)
+
+        # Debug: Show what the raw data looks like
+        print("Raw event data (first 5 rows):")
+        print(df.head(5).collect())
         
         prefix = event_config["prefix"]
-        numeric_value_col = event_config.get("numeric_value")
-
-        if numeric_value_col is not None:
-            # Process as categorical-value pairs (like labs, vitals)
-            # Now works with LazyFrames
-            return self.process_cat_val_frame(
+        
+        # Check if this event has numeric_value or text_value columns (categorical-value pairs)
+        if "numeric_value" in df.collect_schema().names() or "text_value" in df.collect_schema().names():
+            # Process as categorical-value pairs with numeric and/or text values
+            print("Processing as categorical-value pairs with numeric and/or text values")
+            
+            # Special debugging for lab events
+            if event_config.get("table") == "labevents":
+                print("DEBUG LABEVENTS: About to process lab events data")
+                print(f"DEBUG LABEVENTS: df type: {type(df)}")
+                print(f"DEBUG LABEVENTS: df columns: {df.collect_schema().names()}")
+            
+            result = self.process_cat_val_frame_with_text(
                 df,
                 label=prefix,
-            ).select("subject_id", "time", "tokens", "times")
+            ).select("subject_id", "hadm_id", "tokens", "times")
+
+            # Debug: Show what the processed result looks like
+            print("Processed result (first 5 rows):")
+            print(result.head(5).collect())
+
+            return result
         else:
-            # Process as simple categorical events (like transfers, positions)
-            # The data processor has already processed the code column(s) into "category"
-            # and text_value column to "text_value" if it exists
-            text_value_col = event_config.get("text_value")
-            code_col = event_config["code"]
+            # Process as simple categorical events (only code token)
+            print("Processing as simple categorical events")
             
-            # Determine if category is a list (multiple codes) or string (single code)
-            is_list_category = isinstance(code_col, list)
+            result = df.select(
+                pl.col("subject_id"),
+                pl.col("hadm_id"),
+                pl.concat_list([
+                    pl.col("code").map_elements(
+                        lambda x, prefix=prefix: self.vocab(f"{prefix}_{x}"),
+                        return_dtype=pl.Int64,
+                        skip_nulls=True,
+                    )
+                ]).alias("tokens"),
+                pl.concat_list([
+                    pl.col("time")
+                ]).alias("times"),
+            )
             
-            if text_value_col is not None:
-                # Both category and text_value exist
-                if is_list_category:
-                    # Category is a list, text_value is a string
-                    return df.select(
-                        pl.col("subject_id"),
-                        pl.col("time"),
-                        pl.concat_list([
-                            pl.col("code").list.eval(
-                                pl.element().map_elements(
-                                    lambda x, prefix=prefix: self.vocab(f"{prefix}_{x}"),
-                                    return_dtype=pl.Int64,
-                                    skip_nulls=False,
-                                )
-                            ),
-                            pl.col("text_value")
-                            .str.to_lowercase()
-                            .str.replace_all(" ", "_")
-                            .str.strip_chars(".")
-                            .map_elements(
-                                lambda x, prefix=prefix: self.vocab(f"{prefix}_{x}"),
-                                return_dtype=pl.Int64,
-                                skip_nulls=False,
-                            )
-                        ]).alias("tokens"),
-                        pl.concat_list([
-                            pl.col("time").repeat_by(pl.col("code").list.len()),
-                            pl.col("time")
-                        ]).alias("times"),
-                    )
-                else:
-                    # Both category and text_value are strings
-                    return df.select(
-                        pl.col("subject_id"),
-                        pl.col("time"),
-                        pl.concat_list([
-                            pl.col("code").map_elements(
-                                lambda x, prefix=prefix: self.vocab(f"{prefix}_{x}"),
-                                return_dtype=pl.Int64,
-                                skip_nulls=False,
-                            ),
-                            pl.col("text_value")
-                            .str.to_lowercase()
-                            .str.replace_all(" ", "_")
-                            .str.strip_chars(".")
-                            .map_elements(
-                                lambda x, prefix=prefix: self.vocab(f"{prefix}_{x}"),
-                                return_dtype=pl.Int64,
-                                skip_nulls=False,
-                            )
-                        ]).alias("tokens"),
-                        pl.concat_list([
-                            pl.col("time"),
-                            pl.col("time")
-                        ]).alias("times"),
-                    )
-            else:
-                # Only category exists
-                if is_list_category:
-                    # Category is a list
-                    return df.select(
-                        pl.col("subject_id"),
-                        pl.col("time"),
-                        pl.col("code").list.eval(
-                            pl.element().map_elements(
-                                lambda x, prefix=prefix: self.vocab(f"{prefix}_{x}"),
-                                return_dtype=pl.Int64,
-                                skip_nulls=False,
-                            )
-                        ).alias("tokens"),
-                        pl.col("time").repeat_by(pl.col("code").list.len()).alias("times"),
-                    )
-                else:
-                    # Category is a string
-                    return df.select(
-                        pl.col("subject_id"),
-                        pl.col("time"),
-                        pl.concat_list([
-                            pl.col("code").map_elements(
-                                lambda x, prefix=prefix: self.vocab(f"{prefix}_{x}"),
-                                return_dtype=pl.Int64,
-                                skip_nulls=False,
-                            )
-                        ]).alias("tokens"),
-                        pl.concat_list([
-                            pl.col("time")
-                        ]).alias("times"),
-                    )
+            print(f"DEBUG: Simple categorical result schema: {result.collect_schema()}")
+            print(f"DEBUG: Simple categorical result columns: {result.collect_schema().names()}")
+            
+            print("Processed result (first 5 rows):")
+            print(result.head(5).collect())
+            return result
+
+
     
     # def get_events(self, data_processor, event_config: dict) -> pl.LazyFrame:
 
@@ -471,11 +569,11 @@ class Tokenizer:
         Process raw suffix data into tokenized format using config.
         
         Args:
-            raw_data: LazyFrame with columns: subject_id, discharge_time, 
+            raw_data: LazyFrame with columns: subject_id, hadm_id, discharge_time, 
                      discharge_category
                      
         Returns:
-            LazyFrame with columns: subject_id, suffix_tokens, suffix_times
+            LazyFrame with columns: subject_id, hadm_id, suffix_tokens, suffix_times
         """
         # Start with the base data - select all columns we need
         result = raw_data
@@ -494,7 +592,7 @@ class Tokenizer:
                 .str.to_lowercase()
                 .str.replace_all(" ", "_")
                 .map_elements(
-                    lambda x, p=prefix: self.vocab(f"{p}_{x}"),
+                    lambda x, p=prefix: self.vocab(f"{p}_{x}") if x and x.strip() else self.vocab("DSCG_UNKNOWN"),
                     return_dtype=pl.Int64,
                     skip_nulls=False,
                 )
@@ -515,7 +613,7 @@ class Tokenizer:
         return result.with_columns(
             suffix_tokens=pl.concat_list(all_tokens),
             suffix_times=pl.concat_list(all_times)
-        )
+        ).select("subject_id", "hadm_id", "suffix_tokens", "suffix_times")
     
     def get_tokens_timelines(self, data_processor) -> Frame:
         """
@@ -539,20 +637,36 @@ class Tokenizer:
         prefix_query = data_processor.get_prefix_query()
         prefix_tokens = self.process_prefix_data(prefix_query)
 
+        print('debug prefix')
+        print(prefix_query.head(10).collect())
+
         # Process event tables
         all_event_tokens = []
+        # for event_config in self.config["events"]:
+        #     event_tokens = self.get_event(data_processor, event_config)
+        #     all_event_tokens.append(event_tokens)
         for event_config in self.config["events"]:
-            event_tokens = self.get_event(data_processor, event_config)
-            all_event_tokens.append(event_tokens)
-
-        
+            try:
+                event_tokens = self.get_event(data_processor, event_config)
+                if event_tokens is not None:
+                    all_event_tokens.append(event_tokens)
+                else:
+                    print(f"ERROR: get_event returned None for {event_config.get('table', 'UNKNOWN')}")
+            except Exception as e:
+                print(f"ERROR: get_event failed for {event_config.get('table', 'UNKNOWN')}: {e}")
+                # Skip this event entirely - don't append None
+       
         # Combine all events 
         if all_event_tokens:
+            # Concatenate all event tokens and times for each subject
             events = (
                 pl.concat(all_event_tokens)
-                .sort("time", pl.col("tokens").list.first())
-                .group_by("subject_id", maintain_order=True)
-                .agg(tokens=pl.col("tokens").explode(), times=pl.col("times").explode())
+                .sort(pl.col("times").list.first())
+                .group_by("hadm_id", maintain_order=True)
+                .agg(
+                    tokens=pl.col("tokens").explode(),
+                    times=pl.col("times").explode()
+                )
             )
             
             # Apply time spacing tokens if enabled
@@ -576,24 +690,44 @@ class Tokenizer:
                 times=pl.lit([]).cast(pl.List(pl.Datetime(time_unit="ms")))
             )
 
+        # print('debug events')
+        # print(events.limit(10).collect())
+
         # Process suffix
-        suffix_query = data_processor.get_suffix_query()
-        print('debug1')
-        print(suffix_query.fetch(10))
+        suffix_query = data_processor.get_suffix_query()  
         suffix_tokens = self.process_suffix_data(suffix_query)
+        print('debug suffix tokens')
+        print(suffix_tokens.limit(10).collect())
+        
+        # Debug: Check for duplicate hadm_ids
+        # print("DEBUG: Checking for duplicate hadm_ids...")
+        # prefix_duplicates = prefix_tokens.group_by("hadm_id").len().filter(pl.col("len") > 1).collect()
+        # if prefix_duplicates.height > 0:
+        #     print(f"DEBUG: Found {prefix_duplicates.height} duplicate hadm_ids in prefix_tokens")
+        #     print(prefix_duplicates.head())
+        
+        # events_duplicates = events.group_by("hadm_id").len().filter(pl.col("len") > 1).collect()
+        # if events_duplicates.height > 0:
+        #     print(f"DEBUG: Found {events_duplicates.height} duplicate hadm_ids in events")
+        #     print(events_duplicates.head())
+        
+        # suffix_duplicates = suffix_tokens.group_by("hadm_id").len().filter(pl.col("len") > 1).collect()
+        # if suffix_duplicates.height > 0:
+        #     print(f"DEBUG: Found {suffix_duplicates.height} duplicate hadm_ids in suffix_tokens")
+        #     print(suffix_duplicates.head())
 
         # Combine all components
         tt = (
             prefix_tokens
             .join(
                 events,
-                on="subject_id",
+                on="hadm_id",
                 how="left",
                 validate="1:1",
             )
             .join(
                 suffix_tokens,
-                on="subject_id",
+                on="hadm_id",
                 how="left",
                 validate="1:1",
             )
@@ -603,8 +737,8 @@ class Tokenizer:
                 # tokens=pl.concat_list("prefix_tokens", "tokens"),
                 # times=pl.concat_list("prefix_times", "times"),
             )
-            .select("subject_id", "tokens", "times")
-            .sort(by="subject_id")
+            .select("subject_id", "hadm_id", "tokens", "times")
+            .sort(by="hadm_id")
         )
         
         # Apply filters
@@ -617,7 +751,19 @@ class Tokenizer:
         # if self.cut_at_24h:
         #     tt = self.cut_at_time(tt)
         
-        return tt.collect()
+        # print('Collecting final results')
+        # return tt.collect()
+
+        print('Writing final results to disk (streaming)')
+        # Write results to disk using streaming approach
+        output_path = "mimiciv_timelines.parquet"
+        
+        # Use sink_parquet for streaming write without collecting in memory
+        tt.sink_parquet(output_path)
+        print(f"Results written to {output_path}")
+        
+        # Return a lazy reference to the parquet file for streaming operations
+        return pl.scan_parquet(output_path)
     
     def print_aux(self) -> None:
         """Print auxiliary data (quantile information)"""
@@ -626,7 +772,7 @@ class Tokenizer:
 
 def summarize(
     tokenizer: Tokenizer,
-    tokens_timelines: Frame,
+    tokens_timelines: pl.LazyFrame,
     k: int = 20,
     logger: logging.Logger = None,
 ) -> None:
@@ -634,7 +780,7 @@ def summarize(
     
     post = logger.info if logger is not None else print
 
-    post("Timelines generated: {}".format(tokens_timelines.shape[0]))
+    post("Timelines generated: {}".format(tokens_timelines.select(pl.len()).collect().item()))
     post("Vocabulary size: {}".format(len(tokenizer.vocab)))
 
     post(
@@ -648,7 +794,7 @@ def summarize(
             "Example timeline: \n {}".format(
                 [
                     tokenizer.vocab.reverse[t]
-                    for t in tokens_timelines.sample(1, seed=s).select("tokens").item()
+                    for t in tokens_timelines.sample(1, seed=s).select("tokens").collect().item()
                 ]
             )
         )
@@ -690,19 +836,58 @@ if __name__ == "__main__":
     sys.path.append('..')
     from preprocessing.clif_data_processor import CLIFDataProcessor
     
+    
     # Configuration
     data_dir = "/gpfs/data/bbj-lab/users/burkh4rt/development-sample/raw"
     config_file = "../config/config-tokenizer.yaml"
     
-    # Create data processor
-    clif_processor = CLIFDataProcessor(data_dir=data_dir)
+    # # Create data processor
+    # clif_processor = CLIFDataProcessor(data_dir=data_dir)
     
-    # Create tokenizer
-    tokenizer = Tokenizer(config_file=config_file)
+    # # Create tokenizer
+    # tokenizer = Tokenizer(config_file=config_file)
  
-    # Generate complete timelines
-    timelines = tokenizer.get_tokens_timelines(clif_processor)
+    # # Generate complete timelines
+    # timelines = tokenizer.get_tokens_timelines(clif_processor)
 
-    # Generate summary statistics
-    summarize(tokenizer, timelines)
+    # # Generate summary statistics
+    # summarize(tokenizer, timelines)
+
+    # Example usage with MIMIC-IV data processor
+    print("\n" + "="*50)
+    print("MIMIC-IV Data Processor Example")
+    print("="*50)
+    
+    # Import MIMIC-IV data processor
+    from preprocessing.mimiciv_data_processor import MIMICIVDataProcessor
+    
+    # Configuration for MIMIC-IV
+    mimiciv_data_dir = "/gpfs/data/bbj-lab/data/physionet.org/files/mimiciv_parquet"
+    
+    # Create MIMIC-IV data processor
+    mimiciv_processor = MIMICIVDataProcessor(data_dir=mimiciv_data_dir, limit=1000)
+    
+    mimic_cfg = "../config/config-tokenizer-mimiciv.yaml"
+    # Create tokenizer (using same config as CLIF for now)
+    tokenizer_mimiciv = Tokenizer(config_file=mimic_cfg)
+    
+    # Generate complete timelines for MIMIC-IV data
+    timelines_mimiciv = tokenizer_mimiciv.get_tokens_timelines(mimiciv_processor)
+
+    # Generate summary statistics for MIMIC-IV
+    summarize(tokenizer_mimiciv, timelines_mimiciv)
+    
+    # # Generate summary statistics for MIMIC-IV
+    # print(f"\nMIMIC-IV Timeline Summary:")
+    # print(f"Number of patients: {timelines_mimiciv.height}")
+    # print(f"Average tokens per patient: {timelines_mimiciv.select(pl.col('tokens').list.len().mean()).item():.1f}")
+    # print(f"Average timeline length (hours): {timelines_mimiciv.select(pl.col('times').list.len().mean()).item():.1f}")
+    
+    # # Show sample of MIMIC-IV data
+    # print(f"\nSample MIMIC-IV timeline:")
+    # sample = timelines_mimiciv.limit(1).collect()
+    # if sample.height > 0:
+    #     print(f"Patient ID: {sample['subject_id'][0]}")
+    #     print(f"Number of tokens: {len(sample['tokens'][0])}")
+    #     print(f"Timeline span: {sample['times'][0][0]} to {sample['times'][0][-1]}")
   
