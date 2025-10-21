@@ -10,6 +10,7 @@ import os
 import pathlib
 import re
 import typing
+from typing import Dict, List
 
 import numpy as np
 import pandas as pd
@@ -130,6 +131,35 @@ class Tokenizer:
                 σ = np.nanstd(v) + np.finfo(float).eps
                 self.vocab.set_aux(designator, (μ + σ * np.arange(-3, 4)).tolist())
     
+    def _compute_global_quantiles(self, df: pl.LazyFrame, label: str) -> Dict[str, List[float]]:
+        """Compute quantiles for each itemid across all patients in the dataset."""
+        global_quantiles = {}
+        
+        # Group by itemid and collect all numeric values
+        itemid_groups = (
+            df
+            .filter(pl.col("numeric_value").is_not_null())
+            .group_by("code")
+            .agg(pl.col("numeric_value").drop_nulls())
+            .collect()
+        )
+        
+        for row in itemid_groups.to_dicts():
+            itemid = row["code"]
+            values = np.array(row["numeric_value"])
+            
+            if len(values) > 0:
+                if self.quantizer == "deciles":
+                    quantile_bins = np.nanquantile(values, np.arange(0.1, 1.0, 0.1)).tolist()
+                elif self.quantizer == "sigmas":
+                    μ = np.nanmean(values)
+                    σ = np.nanstd(values) + np.finfo(float).eps
+                    quantile_bins = (μ + σ * np.arange(-3, 4)).tolist()
+                
+                global_quantiles[itemid] = quantile_bins
+        
+        return global_quantiles
+    
     def get_quants(self, v: np.array, c: str, label: str = None) -> pl.Expr:
         """Obtain corresponding quantiles using self.vocab object"""
         designator = f"{label}_{c}" if label is not None else c
@@ -168,13 +198,13 @@ class Tokenizer:
     #         )
     #     )      
     
-    def process_cat_val_frame_with_text(self, df: Frame, label: str) -> pl.LazyFrame:
-        """Process event data by grouping by code (item ID) and hadm_id to avoid duplicates."""
-        # Group by code and hadm_id to avoid duplicate tokens for same lab code per hospitalization
+    def process_event_with_values(self, df: Frame, label: str) -> pl.LazyFrame:
+        """Process event data by grouping by subject_id and code."""
+        # Group by subject_id and code - allow multiple instances of same code per patient
         return (
-            df.group_by("code", "hadm_id", maintain_order=True)
+            df.group_by("subject_id", "code", maintain_order=True)
             .map_groups(
-                lambda group: self._process_single_category_with_text(group, label, "time"),
+                lambda group: self._process_event_with_values(group, label, "time"),
                 schema={
                     "subject_id": pl.Utf8,
                     "hadm_id": pl.Utf8,
@@ -186,48 +216,43 @@ class Tokenizer:
             )
         )
     
-    def process_categorical_value(self, df: Frame, category_col: str, value_col: str, 
-                                label: str, time_col: str = "event_time") -> Frame:
-        """Process a dataframe with categorical values and numerical values."""
-        return pl.concat(
-            self._process_single_category(x, label, time_col) 
-            for x in df.partition_by(category_col)
-        )
+    # def process_categorical_value(self, df: Frame, category_col: str, value_col: str, 
+    #                             label: str, time_col: str = "event_time") -> Frame:
+    #     """Process a dataframe with categorical values and numerical values."""
+    #     return pl.concat(
+    #         self._process_single_category(x, label, time_col) 
+    #         for x in df.partition_by(category_col)
+    #     )
     
-    def _process_single_category(self, x: Frame, label: str, time_col: str) -> Frame:
-        """Process a single category group."""
-        v = x.select("numeric_value").to_numpy().ravel()
-        c = x.select("code").row(0)[0]
-        self.set_quants(v=v, c=c, label=label)
+    # def _process_single_category(self, x: Frame, label: str, time_col: str) -> Frame:
+    #     """Process a single category group."""
+    #     v = x.select("numeric_value").to_numpy().ravel()
+    #     c = x.select("code").row(0)[0]
+    #     self.set_quants(v=v, c=c, label=label)
         
-        return (
-            x.with_columns(
-                token=pl.lit(self.vocab(f"{label}_{c}")).cast(pl.Int64),
-                token_quantile=self.get_quants(v=v, c=c, label=label),
-            )
-            .filter(~pl.col("token").is_in([self.vocab(None), self.vocab("nan")]))
-            .filter(
-                ~pl.col("token_quantile").is_in([self.vocab(None), self.vocab("nan")])
-            )
-            .with_columns(
-                tokens=pl.concat_list("token", "token_quantile").cast(
-                    pl.List(pl.Int64)
-                ),
-                times=pl.concat_list(time_col, time_col).cast(
-                    pl.List(pl.Datetime(time_unit="ms"))
-                ),
-            )
-        )
+    #     return (
+    #         x.with_columns(
+    #             token=pl.lit(self.vocab(f"{label}_{c}")).cast(pl.Int64),
+    #             token_quantile=self.get_quants(v=v, c=c, label=label),
+    #         )
+    #         .filter(~pl.col("token").is_in([self.vocab(None), self.vocab("nan")]))
+    #         .filter(
+    #             ~pl.col("token_quantile").is_in([self.vocab(None), self.vocab("nan")])
+    #         )
+    #         .with_columns(
+    #             tokens=pl.concat_list("token", "token_quantile").cast(
+    #                 pl.List(pl.Int64)
+    #             ),
+    #             times=pl.concat_list(time_col, time_col).cast(
+    #                 pl.List(pl.Datetime(time_unit="ms"))
+    #             ),
+    #         )
+    #     )
     
-    def _process_single_category_with_text(self, x: Frame, label: str, time_col: str) -> Frame:
+    def _process_event_with_values(self, x: Frame, label: str, time_col: str) -> Frame:
         """Process a single category group with both numeric and text values."""
         
-        # Debug: Check what type of object we're getting
-
         # Ensure that ms precision is used for time.
-        # This is necessary even though the data processor already casts all Datetimes to 'ms' precision
-        # because when polars converts a python list to a polars list column, it infers the precision from the individual datetime values 
-        # rather than preserving the original precision.
         x = x.with_columns(
             pl.col(time_col).cast(pl.Datetime(time_unit="ms")).alias(time_col)
         )
@@ -239,11 +264,7 @@ class Tokenizer:
         # Get max text length from config
         max_text_length = self.config.get("max_text_value_length", 10)
         
-        # Set quantiles for numeric values
-        self.set_quants(v=v, c=c, label=label)
-        
-        # Get quantiles for the entire array once (outside the loop)
-        # Use the same logic as get_quants but return numpy array directly
+        # Get quantiles for the entire array once (using pre-computed global quantiles)
         designator = f"{label}_{c}" if label is not None else c
         if self.vocab.has_aux(designator):
             quantile_values = np.where(
@@ -251,82 +272,80 @@ class Tokenizer:
                 np.digitize(v, bins=self.vocab.get_aux(designator)),
                 self.vocab("nan"),
             )
+            # print(f"DEBUG: Using global quantiles for {designator}: {len(self.vocab.get_aux(designator))} bins")
         else:
             quantile_values = np.full(len(v), self.vocab(None))
+            print(f"DEBUG: No global quantiles found for {designator}")
         
-        # Process the group (should be deduplicated now)
-        # Since we group by code and hadm_id, each group should represent one unique event
-        row_tokens = []
-        row_times = []
+        # Process each row in the group - ensure code and quantile tokens are paired
+        all_tokens = []
+        all_times = []
         
-        # Always add code token
-        code_token = self.vocab(f"{label}_{c}")
-        if code_token not in [self.vocab(None), self.vocab("nan")]:
-            row_tokens.append(code_token)
-            row_times.append(x[time_col][0])  # Use first time since all should be similar
-        
-        # Add quantile token if numeric value exists
-        numeric_val = x["numeric_value"][0]  # Use first value since all should be similar
-        if numeric_val is not None and not np.isnan(numeric_val):
-            quantile_token = quantile_values[0]  # Use first quantile since all should be similar
-            if quantile_token not in [self.vocab(None), self.vocab("nan")]:
-                row_tokens.append(quantile_token)
-                row_times.append(x[time_col][0])
-        
-        # Add text value if it exists and passes filters
-        text_val = x["text_value"][0]  # Use first value since all should be similar
-        if text_val is not None and str(text_val).strip():
-            text_str = str(text_val).strip()
+        for i in range(len(x)):
+            # Always add code token first
+            code_token = self.vocab(f"{label}_{c}")
+            if code_token not in [self.vocab(None), self.vocab("nan")]:
+                all_tokens.append(code_token)
+                all_times.append(x[time_col][i])
             
-            # First, try to cast to numbers - if it's a number, skip it
-            try:
-                float(text_str)
-                text_str = None  # This is a number, skip it
-            except ValueError:
-                # This is not a number, proceed with text processing
-                
-                # Clean text: remove spaces and keep only alphanumeric characters
-                text_str = re.sub(r'[^a-zA-Z0-9]', '', text_str)
-                
-                # Filter out text values that are too long
-                if len(text_str) > max_text_length:
-                    text_str = None
-                
-                # Filter out empty strings after cleaning
-                if text_str is not None and len(text_str) == 0:
-                    text_str = None
+            # Add quantile token immediately after code token if numeric value exists
+            numeric_val = x["numeric_value"][i]
+            if numeric_val is not None and not np.isnan(numeric_val):
+                quantile_token = quantile_values[i]
+                if quantile_token not in [self.vocab(None), self.vocab("nan")]:
+                    all_tokens.append(quantile_token)
+                    all_times.append(x[time_col][i])
             
-            # Add text value as a token if it passed all filters
-            if text_str is not None:
-                text_token = self.vocab(f"TEXT_{text_str}")
-                if text_token not in [self.vocab(None), self.vocab("nan")]:
-                    row_tokens.append(text_token)
-                    row_times.append(x[time_col][0])
+            # Add text value if it exists and passes filters
+            text_val = x["text_value"][i]
+            if text_val is not None and str(text_val).strip():
+                text_str = str(text_val).strip()
+                
+                # First, try to cast to numbers - if it's a number, skip it
+                try:
+                    float(text_str)
+                    text_str = None  # This is a number, skip it
+                except ValueError:
+                    # This is not a number, proceed with text processing
+                    
+                    # Clean text: remove spaces and keep only alphanumeric characters
+                    text_str = re.sub(r'[^a-zA-Z0-9]', '', text_str)
+                    
+                    # Filter out text values that are too long
+                    if len(text_str) > max_text_length:
+                        text_str = None
+                    
+                    # Filter out empty strings after cleaning
+                    if text_str is not None and len(text_str) == 0:
+                        text_str = None
+                
+                # Add text value as a token if it passed all filters
+                if text_str is not None:
+                    text_token = self.vocab(f"TEXT_{text_str}")
+                    if text_token not in [self.vocab(None), self.vocab("nan")]:
+                        all_tokens.append(text_token)
+                        all_times.append(x[time_col][i])
         
-        # Only add if we have at least one token (code token should always be there)
-        if row_tokens:
-            tokens_list = [row_tokens]
-            times_list = [row_times]
-        else:
-            tokens_list = []
-            times_list = []
+        # Debug: Print the tokens for this group to verify pairing (commented out to reduce spam)
+        # if len(all_tokens) > 0:
+        #     token_names = [self.vocab.reverse.get(t, f"UNK_{t}") for t in all_tokens]
+        #     print(f"DEBUG: Group {c} tokens: {token_names[:10]}...")  # Show first 10 tokens
         
         # Convert to DataFrame
-        if tokens_list:
+        if all_tokens:
             result = pl.DataFrame({
-                "subject_id": x["subject_id"].to_list(),
-                "hadm_id": x["hadm_id"].to_list(),
-                "time": x[time_col].to_list(),
-                "code": [c] * len(tokens_list),
-                "tokens": tokens_list,
-                "times": times_list
+                "subject_id": [x["subject_id"][0]],  # Single value for the group
+                "hadm_id": [x["hadm_id"][0]],        # Single value for the group
+                "time": [x[time_col][0]],             # Single value for the group
+                "code": [c],                          # Single value for the group
+                "tokens": [all_tokens],               # Single flat list per group
+                "times": [all_times]                  # Single flat list per group
             }).with_columns(
                 pl.col("times").cast(pl.List(pl.Datetime(time_unit="ms")))
             )
             return result
         else:
             # Return empty DataFrame with correct schema
-            print("DEBUG: No tokens generated, returning empty DataFrame")
             return pl.DataFrame({
                 "subject_id": [],
                 "hadm_id": [],
@@ -515,7 +534,17 @@ class Tokenizer:
                 print(f"DEBUG LABEVENTS: df type: {type(df)}")
                 print(f"DEBUG LABEVENTS: df columns: {df.collect_schema().names()}")
             
-            result = self.process_cat_val_frame_with_text(
+            # NEW: Pre-compute global quantiles for this event table
+            if "numeric_value" in df.collect_schema().names():
+                print(f"Computing global quantiles for {event_config.get('table', 'UNKNOWN')}...")
+                global_quantiles = self._compute_global_quantiles(df, label=prefix)
+                
+                # Set quantiles in vocabulary for all itemids
+                for itemid, quantile_bins in global_quantiles.items():
+                    designator = f"{prefix}_{itemid}"
+                    self.vocab.set_aux(designator, quantile_bins)                    
+            
+            result = self.process_event_with_values(
                 df,
                 label=prefix,
             ).select("subject_id", "hadm_id", "tokens", "times")
@@ -529,23 +558,25 @@ class Tokenizer:
             # Process as simple categorical events (only code token)
             print("Processing as simple categorical events")
             
-            # Group by code and hadm_id to avoid duplicates
+            # Group by hadm_id and code - allow multiple instances of same code per patient
             result = (
-                df.group_by("code", "hadm_id", maintain_order=True)
+                df.select("subject_id", "hadm_id", "time", "code")  # Select only needed columns to avoid duplicates
+                .group_by(["hadm_id", "code"], maintain_order=True)
                 .agg(
-                    subject_id=pl.col("subject_id").first(),
-                    tokens=pl.col("code").map_elements(
-                        lambda x, prefix=prefix: self.vocab(f"{prefix}_{x}") if x and x.strip() else self.vocab(f"{prefix}_unknown"),
+                    subject_id = pl.col("subject_id").first(),  # not in group key, so it's fine
+                    tokens     = pl.col("code").map_elements(
+                        lambda x, prefix=prefix: self.vocab(f"{prefix}_{x}") if x and x.strip()
+                                         else self.vocab(f"{prefix}_unknown"),
                         return_dtype=pl.Int64,
                         skip_nulls=False,
-                    ).first(),
-                    times=pl.col("time").first()
+                    ),
+                    times      = pl.col("time"),
                 )
                 .with_columns(
-                    tokens=pl.concat_list("tokens"),
-                    times=pl.concat_list("times")
+                    tokens = pl.col("tokens").list.eval(pl.element()),
+                    times  = pl.col("times").list.eval(pl.element())
                 )
-                .select("subject_id", "hadm_id", "tokens", "times")  # Remove code column to match schema
+                .select("subject_id", "hadm_id", "tokens", "times")
             )
             
             print(f"DEBUG: Simple categorical result schema: {result.collect_schema()}")
@@ -632,8 +663,15 @@ class Tokenizer:
         """
         # Process prefix tables
         prefix_query = data_processor.get_prefix_query()
+        print(f"DEBUG: Prefix query has {prefix_query.collect().height} patients")
+        print('DEBUG: prefix_query schema:', prefix_query.collect_schema())
+        print('DEBUG: prefix_query columns:', prefix_query.collect_schema().names())
+        
         prefix_tokens = self.process_prefix_data(prefix_query)
-
+        print(f"DEBUG: Prefix tokens has {prefix_tokens.collect().height} patients")
+        print('DEBUG: prefix_tokens schema:', prefix_tokens.collect_schema())
+        print('DEBUG: prefix_tokens columns:', prefix_tokens.collect_schema().names())
+        
         print('debug prefix')
         print(prefix_query.head(10).collect())
 
@@ -655,16 +693,31 @@ class Tokenizer:
        
         # Combine all events 
         if all_event_tokens:
-            # Concatenate all event tokens and times for each subject
+            # Step 1: stack all event rows
+            stacked = pl.concat(all_event_tokens)
+
+            # Step 2: Process each event group to create properly paired tokens
+            # Instead of exploding, we'll process each group as a unit
             events = (
-                pl.concat(all_event_tokens)
-                .sort(pl.col("times").list.first())
+                stacked
+                .sort(["hadm_id"])  # Sort by hadm_id only to maintain order
                 .group_by("hadm_id", maintain_order=True)
                 .agg(
-                    tokens=pl.col("tokens").explode(),
-                    times=pl.col("times").explode()
+                    # Concatenate all tokens and times from all groups for this hadm_id
+                    tokens = pl.col("tokens").list.eval(pl.element()).explode(),
+                    times  = pl.col("times").list.eval(pl.element()).explode(),
                 )
             )
+            
+            # Debug: Check the first few events to see if pairing is preserved (commented out to reduce spam)
+            # print("DEBUG: First few events after aggregation:")
+            # sample_events = events.head(3).collect()
+            # for i, row in enumerate(sample_events.to_dicts()):
+            #     tokens = row["tokens"]
+            #     token_names = [self.vocab.reverse.get(t, f"UNK_{t}") for t in tokens[:20]]  # First 20 tokens
+            #     print(f"  Event {i}: {token_names}")
+            print('DEBUG: events schema:', events.collect_schema())
+            print('DEBUG: events columns:', events.collect_schema().names())
             
             # Apply time spacing tokens if enabled
             if self.include_time_spacing_tokens:
@@ -682,17 +735,26 @@ class Tokenizer:
                 )
         else:
             # No events - create empty events frame
-            events = prefix_tokens.select("subject_id").with_columns(
+            events = prefix_tokens.select("subject_id", "hadm_id").with_columns(
                 tokens=pl.lit([]).cast(pl.List(pl.Int64)),
                 times=pl.lit([]).cast(pl.List(pl.Datetime(time_unit="ms")))
             )
+            print('DEBUG: events (empty) schema:', events.collect_schema())
+            print('DEBUG: events (empty) columns:', events.collect_schema().names())
 
         # print('debug events')
         # print(events.limit(10).collect())
 
         # Process suffix
         suffix_query = data_processor.get_suffix_query()  
+        print('DEBUG: suffix_query schema:', suffix_query.collect_schema())
+        print('DEBUG: suffix_query columns:', suffix_query.collect_schema().names())
+        print('DEBUG: suffix_query sample data:')
+        print(suffix_query.head(5).collect())
+        
         suffix_tokens = self.process_suffix_data(suffix_query)
+        print('DEBUG: suffix_tokens schema:', suffix_tokens.collect_schema())
+        print('DEBUG: suffix_tokens columns:', suffix_tokens.collect_schema().names())
         print('debug suffix tokens')
         print(suffix_tokens.limit(10).collect())
         
@@ -713,6 +775,12 @@ class Tokenizer:
         #     print(f"DEBUG: Found {suffix_duplicates.height} duplicate hadm_ids in suffix_tokens")
         #     print(suffix_duplicates.head())
 
+        # Debug: Check columns before final joins
+        print('DEBUG: Before final joins:')
+        print('  prefix_tokens columns:', prefix_tokens.collect_schema().names())
+        print('  events columns:', events.collect_schema().names())
+        print('  suffix_tokens columns:', suffix_tokens.collect_schema().names())
+        
         # Combine all components
         tt = (
             prefix_tokens
@@ -729,14 +797,24 @@ class Tokenizer:
                 validate="1:1",
             )
             .with_columns(
-                tokens=pl.concat_list("prefix_tokens", "tokens", "suffix_tokens"),
-                times=pl.concat_list("prefix_times", "times", "suffix_times"),
-                # tokens=pl.concat_list("prefix_tokens", "tokens"),
-                # times=pl.concat_list("prefix_times", "times"),
+                # Handle null values by replacing with empty lists before concatenation
+                tokens=pl.concat_list(
+                    "prefix_tokens", 
+                    pl.col("tokens").fill_null([]), 
+                    "suffix_tokens"
+                ),
+                times=pl.concat_list(
+                    "prefix_times", 
+                    pl.col("times").fill_null([]), 
+                    "suffix_times"
+                ),
             )
             .select("subject_id", "hadm_id", "tokens", "times")
             .sort(by="hadm_id")
         )
+        
+        # Debug: Check final DataFrame columns
+        print('DEBUG: Final DataFrame columns after joins:', tt.collect_schema().names())
         
         # Apply filters
         # if self.day_stay_filter:
@@ -759,6 +837,11 @@ class Tokenizer:
         # Use sink_parquet for streaming write without collecting in memory
         tt.sink_parquet(output_path)
         print(f"Results written to {output_path}")
+        
+        # Debug: Check final timeline count
+        final_df = pl.scan_parquet(output_path)
+        print(f"DEBUG: Final timelines has {final_df.collect().height} patients")
+        print(f"DEBUG: Final timelines with null tokens: {final_df.filter(pl.col('tokens').is_null()).collect().height}")
         
         # Save vocabulary for later use (important for summarization)
         if self.vocab.is_training:
@@ -808,7 +891,7 @@ def summarize(
     )
 
     # Show example timelines
-    num_examples = 10
+    num_examples = 3
     if prefix_filter is not None:
         post(f"Showing example timelines filtered for prefixes: {prefix_filter}")
         # Filter timelines that contain at least one token with the specified prefixes
@@ -835,9 +918,11 @@ def summarize(
             num_examples = min(num_examples, filtered_df.height)
             for s in range(num_examples):
                 sample_df = filtered_df.sample(1, seed=s)
+                hadm_id = sample_df.select("hadm_id").item()
                 tokens = sample_df.select("tokens").item()
                 post(
-                    "Example timeline: \n {}".format(
+                    "Example timeline (hadm_id: {}): \n {}".format(
+                        hadm_id,
                         [
                             tokenizer.vocab.reverse[t]
                             for t in tokens
@@ -852,9 +937,11 @@ def summarize(
             # Get a sample timeline, filtering out null tokens
             sample_df = df.filter(pl.col("tokens").is_not_null()).sample(1, seed=s)
             if sample_df.height > 0:
+                hadm_id = sample_df.select("hadm_id").item()
                 tokens = sample_df.select("tokens").item()
                 post(
-                    "Example timeline: \n {}".format(
+                    "Example timeline (hadm_id: {}): \n {}".format(
+                        hadm_id,
                         [
                             tokenizer.vocab.reverse[t]
                             for t in tokens
@@ -929,7 +1016,7 @@ if __name__ == "__main__":
     mimiciv_data_dir = "/gpfs/data/bbj-lab/data/physionet.org/files/mimiciv_parquet"
     
     # Create MIMIC-IV data processor
-    mimiciv_processor = MIMICIVDataProcessor(data_dir=mimiciv_data_dir, limit=1000)
+    mimiciv_processor = MIMICIVDataProcessor(data_dir=mimiciv_data_dir, limit=100)
     
     mimic_cfg = "../config/config-tokenizer-mimiciv.yaml"
     vocab_path = "mimiciv_vocabulary.gzip"
@@ -942,8 +1029,8 @@ if __name__ == "__main__":
 
     # Generate summary statistics for MIMIC-IV
     # Provide prefix_filter argument as a list of strings to filter example timelines by prefix
-    # summarize(tokenizer_mimiciv, timelines_mimiciv)  # Show all examples
+    summarize(tokenizer_mimiciv, timelines_mimiciv)  # Show all examples
     # summarize(tokenizer_mimiciv, timelines_mimiciv, prefix_filter=['RACE', 'VTL'])  # Show only timelines with RACE or VTL tokens
     # summarize(tokenizer_mimiciv, timelines_mimiciv, prefix_filter=['PROC'])  # Show only timelines with procedure tokens
-    summarize(tokenizer_mimiciv, timelines_mimiciv, prefix_filter=['VTL'])
+    # summarize(tokenizer_mimiciv, timelines_mimiciv, prefix_filter=['VTL'])
     
