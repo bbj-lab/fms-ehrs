@@ -169,10 +169,10 @@ class Tokenizer:
     #     )      
     
     def process_cat_val_frame_with_text(self, df: Frame, label: str) -> pl.LazyFrame:
-        """Process event data by grouping by code (item ID) and generating [prefix_code, quantile, text] tokens."""
-        # Group by code to compute quantiles
+        """Process event data by grouping by code (item ID) and hadm_id to avoid duplicates."""
+        # Group by code and hadm_id to avoid duplicate tokens for same lab code per hospitalization
         return (
-            df.group_by("code", maintain_order=True)
+            df.group_by("code", "hadm_id", maintain_order=True)
             .map_groups(
                 lambda group: self._process_single_category_with_text(group, label, "time"),
                 schema={
@@ -254,69 +254,62 @@ class Tokenizer:
         else:
             quantile_values = np.full(len(v), self.vocab(None))
         
-        # Process each row
-        tokens_list = []
-        times_list = []
+        # Process the group (should be deduplicated now)
+        # Since we group by code and hadm_id, each group should represent one unique event
+        row_tokens = []
+        row_times = []
         
-        for i in range(len(x)):
-            row_tokens = []
-            row_times = []
+        # Always add code token
+        code_token = self.vocab(f"{label}_{c}")
+        if code_token not in [self.vocab(None), self.vocab("nan")]:
+            row_tokens.append(code_token)
+            row_times.append(x[time_col][0])  # Use first time since all should be similar
+        
+        # Add quantile token if numeric value exists
+        numeric_val = x["numeric_value"][0]  # Use first value since all should be similar
+        if numeric_val is not None and not np.isnan(numeric_val):
+            quantile_token = quantile_values[0]  # Use first quantile since all should be similar
+            if quantile_token not in [self.vocab(None), self.vocab("nan")]:
+                row_tokens.append(quantile_token)
+                row_times.append(x[time_col][0])
+        
+        # Add text value if it exists and passes filters
+        text_val = x["text_value"][0]  # Use first value since all should be similar
+        if text_val is not None and str(text_val).strip():
+            text_str = str(text_val).strip()
             
-            
-            # Always add code token
-            code_token = self.vocab(f"{label}_{c}")
-            if code_token not in [self.vocab(None), self.vocab("nan")]:
-                row_tokens.append(code_token)
-                row_times.append(x[time_col][i])
-            
-            # Add quantile token if numeric value exists
+            # First, try to cast to numbers - if it's a number, skip it
             try:
-                numeric_val = x["numeric_value"][i]
-            except Exception as e:
-                print(f"DEBUG INDEXING ERROR: i={i}, x type={type(x)}, x['numeric_value'] type={type(x['numeric_value'])}")
-                print(f"DEBUG INDEXING ERROR: x shape={x.shape}, x columns={x.columns}")
-                print(f"DEBUG INDEXING ERROR: Exception={e}")
-                raise e
-            if numeric_val is not None and not np.isnan(numeric_val):
-                quantile_token = quantile_values[i]
-                if quantile_token not in [self.vocab(None), self.vocab("nan")]:
-                    row_tokens.append(quantile_token)
-                    row_times.append(x[time_col][i])
-            
-            # Add text value if it exists and passes filters
-            text_val = x["text_value"][i]
-            if text_val is not None and str(text_val).strip():
-                text_str = str(text_val).strip()
+                float(text_str)
+                text_str = None  # This is a number, skip it
+            except ValueError:
+                # This is not a number, proceed with text processing
                 
-                # First, try to cast to numbers - if it's a number, skip it
-                try:
-                    float(text_str)
-                    text_str = None  # This is a number, skip it
-                except ValueError:
-                    # This is not a number, proceed with text processing
-                    
-                    # Clean text: remove spaces and keep only alphanumeric characters
-                    text_str = re.sub(r'[^a-zA-Z0-9]', '', text_str)
-                    
-                    # Filter out text values that are too long
-                    if len(text_str) > max_text_length:
-                        text_str = None
-                    
-                    # Filter out empty strings after cleaning
-                    if text_str is not None and len(text_str) == 0:
-                        text_str = None
+                # Clean text: remove spaces and keep only alphanumeric characters
+                text_str = re.sub(r'[^a-zA-Z0-9]', '', text_str)
                 
-                # Add text value as a token if it passed all filters
-                if text_str is not None:
-                    text_token = self.vocab(f"TEXT_{text_str}")
-                    if text_token not in [self.vocab(None), self.vocab("nan")]:
-                        row_tokens.append(text_token)
-                        row_times.append(x[time_col][i])
+                # Filter out text values that are too long
+                if len(text_str) > max_text_length:
+                    text_str = None
+                
+                # Filter out empty strings after cleaning
+                if text_str is not None and len(text_str) == 0:
+                    text_str = None
             
-            # Only add if we have at least one token (code token should always be there)
-            if row_tokens:
-                tokens_list.append(row_tokens)
-                times_list.append(row_times)
+            # Add text value as a token if it passed all filters
+            if text_str is not None:
+                text_token = self.vocab(f"TEXT_{text_str}")
+                if text_token not in [self.vocab(None), self.vocab("nan")]:
+                    row_tokens.append(text_token)
+                    row_times.append(x[time_col][0])
+        
+        # Only add if we have at least one token (code token should always be there)
+        if row_tokens:
+            tokens_list = [row_tokens]
+            times_list = [row_times]
+        else:
+            tokens_list = []
+            times_list = []
         
         # Convert to DataFrame
         if tokens_list:
@@ -473,9 +466,9 @@ class Tokenizer:
                     .str.to_lowercase()
                     .str.replace_all(" ", "_")
                     .map_elements(
-                        lambda x, p=prefix: self.vocab(f"{p}_{x}"),
+                        lambda x, p=prefix: self.vocab(f"{p}_{x}") if x and x.strip() else self.vocab(f"{p}_unknown"),
                         return_dtype=pl.Int64,
-                        skip_nulls=True,
+                        skip_nulls=False,
                     )
                 )
                 all_tokens.append(formatted_values)
@@ -536,19 +529,23 @@ class Tokenizer:
             # Process as simple categorical events (only code token)
             print("Processing as simple categorical events")
             
-            result = df.select(
-                pl.col("subject_id"),
-                pl.col("hadm_id"),
-                pl.concat_list([
-                    pl.col("code").map_elements(
-                        lambda x, prefix=prefix: self.vocab(f"{prefix}_{x}"),
+            # Group by code and hadm_id to avoid duplicates
+            result = (
+                df.group_by("code", "hadm_id", maintain_order=True)
+                .agg(
+                    subject_id=pl.col("subject_id").first(),
+                    tokens=pl.col("code").map_elements(
+                        lambda x, prefix=prefix: self.vocab(f"{prefix}_{x}") if x and x.strip() else self.vocab(f"{prefix}_unknown"),
                         return_dtype=pl.Int64,
-                        skip_nulls=True,
-                    )
-                ]).alias("tokens"),
-                pl.concat_list([
-                    pl.col("time")
-                ]).alias("times"),
+                        skip_nulls=False,
+                    ).first(),
+                    times=pl.col("time").first()
+                )
+                .with_columns(
+                    tokens=pl.concat_list("tokens"),
+                    times=pl.concat_list("times")
+                )
+                .select("subject_id", "hadm_id", "tokens", "times")  # Remove code column to match schema
             )
             
             print(f"DEBUG: Simple categorical result schema: {result.collect_schema()}")
@@ -757,10 +754,16 @@ class Tokenizer:
         print('Writing final results to disk (streaming)')
         # Write results to disk using streaming approach
         output_path = "mimiciv_timelines.parquet"
+        vocab_path = "mimiciv_vocabulary.gzip"
         
         # Use sink_parquet for streaming write without collecting in memory
         tt.sink_parquet(output_path)
         print(f"Results written to {output_path}")
+        
+        # Save vocabulary for later use (important for summarization)
+        if self.vocab.is_training:
+            self.vocab.save(vocab_path)
+            print(f"Vocabulary saved to {vocab_path}")
         
         # Return a lazy reference to the parquet file for streaming operations
         return pl.scan_parquet(output_path)
@@ -772,36 +775,98 @@ class Tokenizer:
 
 def summarize(
     tokenizer: Tokenizer,
-    tokens_timelines: pl.LazyFrame,
+    tokens_timelines: Frame,
     k: int = 20,
     logger: logging.Logger = None,
+    prefix_filter: list = None,
 ) -> None:
-    """Provide posthoc summary statistics"""
+    """Provide posthoc summary statistics
+    
+    Args:
+        tokenizer: The tokenizer instance
+        tokens_timelines: DataFrame with tokenized timelines
+        k: Number of top tokens to show
+        logger: Optional logger instance
+        prefix_filter: List of prefixes to filter example timelines (e.g., ['RACE', 'VTL'])
+    """
     
     post = logger.info if logger is not None else print
 
-    post("Timelines generated: {}".format(tokens_timelines.select(pl.len()).collect().item()))
+    # Convert to DataFrame if it's a LazyFrame
+    if isinstance(tokens_timelines, pl.LazyFrame):
+        df = tokens_timelines.collect()
+    else:
+        df = tokens_timelines
+    
+    post("Timelines generated: {}".format(df.height))
     post("Vocabulary size: {}".format(len(tokenizer.vocab)))
 
     post(
         "Summary stats of timeline lengths: \n {}".format(
-            tokens_timelines.select(pl.col("tokens").list.len()).describe()
+            df.select(pl.col("tokens").list.len()).describe()
         )
     )
 
-    for s in range(3):
-        post(
-            "Example timeline: \n {}".format(
-                [
-                    tokenizer.vocab.reverse[t]
-                    for t in tokens_timelines.sample(1, seed=s).select("tokens").collect().item()
-                ]
+    # Show example timelines
+    num_examples = 10
+    if prefix_filter is not None:
+        post(f"Showing example timelines filtered for prefixes: {prefix_filter}")
+        # Filter timelines that contain at least one token with the specified prefixes
+        prefix_conditions = []
+        for prefix in prefix_filter:
+            prefix_conditions.append(
+                pl.col("tokens").list.eval(
+                    pl.element().map_elements(
+                        lambda x: tokenizer.vocab.reverse.get(x, "").startswith(f"{prefix}_"),
+                        return_dtype=pl.Boolean
+                    )
+                ).list.any()
             )
-        )
+        
+        # Combine all prefix conditions with OR
+        combined_condition = prefix_conditions[0]
+        for condition in prefix_conditions[1:]:
+            combined_condition = combined_condition | condition
+            
+        filtered_df = df.filter(pl.col("tokens").is_not_null() & combined_condition)
+        post(f"Found {filtered_df.height} timelines containing tokens with specified prefixes")
+        
+        if filtered_df.height > 0:
+            num_examples = min(num_examples, filtered_df.height)
+            for s in range(num_examples):
+                sample_df = filtered_df.sample(1, seed=s)
+                tokens = sample_df.select("tokens").item()
+                post(
+                    "Example timeline: \n {}".format(
+                        [
+                            tokenizer.vocab.reverse[t]
+                            for t in tokens
+                        ]
+                    )
+                )
+        else:
+            post("No timelines found containing tokens with specified prefixes")
+    else:
+        # Original behavior - show random examples
+        for s in range(num_examples):
+            # Get a sample timeline, filtering out null tokens
+            sample_df = df.filter(pl.col("tokens").is_not_null()).sample(1, seed=s)
+            if sample_df.height > 0:
+                tokens = sample_df.select("tokens").item()
+                post(
+                    "Example timeline: \n {}".format(
+                        [
+                            tokenizer.vocab.reverse[t]
+                            for t in tokens
+                        ]
+                    )
+                )
+            else:
+                post("Example timeline: \n [No valid timelines found]")
 
     post(
         "Summary stats of timeline duration: \n {}".format(
-            tokens_timelines.select(
+            df.select(
                 pl.col("times").list.min().alias("start_time"),
                 pl.col("times").list.max().alias("end_time"),
             )
@@ -810,21 +875,20 @@ def summarize(
         )
     )
 
-    with pl.Config(tbl_rows=len(tokenizer.vocab)):
-        post(
-            "Top {k} tokens by usage: \n {out}".format(
-                k=k,
-                out=tokens_timelines.select("tokens")
-                .explode("tokens")
-                .rename({"tokens": "token"})
-                .join(tokenizer.vocab.get_frame(), on="token")
-                .select("word")
-                .to_series()
-                .value_counts()
-                .sort("count", descending=True)
-                .head(k),
-            )
+    post(
+        "Top {k} tokens by usage: \n {out}".format(
+            k=k,
+            out=df.select("tokens")
+            .explode("tokens")
+            .rename({"tokens": "token"})
+            .join(tokenizer.vocab.get_frame(), on="token")
+            .select("word")
+            .to_series()
+            .value_counts()
+            .sort("count", descending=True)
+            .head(k),
         )
+    )
 
 
 if __name__ == "__main__":
@@ -868,26 +932,18 @@ if __name__ == "__main__":
     mimiciv_processor = MIMICIVDataProcessor(data_dir=mimiciv_data_dir, limit=1000)
     
     mimic_cfg = "../config/config-tokenizer-mimiciv.yaml"
-    # Create tokenizer (using same config as CLIF for now)
+    vocab_path = "mimiciv_vocabulary.gzip"
+    
+    # Create tokenizer
     tokenizer_mimiciv = Tokenizer(config_file=mimic_cfg)
     
     # Generate complete timelines for MIMIC-IV data
     timelines_mimiciv = tokenizer_mimiciv.get_tokens_timelines(mimiciv_processor)
 
     # Generate summary statistics for MIMIC-IV
-    summarize(tokenizer_mimiciv, timelines_mimiciv)
+    # Provide prefix_filter argument as a list of strings to filter example timelines by prefix
+    # summarize(tokenizer_mimiciv, timelines_mimiciv)  # Show all examples
+    # summarize(tokenizer_mimiciv, timelines_mimiciv, prefix_filter=['RACE', 'VTL'])  # Show only timelines with RACE or VTL tokens
+    # summarize(tokenizer_mimiciv, timelines_mimiciv, prefix_filter=['PROC'])  # Show only timelines with procedure tokens
+    summarize(tokenizer_mimiciv, timelines_mimiciv, prefix_filter=['VTL'])
     
-    # # Generate summary statistics for MIMIC-IV
-    # print(f"\nMIMIC-IV Timeline Summary:")
-    # print(f"Number of patients: {timelines_mimiciv.height}")
-    # print(f"Average tokens per patient: {timelines_mimiciv.select(pl.col('tokens').list.len().mean()).item():.1f}")
-    # print(f"Average timeline length (hours): {timelines_mimiciv.select(pl.col('times').list.len().mean()).item():.1f}")
-    
-    # # Show sample of MIMIC-IV data
-    # print(f"\nSample MIMIC-IV timeline:")
-    # sample = timelines_mimiciv.limit(1).collect()
-    # if sample.height > 0:
-    #     print(f"Patient ID: {sample['subject_id'][0]}")
-    #     print(f"Number of tokens: {len(sample['tokens'][0])}")
-    #     print(f"Timeline span: {sample['times'][0][0]} to {sample['times'][0][-1]}")
-  
