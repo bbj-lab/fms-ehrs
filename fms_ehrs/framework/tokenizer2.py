@@ -275,7 +275,7 @@ class Tokenizer:
             # print(f"DEBUG: Using global quantiles for {designator}: {len(self.vocab.get_aux(designator))} bins")
         else:
             quantile_values = np.full(len(v), self.vocab(None))
-            print(f"DEBUG: No global quantiles found for {designator}")
+            # print(f"DEBUG: No global quantiles found for {designator}")
         
         # Process each row in the group - ensure code and quantile tokens are paired
         all_tokens = []
@@ -526,7 +526,7 @@ class Tokenizer:
         # Check if this event has numeric_value or text_value columns (categorical-value pairs)
         if "numeric_value" in df.collect_schema().names() or "text_value" in df.collect_schema().names():
             # Process as categorical-value pairs with numeric and/or text values
-            print("Processing as categorical-value pairs with numeric and/or text values")
+            # print("Processing as categorical-value pairs with numeric and/or text values")
             
             # Special debugging for lab events
             if event_config.get("table") == "labevents":
@@ -556,7 +556,7 @@ class Tokenizer:
             return result
         else:
             # Process as simple categorical events (only code token)
-            print("Processing as simple categorical events")
+            # print("Processing as simple categorical events")
             
             # Group by hadm_id and code - allow multiple instances of same code per patient
             result = (
@@ -1018,7 +1018,10 @@ if __name__ == "__main__":
     # Create MIMIC-IV data processor
     mimiciv_processor = MIMICIVDataProcessor(data_dir=mimiciv_data_dir, limit=100)
     
-    mimic_cfg = "../config/config-tokenizer-mimiciv.yaml"
+    # mimic_cfg = "../config/config-tokenizer-mimiciv.yaml"
+    mimic_cfg = "../config/cfg_mimic_default.yaml"
+    # mimic_cfg = "../config/cfg_mimic_add_omr.yaml"
+    # mimic_cfg = "../config/cfg_mimic_no_text.yaml"
     vocab_path = "mimiciv_vocabulary.gzip"
     
     # Create tokenizer
@@ -1033,4 +1036,5 @@ if __name__ == "__main__":
     # summarize(tokenizer_mimiciv, timelines_mimiciv, prefix_filter=['RACE', 'VTL'])  # Show only timelines with RACE or VTL tokens
     # summarize(tokenizer_mimiciv, timelines_mimiciv, prefix_filter=['PROC'])  # Show only timelines with procedure tokens
     # summarize(tokenizer_mimiciv, timelines_mimiciv, prefix_filter=['VTL'])
+    # summarize(tokenizer_mimiciv, timelines_mimiciv, prefix_filter=['OMR'])
     
