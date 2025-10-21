@@ -1,0 +1,162 @@
+(/scratch/chend5/fms-ehrs-env) [chend5@cri22cn405 framework]$ python tokenizer21.py
+Timelines generated: 16123
+Vocabulary size: 202
+Summary stats of timeline lengths: 
+ shape: (9, 2)
+┌────────────┬─────────────┐
+│ statistic  ┆ tokens      │
+│ ---        ┆ ---         │
+│ str        ┆ f64         │
+╞════════════╪═════════════╡
+│ count      ┆ 16123.0     │
+│ null_count ┆ 0.0         │
+│ mean       ┆ 669.705266  │
+│ std        ┆ 2363.609304 │
+│ min        ┆ 9.0         │
+│ 25%        ┆ 53.0        │
+│ 50%        ┆ 126.0       │
+│ 75%        ┆ 450.0       │
+│ max        ┆ 117066.0    │
+└────────────┴─────────────┘
+Example timeline: 
+ ['TL_START', 'RACE_other', 'ETHN_hispanic', 'SEX_female', 'Q1', 'ADMN_surgical_same_day_admission', 'ADT_other', 'ADT_ward', 'DSCG_home', 'TL_END']
+Example timeline: 
+ ['TL_START', 'RACE_white', 'ETHN_non-hispanic', 'SEX_female', 'Q8', 'ADMN_direct_observation', 'ADT_ward', 'LAB_hemoglobin', 'Q6', 'LAB_platelet_count', 'Q9', 'LAB_bicarbonate', 'Q7', 'LAB_calcium_total', 'Q3', 'LAB_chloride', 'Q5', 'LAB_creatinine', 'Q5', 'LAB_glucose_serum', 'Q4', 'LAB_magnesium', 'Q5', 'LAB_phosphate', 'Q2', 'LAB_potassium', 'Q2', 'LAB_sodium', 'Q6', 'LAB_bun', 'Q3', 'DSCG_None', 'TL_END']
+Example timeline: 
+ ['TL_START', 'RACE_other', 'ETHN_hispanic', 'SEX_male', 'Q2', 'ADMN_direct_emer.', 'ADT_ward', 'LAB_basophils_percent', 'Q5', 'LAB_eosinophils_percent', 'Q6', 'LAB_hemoglobin', 'Q8', 'LAB_lymphocytes_percent', 'Q4', 'LAB_monocytes_percent', 'Q3', 'LAB_neutrophils_percent', 'Q7', 'LAB_platelet_count', 'Q4', 'LAB_inr', 'Q2', 'LAB_pt', 'Q1', 'LAB_ptt', 'Q5', 'LAB_bicarbonate', 'Q6', 'LAB_calcium_total', 'Q6', 'LAB_chloride', 'Q7', 'LAB_creatinine', 'Q4', 'LAB_glucose_serum', 'Q2', 'LAB_magnesium', 'Q5', 'LAB_phosphate', 'Q5', 'LAB_potassium', 'Q2', 'LAB_sodium', 'Q8', 'LAB_bun', 'Q1', 'LAB_alt', 'Q7', 'LAB_alkaline_phosphatase', 'Q5', 'LAB_ast', 'Q5', 'LAB_bilirubin_total', 'Q3', 'LAB_ldh', 'Q0', 'LAB_basophils_percent', 'Q6', 'LAB_eosinophils_percent', 'Q6', 'LAB_hemoglobin', 'Q8', 'LAB_lymphocytes_percent', 'Q4', 'LAB_monocytes_percent', 'Q4', 'LAB_neutrophils_percent', 'Q6', 'LAB_platelet_count', 'Q4', 'LAB_bicarbonate', 'Q7', 'LAB_calcium_total', 'Q8', 'LAB_chloride', 'Q7', 'LAB_creatinine', 'Q5', 'LAB_glucose_serum', 'Q3', 'LAB_magnesium', 'Q8', 'LAB_phosphate', 'Q6', 'LAB_potassium', 'Q3', 'LAB_sodium', 'Q7', 'LAB_bun', 'Q1', 'LAB_albumin', 'Q9', 'LAB_alt', 'Q7', 'LAB_alkaline_phosphatase', 'Q6', 'LAB_ast', 'Q4', 'LAB_bilirubin_total', 'Q1', 'LAB_ldh', 'Q0', 'DSCG_home', 'TL_END']
+Summary stats of timeline duration: 
+ shape: (9, 2)
+┌────────────┬─────────────────────────┐
+│ statistic  ┆ duration                │
+│ ---        ┆ ---                     │
+│ str        ┆ str                     │
+╞════════════╪═════════════════════════╡
+│ count      ┆ 16123                   │
+│ null_count ┆ 0                       │
+│ mean       ┆ 6 days, 14:25:10.172000 │
+│ std        ┆ null                    │
+│ min        ┆ 1 day, 0:03:00          │
+│ 25%        ┆ 2 days, 11:15:53        │
+│ 50%        ┆ 4 days, 2:02:00         │
+│ 75%        ┆ 7 days, 2:31:00         │
+│ max        ┆ 391 days, 16:50:00      │
+└────────────┴─────────────────────────┘
+Top 20 tokens by usage: 
+ shape: (20, 2)
+┌──────────────────────┬────────┐
+│ word                 ┆ count  │
+│ ---                  ┆ ---    │
+│ str                  ┆ u32    │
+╞══════════════════════╪════════╡
+│ Q9                   ┆ 881965 │
+│ Q5                   ┆ 542594 │
+│ Q7                   ┆ 522998 │
+│ Q6                   ┆ 494973 │
+│ Q1                   ┆ 484446 │
+│ Q3                   ┆ 477424 │
+│ Q4                   ┆ 462489 │
+│ Q2                   ┆ 452487 │
+│ Q8                   ┆ 449683 │
+│ Q0                   ┆ 392230 │
+│ VTL_sbp              ┆ 383823 │
+│ VTL_dbp              ┆ 383463 │
+│ VTL_map              ┆ 383405 │
+│ VTL_heart_rate       ┆ 378813 │
+│ VTL_respiratory_rate ┆ 374469 │
+│ VTL_spo2             ┆ 371426 │
+│ LAB_potassium        ┆ 117721 │
+│ LAB_glucose_serum    ┆ 112400 │
+│ LAB_sodium           ┆ 110955 │
+│ LAB_chloride         ┆ 107636 │
+└──────────────────────┴────────┘
+Timelines generated: 16123
+Vocabulary size: 202
+Summary stats of timeline lengths: 
+ shape: (9, 2)
+┌────────────┬─────────────┐
+│ statistic  ┆ tokens      │
+│ ---        ┆ ---         │
+│ str        ┆ f64         │
+╞════════════╪═════════════╡
+│ count      ┆ 16123.0     │
+│ null_count ┆ 0.0         │
+│ mean       ┆ 682.550146  │
+│ std        ┆ 2438.085683 │
+│ min        ┆ 9.0         │
+│ 25%        ┆ 53.0        │
+│ 50%        ┆ 127.0       │
+│ 75%        ┆ 454.0       │
+│ max        ┆ 120552.0    │
+└────────────┴─────────────┘
+Example timeline: 
+ ['TL_START', 'RACE_other', 'ETHN_hispanic', 'SEX_female', 'Q1', 'ADMN_surgical_same_day_admission', 'XFR_other', 'XFR_ward', 'DSCG_home', 'TL_END']
+Example timeline: 
+ ['TL_START', 'RACE_white', 'ETHN_non-hispanic', 'SEX_female', 'Q8', 'ADMN_direct_observation', 'XFR_ward', 'LAB_hemoglobin', 'Q6', 'LAB_platelet_count', 'Q9', 'LAB_bicarbonate', 'Q7', 'LAB_calcium_total', 'Q3', 'LAB_chloride', 'Q5', 'LAB_creatinine', 'Q5', 'LAB_glucose_serum', 'Q4', 'LAB_magnesium', 'Q5', 'LAB_phosphate', 'Q2', 'LAB_potassium', 'Q2', 'LAB_sodium', 'Q6', 'LAB_bun', 'Q3', 'DSCG_None', 'TL_END']
+Example timeline: 
+ ['TL_START', 'RACE_other', 'ETHN_hispanic', 'SEX_male', 'Q2', 'ADMN_direct_emer.', 'XFR_ward', 'LAB_basophils_percent', 'Q5', 'LAB_eosinophils_percent', 'Q6', 'LAB_hemoglobin', 'Q8', 'LAB_lymphocytes_percent', 'Q4', 'LAB_monocytes_percent', 'Q3', 'LAB_neutrophils_percent', 'Q7', 'LAB_platelet_count', 'Q4', 'LAB_inr', 'Q2', 'LAB_pt', 'Q1', 'LAB_ptt', 'Q5', 'LAB_bicarbonate', 'Q6', 'LAB_calcium_total', 'Q6', 'LAB_chloride', 'Q7', 'LAB_creatinine', 'Q4', 'LAB_glucose_serum', 'Q2', 'LAB_magnesium', 'Q5', 'LAB_phosphate', 'Q5', 'LAB_potassium', 'Q2', 'LAB_sodium', 'Q8', 'LAB_bun', 'Q1', 'LAB_alt', 'Q7', 'LAB_alkaline_phosphatase', 'Q5', 'LAB_ast', 'Q5', 'LAB_bilirubin_total', 'Q3', 'LAB_ldh', 'Q0', 'LAB_basophils_percent', 'Q6', 'LAB_eosinophils_percent', 'Q6', 'LAB_hemoglobin', 'Q8', 'LAB_lymphocytes_percent', 'Q4', 'LAB_monocytes_percent', 'Q4', 'LAB_neutrophils_percent', 'Q6', 'LAB_platelet_count', 'Q4', 'LAB_bicarbonate', 'Q7', 'LAB_calcium_total', 'Q8', 'LAB_chloride', 'Q7', 'LAB_creatinine', 'Q5', 'LAB_glucose_serum', 'Q3', 'LAB_magnesium', 'Q8', 'LAB_phosphate', 'Q6', 'LAB_potassium', 'Q3', 'LAB_sodium', 'Q7', 'LAB_bun', 'Q1', 'LAB_albumin', 'Q9', 'LAB_alt', 'Q7', 'LAB_alkaline_phosphatase', 'Q6', 'LAB_ast', 'Q4', 'LAB_bilirubin_total', 'Q1', 'LAB_ldh', 'Q0', 'DSCG_home', 'TL_END']
+Summary stats of timeline duration: 
+ shape: (9, 2)
+┌────────────┬─────────────────────────┐
+│ statistic  ┆ duration                │
+│ ---        ┆ ---                     │
+│ str        ┆ str                     │
+╞════════════╪═════════════════════════╡
+│ count      ┆ 16123                   │
+│ null_count ┆ 0                       │
+│ mean       ┆ 6 days, 14:25:53.411000 │
+│ std        ┆ null                    │
+│ min        ┆ 1 day, 0:03:00          │
+│ 25%        ┆ 2 days, 11:15:53        │
+│ 50%        ┆ 4 days, 2:02:00         │
+│ 75%        ┆ 7 days, 2:33:00         │
+│ max        ┆ 391 days, 16:50:00      │
+└────────────┴─────────────────────────┘
+Top 20 tokens by usage: 
+ shape: (20, 2)
+┌──────────────────────┬────────┐
+│ word                 ┆ count  │
+│ ---                  ┆ ---    │
+│ str                  ┆ u32    │
+╞══════════════════════╪════════╡
+│ Q9                   ┆ 892385 │
+│ Q5                   ┆ 552654 │
+│ Q7                   ┆ 533355 │
+│ Q6                   ┆ 505246 │
+│ Q1                   ┆ 495933 │
+│ Q3                   ┆ 486867 │
+│ Q4                   ┆ 473538 │
+│ Q2                   ┆ 462971 │
+│ Q8                   ┆ 460148 │
+│ Q0                   ┆ 401112 │
+│ VTL_sbp              ┆ 383823 │
+│ VTL_dbp              ┆ 383463 │
+│ VTL_map              ┆ 383405 │
+│ VTL_heart_rate       ┆ 378813 │
+│ VTL_respiratory_rate ┆ 374469 │
+│ VTL_spo2             ┆ 371426 │
+│ LAB_potassium        ┆ 117721 │
+│ LAB_glucose_serum    ┆ 112400 │
+│ RESP_None            ┆ 111279 │
+│ LAB_sodium           ┆ 110955 │
+└──────────────────────┴────────┘
+(/scratch/chend5/fms-ehrs-env) [chend5@cri22cn405 framework]$ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+-----------
+Example timeline: 
+ ['TL_START', 'RACE_white', 'ETHN_non-hispanic', 'SEX_male', 'Q9', 'ADMN_ew_emer.', 'XFR_ed', 'XFR_ward', 'XFR_ward', 'LAB_lactate', 'Q7', 'LAB_hemoglobin', 'Q9', 'LAB_platelet_count', 'Q5', 'XFR_ward', 'LAB_basophils_percent', 'Q3', 'LAB_eosinophils_percent', 'Q2', 'LAB_lymphocytes_percent', 'Q2', 'LAB_monocytes_percent', 'Q0', 'LAB_neutrophils_percent', 'Q8', 'LAB_lactate', 'Q5', 'LAB_basophils_percent', 'Q7', 'LAB_eosinophils_percent', 'Q3', 'LAB_hemoglobin', 'Q9', 'LAB_lymphocytes_percent', 'Q1', 'LAB_monocytes_percent', 'Q2', 'LAB_neutrophils_percent', 'Q9', 'LAB_platelet_count', 'Q4', 'LAB_ptt', 'Q9', 'LAB_inr', 'Q9', 'LAB_pt', 'Q9', 'LAB_bicarbonate', 'Q0', 'LAB_chloride', 'Q6', 'LAB_creatinine', 'Q8', 'LAB_glucose_serum', 'Q8', 'LAB_potassium', 'Q0', 'LAB_sodium', 'Q5', 'LAB_bun', 'Q8', 'LAB_albumin', 'Q4', 'LAB_troponin_t', 'Q2', 'LAB_alt', 'Q8', 'LAB_alkaline_phosphatase', 'Q9', 'LAB_ast', 'Q8', 'LAB_bilirubin_total', 'Q9', 'LAB_basophils_percent', 'Q4', 'LAB_eosinophils_percent', 'Q3', 'LAB_hemoglobin', 'Q9', 'LAB_lymphocytes_percent', 'Q2', 'LAB_monocytes_percent', 'Q5', 'LAB_neutrophils_percent', 'Q8', 'LAB_platelet_count', 'Q4', 'LAB_inr', 'Q7', 'LAB_pt', 'Q7', 'LAB_ptt', 'Q3', 'LAB_bicarbonate', 'Q1', 'LAB_calcium_total', 'Q6', 'LAB_chloride', 'Q5', 'LAB_creatinine', 'Q8', 'LAB_glucose_serum', 'Q8', 'LAB_magnesium', 'Q7', 'LAB_phosphate', 'Q3', 'LAB_potassium', 'Q2', 'LAB_sodium', 'Q5', 'LAB_bun', 'Q8', 'LAB_alt', 'Q8', 'LAB_alkaline_phosphatase', 'Q9', 'LAB_ast', 'Q9', 'LAB_bilirubin_total', 'Q9', 'LAB_troponin_t', 'Q2', 'LAB_inr', 'Q6', 'LAB_pt', 'Q5', 'LAB_ptt', 'Q2', 'XFR_ward', 'LAB_hemoglobin', 'Q9', 'LAB_platelet_count', 'Q3', 'LAB_inr', 'Q6', 'LAB_pt', 'Q5', 'LAB_ptt', 'Q1', 'LAB_bicarbonate', 'Q2', 'LAB_calcium_total', 'Q8', 'LAB_chloride', 'Q7', 'LAB_creatinine', 'Q8', 'LAB_glucose_serum', 'Q9', 'LAB_magnesium', 'Q9', 'LAB_phosphate', 'Q0', 'LAB_potassium', 'Q1', 'LAB_sodium', 'Q7', 'LAB_bun', 'Q8', 'LAB_alt', 'Q8', 'LAB_alkaline_phosphatase', 'Q8', 'LAB_ast', 'Q8', 'LAB_bilirubin_total', 'Q9', 'LAB_hemoglobin', 'Q9', 'LAB_platelet_count', 'Q3', 'LAB_bicarbonate', 'Q3', 'LAB_calcium_total', 'Q8', 'LAB_chloride', 'Q9', 'LAB_creatinine', 'Q8', 'LAB_glucose_serum', 'Q8', 'LAB_magnesium', 'Q8', 'LAB_phosphate', 'Q1', 'LAB_potassium', 'Q0', 'LAB_sodium', 'Q9', 'LAB_bun', 'Q8', 'LAB_alt', 'Q8', 'LAB_alkaline_phosphatase', 'Q8', 'LAB_ast', 'Q8', 'LAB_bilirubin_total', 'Q9', 'LAB_bicarbonate', 'Q5', 'LAB_chloride', 'Q9', 'LAB_creatinine', 'Q7', 'LAB_glucose_serum', 'Q8', 'LAB_potassium', 'Q3', 'LAB_sodium', 'Q9', 'LAB_bun', 'Q8', 'LAB_alt', 'Q8', 'LAB_alkaline_phosphatase', 'Q8', 'LAB_ast', 'Q6', 'LAB_bilirubin_total', 'Q9', 'LAB_bicarbonate', 'Q6', 'LAB_chloride', 'Q9', 'LAB_creatinine', 'Q7', 'LAB_glucose_serum', 'Q9', 'LAB_potassium', 'Q1', 'LAB_sodium', 'Q8', 'LAB_bun', 'Q8', 'LAB_alt', 'Q7', 'LAB_alkaline_phosphatase', 'Q8', 'LAB_ast', 'Q5', 'LAB_bilirubin_total', 'Q8', 'LAB_ptt', 'Q6', 'LAB_hemoglobin', 'Q9', 'LAB_platelet_count', 'Q5', 'LAB_inr', 'Q7', 'LAB_pt', 'Q6', 'LAB_ptt', 'Q9', 'LAB_bicarbonate', 'Q5', 'LAB_chloride', 'Q9', 'LAB_creatinine', 'Q3', 'LAB_glucose_serum', 'Q8', 'LAB_potassium', 'Q2', 'LAB_sodium', 'Q8', 'LAB_bun', 'Q8', 'LAB_ptt', 'Q9', 'LAB_hemoglobin', 'Q9', 'LAB_platelet_count', 'Q6', 'LAB_inr', 'Q7', 'LAB_pt', 'Q6', 'LAB_ptt', 'Q9', 'LAB_bicarbonate', 'Q5', 'LAB_chloride', 'Q9', 'LAB_creatinine', 'Q8', 'LAB_glucose_serum', 'Q7', 'LAB_magnesium', 'Q7', 'LAB_potassium', 'Q3', 'LAB_sodium', 'Q8', 'LAB_bun', 'Q8', 'LAB_ptt', 'Q6', 'LAB_ptt', 'Q6', 'LAB_ptt', 'Q8', 'LAB_hemoglobin', 'Q9', 'LAB_platelet_count', 'Q6', 'LAB_alt', 'Q6', 'LAB_alkaline_phosphatase', 'Q7', 'LAB_ast', 'Q6', 'LAB_bilirubin_total', 'Q8', 'LAB_ptt', 'Q8', 'LAB_inr', 'Q7', 'LAB_pt', 'Q6']
+Example timeline: 
+ ['TL_START', 'RACE_white', 'ETHN_non-hispanic', 'SEX_female', 'Q1', 'ADMN_direct_observation', 'XFR_ed', 'XFR_ward']
+Example timeline: 
+ ['TL_START', 'RACE_white', 'ETHN_non-hispanic', 'SEX_female', 'Q1', 'ADMN_urgent', 'XFR_l&d', 'XFR_ward', 'LAB_hemoglobin', 'Q8', 'LAB_platelet_count', 'Q5']

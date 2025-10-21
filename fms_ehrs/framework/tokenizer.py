@@ -7,23 +7,20 @@ it to tokenized timelines at the hospitalization_id level
 
 import collections
 import functools
-import logging
 import os
 import pathlib
 import re
 import typing
 
-import numpy as np
-import pandas as pd
 import polars as pl
 
-from fms_ehrs.framework.vocabulary import Vocabulary
+from fms_ehrs.framework.tokenizer0 import BaseTokenizer, summarize
 
 Frame: typing.TypeAlias = pl.DataFrame | pl.LazyFrame
 Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
 
 
-class ClifTokenizer:
+class ClifTokenizer(BaseTokenizer):
     """
     tokenizes a directory containing a set of parquet files corresponding to
     the CLIF-2.0 standard; note that the `cut_at_24h` flag implements a very
@@ -50,24 +47,14 @@ class ClifTokenizer:
         if no vocabulary is provided, we are in training mode; otherwise, the
         provided vocabulary is frozen
         """
-        self.data_dir = pathlib.Path(data_dir).expanduser()
-        self.tbl = dict()
-        self.quantizer = quantizer
-        self.q_tokens = (
-            tuple(map(lambda i: f"Q{i}", range(10)))
-            if self.quantizer == "deciles"
-            else ("Q3-", "Q2-", "Q1-", "Q0-", "Q0+", "Q1+", "Q2+", "Q3+")
+        super().__init__(
+            data_dir=data_dir,
+            vocab_path=vocab_path,
+            max_padded_len=max_padded_len,
+            quantizer=quantizer,
+            include_time_spacing_tokens=include_time_spacing_tokens,
         )
-        self.special = ("TL_START", "TL_END", "PAD", "TRUNC", None, "nan")
-        if vocab_path is None:
-            self.vocab_path = None
-            self.vocab = Vocabulary(self.q_tokens + self.special)
-            self.vocab.is_training = True
-        else:
-            self.vocab_path = pathlib.Path(vocab_path).expanduser()
-            self.vocab = Vocabulary().load(self.vocab_path)
-            self.vocab.is_training = False
-        self.max_padded_length = max_padded_len
+        self.tbl = dict()
         self.day_stay_filter = bool(day_stay_filter)
         self.cut_at_24h = bool(cut_at_24h)
         self.valid_admission_window = valid_admission_window
@@ -76,36 +63,6 @@ class ClifTokenizer:
         self.drop_nulls_nans = bool(drop_nulls_nans)
         self.n_top_reports = n_top_reports
         self.include_time_spacing_tokens = bool(include_time_spacing_tokens)
-        self.t_tokens = (
-            "T_5m-15m",
-            "T_15m-1h",
-            "T_1h-2h",
-            "T_2h-6h",
-            "T_6h-12h",
-            "T_12h-1d",
-            "T_1d-3d",
-            "T_3d-1w",
-            "T_1w-2w",
-            "T_2w-1mt",
-            "T_1mt-3mt",
-            "T_3mt-6mt",
-            "T_6mt+",
-        )
-        self.t_breakpoints = (
-            pd.Timedelta("5 minutes").total_seconds(),
-            pd.Timedelta("15 minutes").total_seconds(),
-            pd.Timedelta("1 hour").total_seconds(),
-            pd.Timedelta("2 hours").total_seconds(),
-            pd.Timedelta("6 hours").total_seconds(),
-            pd.Timedelta("12 hours").total_seconds(),
-            pd.Timedelta("1 day").total_seconds(),
-            pd.Timedelta("3 days").total_seconds(),
-            pd.Timedelta("7 days").total_seconds(),
-            pd.Timedelta("14 days").total_seconds(),
-            pd.Timedelta("365.25 days").total_seconds() / 12,
-            3 * pd.Timedelta("365.25 days").total_seconds() / 12,
-            6 * pd.Timedelta("365.25 days").total_seconds() / 12,
-        )
 
     def load_tables(self) -> None:
         """lazy-load all parquet tables from the directory `self.data_dir`"""
@@ -115,78 +72,6 @@ class ClifTokenizer:
             ): pl.scan_parquet(p)
             for p in self.data_dir.glob("*.parquet")
         }
-
-    def set_quants(self, v: np.array, c: str, label: str = None) -> None:
-        """store training quantile information in the self.vocab object"""
-        designator = f"{label}_{c}" if label is not None else c
-        if not self.vocab.has_aux(designator) and self.vocab.is_training:
-            if self.quantizer == "deciles":
-                self.vocab.set_aux(
-                    designator, np.nanquantile(v, np.arange(0.1, 1.0, 0.1)).tolist()
-                )
-            elif self.quantizer == "sigmas":
-                μ = np.nanmean(v)
-                σ = np.nanstd(v) + np.finfo(float).eps
-                self.vocab.set_aux(designator, (μ + σ * np.arange(-3, 4)).tolist())
-
-    def get_quants(self, v: np.array, c: str, label: str = None) -> pl.Expr:
-        """obtain corresponding quantiles using self.vocab object"""
-        designator = f"{label}_{c}" if label is not None else c
-        return pl.lit(
-            (
-                pl.Series(
-                    np.where(
-                        np.isfinite(v),
-                        np.digitize(v, bins=self.vocab.get_aux(designator)),
-                        self.vocab("nan"),
-                    )
-                )
-                if self.vocab.has_aux(designator)
-                else self.vocab(None)
-            )
-        ).cast(pl.Int64)
-
-    def process_single_category(self, x: Frame, label: str) -> Frame:
-        """
-        Quantize a sub-table consisting of a single category
-
-        The way our quantization works, if a category takes on only a single
-        value, then this value is sent to the Q9 token, because, e.g.
-        `np.digitize(1, bins=[1] * 9) == 9`
-        and:
-        `np.digitize(
-        [1, 2],
-        bins=np.nanquantile([1, 1, 1, 2, 2, 2, 2], np.arange(0.1, 1.0, 0.1)),
-        ) == [3, 9]`
-        This is why the Q9 token appears quite a bit more often in our dataset than
-        certain other quantile tokens.
-        """
-        v = x.select("value").to_numpy().ravel()
-        c = x.select("category").row(0)[0]
-        self.set_quants(v=v, c=c, label=label)
-        return (
-            x.with_columns(
-                token=pl.lit(self.vocab(f"{label}_{c}")).cast(pl.Int64),
-                token_quantile=self.get_quants(v=v, c=c, label=label),
-            )
-            .filter(~pl.col("token").is_in([self.vocab(None), self.vocab("nan")]))
-            .filter(
-                ~pl.col("token_quantile").is_in([self.vocab(None), self.vocab("nan")])
-            )
-            .with_columns(
-                tokens=pl.concat_list("token", "token_quantile").cast(
-                    pl.List(pl.Int64)
-                ),
-                times=pl.concat_list("event_time", "event_time"),
-            )
-        )
-
-    def process_cat_val_frame(self, df: Frame, label: str) -> Frame:
-        """handle tables that can mostly be described in terms of categories and
-        values"""
-        return pl.concat(
-            self.process_single_category(x, label) for x in df.partition_by("category")
-        )
 
     def process_tables(self) -> None:
         self.tbl["patient"] = (
@@ -313,12 +198,9 @@ class ClifTokenizer:
                     return_dtype=pl.List(pl.Int64),
                     skip_nulls=False,
                 ),
-                times=pl.col("event_time").map_elements(
-                    lambda x: [x], return_dtype=pl.List(pl.Datetime), skip_nulls=False
-                ),
+                times=pl.concat_list([pl.col("event_time").cast(pl.Datetime("ms"))]),
             )
             .select("hospitalization_id", "event_time", "tokens", "times")
-            .cast({"times": pl.List(pl.Datetime(time_unit="ms"))})
             .collect()
         )
 
@@ -461,11 +343,8 @@ class ClifTokenizer:
                     return_dtype=pl.List(pl.Int64),
                     skip_nulls=False,
                 ),
-                times=pl.col("event_time").map_elements(
-                    lambda x: [x], return_dtype=pl.List(pl.Datetime), skip_nulls=False
-                ),
+                times=pl.concat_list([pl.col("event_time").cast(pl.Datetime("ms"))]),
             )
-            .cast({"times": pl.List(pl.Datetime(time_unit="ms"))})
             .collect()
         )
 
@@ -588,45 +467,20 @@ class ClifTokenizer:
                 ),
                 dis_times=pl.concat_list(*[pl.col("event_time")] * 2),
             )
-            .cast({"dis_times": pl.List(pl.Datetime(time_unit="ms"))})
             .select("hospitalization_id", "event_time", "dis_tokens", "dis_times")
         )
 
         return discharge_tokens
 
-    def time_spacing_inserter(self, tokens, times):
-        assert len(tokens) == len(times)
-        tdiffs = np.diff(times).astype("timedelta64[s]").astype(int)
-        try:
-            ix, td = zip(
-                *filter(
-                    lambda x: x[1] > 0,
-                    enumerate(np.digitize(tdiffs, bins=self.t_breakpoints).tolist()),
-                )
-            )
-        except ValueError:  # no digitized tdiffs > 0?
-            assert np.count_nonzero(np.digitize(tdiffs, bins=self.t_breakpoints)) == 0
-            return {"tokens": tokens, "times": times}
-        new_tokens = np.insert(
-            tokens,
-            np.array(ix) + 1,  # insert *after* ix
-            np.array(list(map(self.vocab, self.t_tokens)))[
-                np.array(td) - 1
-            ],  # when td is 0, it lies before our first breakpoint
-        )
-        new_times = np.insert(
-            times, np.array(ix) + 1, np.array(times)[np.array(ix) + 1]
-        ).astype(
-            np.datetime64
-        )  # spacing tokens assigned to the time at the end of the space
-        return {"tokens": new_tokens, "times": new_times}
-
-    def get_events_frame(self) -> Frame:
-        events = pl.concat(
+    def get_raw_events(self) -> Frame:
+        return pl.concat(
             self.tbl[k].select("hospitalization_id", "event_time", "tokens", "times")
             for k in self.tbl.keys()
             if k not in ("patient", "hospitalization")
         )
+
+    def get_events_frame(self) -> Frame:
+        events = self.get_raw_events()
 
         # doing both aggregations at once doesn't seem to work; so we do them
         # separately, lazily, and then stitch them together
@@ -672,31 +526,6 @@ class ClifTokenizer:
             )
         return event_tokens
 
-    def cut_at_time(
-        self, tokens_timelines: Frame, duration: pl.Duration = pl.duration(days=1)
-    ) -> Frame:
-        """allows us to select the first 24h of someone's timeline for predictive purposes"""
-        tt = (
-            tokens_timelines.with_columns(
-                first_fail_or_0=(
-                    pl.col("times").list.eval(
-                        pl.element() - pl.col("").min() <= duration
-                    )
-                ).list.arg_min()
-            )
-            .with_columns(
-                valid_length=pl.when(pl.col("first_fail_or_0") == 0)
-                .then(pl.col("times").list.len())
-                .otherwise(pl.col("first_fail_or_0"))
-            )
-            .with_columns(
-                pl.col("times").list.head(pl.col("valid_length")),
-                pl.col("tokens").list.head(pl.col("valid_length")),
-            )
-            .filter(pl.col("times").list.max() - pl.col("times").list.min() <= duration)
-        )
-        return tt
-
     def get_tokens_timelines(self) -> Frame:
         self.load_tables()
         self.process_tables()
@@ -732,7 +561,7 @@ class ClifTokenizer:
             )
 
         if self.cut_at_24h:
-            tt = self.cut_at_time(tt)
+            tt = super().cut_at_time(tt)
 
         if self.drop_deciles or self.drop_nulls_nans:
             filtered = (
@@ -792,63 +621,6 @@ class ClifTokenizer:
         self.vocab.print_aux()
 
 
-def summarize(
-    tokenizer: ClifTokenizer,
-    tokens_timelines: Frame,
-    k: int = 20,
-    logger: logging.Logger = None,
-) -> None:
-    """provide posthoc summary statistics"""
-
-    post = logger.info if logger is not None else print
-
-    post("Timelines generated: {}".format(tokens_timelines.shape[0]))
-    post("Vocabulary size: {}".format(len(tokenizer.vocab)))
-
-    post(
-        "Summary stats of timeline lengths: \n {}".format(
-            tokens_timelines.select(pl.col("tokens").list.len()).describe()
-        )
-    )
-
-    for s in range(3):
-        post(
-            "Example timeline: \n {}".format(
-                [
-                    tokenizer.vocab.reverse[t]
-                    for t in tokens_timelines.sample(1, seed=s).select("tokens").item()
-                ]
-            )
-        )
-
-    post(
-        "Summary stats of timeline duration: \n {}".format(
-            tokens_timelines.select(
-                pl.col("times").list.min().alias("start_time"),
-                pl.col("times").list.max().alias("end_time"),
-            )
-            .select((pl.col("end_time") - pl.col("start_time")).alias("duration"))
-            .describe()
-        )
-    )
-
-    with pl.Config(tbl_rows=len(tokenizer.vocab)):
-        post(
-            "Top {k} tokens by usage: \n {out}".format(
-                k=k,
-                out=tokens_timelines.select("tokens")
-                .explode("tokens")
-                .rename({"tokens": "token"})
-                .join(tokenizer.vocab.get_frame(), on="token")
-                .select("word")
-                .to_series()
-                .value_counts()
-                .sort("count", descending=True)
-                .head(k),
-            )
-        )
-
-
 @functools.cache
 def token_type(word: str) -> str:
     if word in ClifTokenizer().special:
@@ -890,10 +662,11 @@ if __name__ == "__main__":
     tkzr = ClifTokenizer(
         data_dir=hm,
         max_padded_len=1024,
-        day_stay_filter=True,  # cut_at_24h=True
+        day_stay_filter=True,
+        cut_at_24h=True,
         valid_admission_window=("2110-01-01", "2111-12-31"),
         drop_nulls_nans=True,
-        include_time_spacing_tokens=True,
+        # include_time_spacing_tokens=True,
     )
     tt = tokens_timelines = tkzr.get_tokens_timelines()
 
@@ -908,34 +681,3 @@ if __name__ == "__main__":
     tokens_timelines2 = tkzr2.get_tokens_timelines()
     assert len(tkzr.vocab) == len(tkzr2.vocab)
     assert tkzr.vocab.lookup == tkzr2.vocab.lookup
-
-    # exhibit time spacing inserter logic
-    eg_tokens = np.arange(7)
-    eg_times = np.array(
-        [
-            "2000-01-01T00:00:00",
-            "2000-01-01T00:00:00",  # 7 min space here
-            "2000-01-01T00:07:00",
-            "2000-01-01T00:07:00",
-            "2000-01-01T00:07:00",  # 1 hr 23 min space here
-            "2000-01-01T01:30:00",
-            "2000-01-01T01:30:00",
-        ],
-        dtype="datetime64[s]",
-    )
-    eg_tkzr = ClifTokenizer(include_time_spacing_tokens=True)
-    new_tt = eg_tkzr.time_spacing_inserter(eg_tokens, eg_times)
-    print(list(map(eg_tkzr.vocab.reverse.__getitem__, new_tt["tokens"])))
-    # ['Q0', 'Q1', 'T_5m-15m', 'Q2', 'Q3', 'Q4', 'T_1h-2h', 'Q5', 'Q6']
-    print(new_tt["times"].tolist())
-    # [
-    #   datetime.datetime(2000, 1, 1, 0, 0),
-    #   datetime.datetime(2000, 1, 1, 0, 0),
-    #   datetime.datetime(2000, 1, 1, 0, 7), # spacer is assigned end time
-    #   datetime.datetime(2000, 1, 1, 0, 7),
-    #   datetime.datetime(2000, 1, 1, 0, 7),
-    #   datetime.datetime(2000, 1, 1, 0, 7),
-    #   datetime.datetime(2000, 1, 1, 1, 30), # spacer is assigned end time
-    #   datetime.datetime(2000, 1, 1, 1, 30),
-    #   datetime.datetime(2000, 1, 1, 1, 30)
-    # ]
