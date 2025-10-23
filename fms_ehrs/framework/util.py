@@ -219,61 +219,64 @@ def agg_str2fn(agg_fn_str: str) -> typing.Callable:
             return getattr(np, agg_fn_str)
 
 
+def attention_rollout(attentions: np.ndarray) -> np.ndarray:
+    """
+    take `attentions` (n_layers × batch_size × num_heads × sequence_length
+    × sequence_length) and compute rollout-based importance
+    """
+    return functools.reduce(
+        lambda x, y: y @ x,
+        list(
+            0.5
+            * (
+                attentions
+                + np.tile(
+                    np.eye(attentions.shape[-1]), reps=(*attentions.shape[:3], 1, 1)
+                )
+            )
+        ),
+    )
+
+
 def token_importance(
-    attentions,
-    values=None,
+    attentions: np.ndarray,
+    values: np.ndarray = None,
     *,
     window: int = None,
     aggregation: typing.Literal[
         "sum", "mean", "max", "median", "mean_log", "median_log", "Q70", "Q90", "Q95"
     ] = "sum",
-):
+    last_layer_only: bool = False,
+    rollout: bool = False,
+) -> np.ndarray:
     """
     take `attentions` (n_layers × batch_size × num_heads × sequence_length
     × sequence_length) and `values` (n_layers × batch_size × num_heads
     × sequence_length × d_vals) and return token importances (batch_size),
     calculated with a lookahead window of `window`, in a way that is either
-    `value_aware` or not
+    `value_aware` or not;
+    `last_layer_only` restricts to the last layer; `rollout` performs attention
+    rollout; do not turn both of these on at once
     """
-
+    if last_layer_only:
+        a = attentions[-1][np.newaxis]
+    elif rollout:
+        a = attention_rollout(attentions)[np.newaxis]
+    else:
+        a = attentions
+    v = values[-1][np.newaxis] if last_layer_only and values is not None else values
     return agg_str2fn(aggregation)(
         np.sum(
-            attentions
-            * (lookahead(attentions.shape[-1], window) if window is not None else 1)
+            a
+            * (lookahead(a.shape[-1], window) if window is not None else 1)
             * (
-                np.linalg.norm(values, axis=-1, ord=1, keepdims=True)
+                np.linalg.norm(v, axis=-1, ord=1, keepdims=True)
                 if values is not None
                 else 1
             ),
             axis=3,
         ),
         axis=(0, 2),
-    )
-
-
-def token_importance0(
-    attentions,
-    normed_values=None,
-    *,
-    window: int = None,
-    aggregation: typing.Literal[
-        "sum", "mean", "max", "median", "mean_log", "median_log", "Q70", "Q90", "Q95"
-    ] = "sum",
-):
-    """
-    take `attentions` (batch_size × num_heads × sequence_length × sequence_length)
-    and [optional] `normed_values` (batch_size × num_heads × sequence_length × 1)
-    and return token importances (batch_size), calculated with a lookahead window
-    of `window`, in a way that is "value aware" if normed_values are provided
-    """
-    return agg_str2fn(aggregation)(
-        np.sum(
-            attentions
-            * (lookahead(attentions.shape[-1], window) if window is not None else 1)
-            * (normed_values if normed_values is not None else 1),
-            axis=2,
-        ),
-        axis=1,
     )
 
 
