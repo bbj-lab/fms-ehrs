@@ -19,7 +19,6 @@ from sklearn import metrics as skl_mets
 from fms_ehrs.framework.storage import set_perms
 
 Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
-Dictlike: typing.TypeAlias = collections.OrderedDict | dict
 
 try:
     pio.defaults.mathjax = None
@@ -33,7 +32,7 @@ colors = mains + lights + darks
 
 
 def plot_calibration_curve(
-    named_results: Dictlike, *, n_bins: int = 10, savepath: Pathlike = None
+    named_results: dict, *, n_bins: int = 10, savepath: Pathlike = None
 ):
     """
     plot a calibration curve for each named set of predictions;
@@ -89,7 +88,7 @@ def plot_calibration_curve(
         set_perms(fig.write_image)(pathlib.Path(savepath).expanduser().resolve())
 
 
-def plot_roc_curve(named_results: Dictlike, savepath: Pathlike = None):
+def plot_roc_curve(named_results: dict, savepath: Pathlike = None):
     """
     plot a ROC curve for each named set of predictions;
     {"name": {"y_true": y_true, "y_score": y_score}}
@@ -144,7 +143,7 @@ def plot_roc_curve(named_results: Dictlike, savepath: Pathlike = None):
 
 
 def plot_precision_recall_curve(
-    named_results: Dictlike, *, savepath: Pathlike = None, decimals: int = 3
+    named_results: dict, *, savepath: Pathlike = None, decimals: int = 3
 ):
     """
     plot a precision-recall curve for each named set of predictions;

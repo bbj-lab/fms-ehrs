@@ -212,7 +212,7 @@ rsync -avht \
 
 Run on randi:
 ```
-systemd-run --scope --user tmux new -s t3q2
+systemd-run --scope --user tmux new -s t3q || tmux a -t t3q
 srun -p tier3q \
   --mem=100GB \
   --time=1:00:00 \

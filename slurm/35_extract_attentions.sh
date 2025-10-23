@@ -8,17 +8,15 @@
 
 source preamble.sh
 
-aggs=(mean max mean_log)
+aggs=(mean median mean_log)
 ids=("24640534" "26886976" "29022625")
 
-python3 ../fms_ehrs/scripts/extract_attentions0.py \
+python3 ../fms_ehrs/scripts/extract_attentions.py \
     --data_dir "../../data-mimic" \
     --data_version "W++" \
     --model_loc "${hm}/mdls-archive/llama-med-60358922_1-hp-W++" \
-    --max_len 210 \
     --ids "${ids[@]}" \
-    --agg_fns "${aggs[@]}" \
-    --drop_labels
+    --agg_fns "${aggs[@]}"
 
 #python3 ../fms_ehrs/scripts/extract_attentions.py \
 #    --data_dir "../../data-mimic" \
