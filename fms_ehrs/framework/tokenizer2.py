@@ -199,10 +199,10 @@ class Tokenizer:
     #     )      
     
     def process_event_with_values(self, df: Frame, label: str) -> pl.LazyFrame:
-        """Process event data by grouping by subject_id and code."""
-        # Group by subject_id and code - allow multiple instances of same code per patient
+        """Process event data by grouping by subject_id, code, and time."""
+        # Group by subject_id, code, and time - each measurement is processed individually
         return (
-            df.group_by("subject_id", "code", maintain_order=True)
+            df.group_by("subject_id", "code", "time", maintain_order=True)
             .map_groups(
                 lambda group: self._process_event_with_values(group, label, "time"),
                 schema={
@@ -256,6 +256,9 @@ class Tokenizer:
         x = x.with_columns(
             pl.col(time_col).cast(pl.Datetime(time_unit="ms")).alias(time_col)
         )
+        
+        # Note: Deduplication is now handled at the data processor level for efficiency
+        # No need to deduplicate here since the data processor already removes duplicates
         
         # Get numeric values for quantile computation
         v = x["numeric_value"].to_numpy().ravel()
@@ -513,13 +516,16 @@ class Tokenizer:
         Returns:
             DataFrame with columns: hospitalization_id, time, tokens, times
         """
-        print(f"\n🔍 DEBUG get_event - Processing: {event_config.get('table', 'UNKNOWN')}")
+        # print(f"\n🔍 DEBUG get_event - Processing: {event_config.get('table', 'UNKNOWN')}")
         # Get the lazy query for this event
         df = data_processor.get_event_query(event_config)
 
         # Debug: Show what the raw data looks like
-        print("Raw event data (first 5 rows):")
+        print("="*50)
+        print(f"Raw event data from table: {event_config.get('table', 'UNKNOWN')} (first 5 rows):")
         print(df.head(5).collect())
+        print("="*50)
+
         
         prefix = event_config["prefix"]
         
@@ -698,14 +704,20 @@ class Tokenizer:
 
             # Step 2: Process each event group to create properly paired tokens
             # Instead of exploding, we'll process each group as a unit
+            # Ensure global chronological order across all events per admission
             events = (
                 stacked
-                .sort(["hadm_id"])  # Sort by hadm_id only to maintain order
+                .with_columns(
+                    tokens = pl.col("tokens").list.eval(pl.element()),
+                    times  = pl.col("times").list.eval(pl.element()),
+                )
+                .explode(["tokens", "times"])           # one row per token/time
+                .drop_nulls(["tokens", "times"])         # safety
+                .sort(["hadm_id", "times"])             # chronological within admission
                 .group_by("hadm_id", maintain_order=True)
                 .agg(
-                    # Concatenate all tokens and times from all groups for this hadm_id
-                    tokens = pl.col("tokens").list.eval(pl.element()).explode(),
-                    times  = pl.col("times").list.eval(pl.element()).explode(),
+                    tokens = pl.col("tokens"),
+                    times  = pl.col("times"),
                 )
             )
             
@@ -862,6 +874,7 @@ def summarize(
     k: int = 20,
     logger: logging.Logger = None,
     prefix_filter: list = None,
+    debug: bool = False,
 ) -> None:
     """Provide posthoc summary statistics
     
@@ -920,13 +933,18 @@ def summarize(
                 sample_df = filtered_df.sample(1, seed=s)
                 hadm_id = sample_df.select("hadm_id").item()
                 tokens = sample_df.select("tokens").item()
+                if debug:
+                    times = sample_df.select("times").item()
+                    display_tokens = [
+                        f"{tokenizer.vocab.reverse[t]}_{pd.Timestamp(times[i]).strftime('%Y-%m-%dT%H:%M:%S')}"
+                        for i, t in enumerate(tokens)
+                    ]
+                else:
+                    display_tokens = [tokenizer.vocab.reverse[t] for t in tokens]
                 post(
                     "Example timeline (hadm_id: {}): \n {}".format(
                         hadm_id,
-                        [
-                            tokenizer.vocab.reverse[t]
-                            for t in tokens
-                        ]
+                        display_tokens
                     )
                 )
         else:
@@ -939,13 +957,18 @@ def summarize(
             if sample_df.height > 0:
                 hadm_id = sample_df.select("hadm_id").item()
                 tokens = sample_df.select("tokens").item()
+                if debug:
+                    times = sample_df.select("times").item()
+                    display_tokens = [
+                        f"{tokenizer.vocab.reverse[t]}_{pd.Timestamp(times[i]).strftime('%Y-%m-%dT%H:%M:%S')}"
+                        for i, t in enumerate(tokens)
+                    ]
+                else:
+                    display_tokens = [tokenizer.vocab.reverse[t] for t in tokens]
                 post(
                     "Example timeline (hadm_id: {}): \n {}".format(
                         hadm_id,
-                        [
-                            tokenizer.vocab.reverse[t]
-                            for t in tokens
-                        ]
+                        display_tokens
                     )
                 )
             else:
@@ -1032,7 +1055,7 @@ if __name__ == "__main__":
 
     # Generate summary statistics for MIMIC-IV
     # Provide prefix_filter argument as a list of strings to filter example timelines by prefix
-    summarize(tokenizer_mimiciv, timelines_mimiciv)  # Show all examples
+    summarize(tokenizer_mimiciv, timelines_mimiciv, debug=True)  # Show all examples
     # summarize(tokenizer_mimiciv, timelines_mimiciv, prefix_filter=['RACE', 'VTL'])  # Show only timelines with RACE or VTL tokens
     # summarize(tokenizer_mimiciv, timelines_mimiciv, prefix_filter=['PROC'])  # Show only timelines with procedure tokens
     # summarize(tokenizer_mimiciv, timelines_mimiciv, prefix_filter=['VTL'])

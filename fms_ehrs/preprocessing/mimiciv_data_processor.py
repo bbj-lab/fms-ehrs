@@ -66,7 +66,7 @@ class MIMICIVDataProcessor:
         df = self.get_reference_query()
 
         prefix_query = df.select(
-            pl.col("subject_id").cast(pl.Utf8),
+            pl.col("subject_id").cast(pl.Utf8),  # This will use the left subject_id from admissions
             pl.col("hadm_id").cast(pl.Utf8),
             pl.col("admittime").alias("admission_time").cast(pl.Datetime(time_unit="ms")),
             pl.col("race"),         
@@ -103,8 +103,8 @@ class MIMICIVDataProcessor:
         else:
             table_path = self.hosp_dir / f"{table}.parquet"
         
-        print(f"   Table path: {table_path}")
-        print(f"   Table exists: {table_path.exists()}")
+        # print(f"   Table path: {table_path}")
+        # print(f"   Table exists: {table_path.exists()}")
         
         # Load the event table
         df = pl.scan_parquet(table_path)
@@ -118,9 +118,10 @@ class MIMICIVDataProcessor:
                 .limit(self.limit)
             )
             # Filter events to only include the limited hospitalizations
+            # Join on BOTH subject_id AND hadm_id to avoid Cartesian product
             df = df.join(
                 limited_hospitalizations,
-                on="subject_id",
+                on=["subject_id", "hadm_id"],  # Join on both columns to avoid duplicates
                 how="inner"
             )
         
@@ -130,8 +131,8 @@ class MIMICIVDataProcessor:
         
         # Select relevant columns
         select_cols = [
-            pl.col("subject_id").cast(pl.Utf8),  # Ensure consistent String type
-            pl.col("hadm_id").cast(pl.Utf8),     # Add hospitalization ID
+            pl.col("subject_id").cast(pl.Utf8),  # This will use the left subject_id from the event table
+            pl.col("hadm_id").cast(pl.Utf8),     # Use hadm_id from the event table (most MIMIC-IV tables have this)
         ]
         
         # Add time column - always required for timeline construction
@@ -209,7 +210,7 @@ class MIMICIVDataProcessor:
         df = self.get_reference_query()
         
         suffix_query = df.select(
-            pl.col("subject_id").cast(pl.Utf8),
+            pl.col("subject_id").cast(pl.Utf8),  # This will use the left subject_id from admissions
             pl.col("hadm_id").cast(pl.Utf8),
             pl.col("dischtime").alias("discharge_time").cast(pl.Datetime(time_unit="ms")),
             pl.col("discharge_location").alias("discharge_category")
