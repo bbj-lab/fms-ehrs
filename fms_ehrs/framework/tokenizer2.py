@@ -6,6 +6,7 @@ This separates the tokenization process from data processing and doesn't rely on
 """
 
 import logging
+import argparse
 import os
 import pathlib
 import re
@@ -35,6 +36,8 @@ class Tokenizer:
         config_file: Pathlike,
         *,
         vocab_path: Pathlike = None,
+        vocab_save_path: Pathlike = None,
+        timelines_output_path: Pathlike = None,
         max_padded_len: int = None,
         quantizer: typing.Literal["deciles", "sigmas"] = None,
         include_time_spacing_tokens: bool = None,
@@ -101,7 +104,7 @@ class Tokenizer:
                 6 * pd.Timedelta("365.25 days").total_seconds() / 12,
             )
         
-        # Initialize vocabulary
+        # Initialize vocabulary (optional load)
         if vocab_path is None:
             self.vocab_path = None
             self.vocab = Vocabulary(
@@ -109,19 +112,29 @@ class Tokenizer:
                 + self.special
                 + (self.t_tokens if self.include_time_spacing_tokens else tuple())
             )
-            self.vocab.is_training = True
         else:
             self.vocab_path = pathlib.Path(vocab_path).expanduser().resolve()
             self.vocab = Vocabulary().load(self.vocab_path)
-            self.vocab.is_training = False
         
+        # Output paths (with defaults if not provided)
+        self.vocab_save_path = (
+            pathlib.Path(vocab_save_path).expanduser().resolve()
+            if vocab_save_path is not None
+            else pathlib.Path("mimiciv_vocabulary.gzip").resolve()
+        )
+        self.timelines_output_path = (
+            pathlib.Path(timelines_output_path).expanduser().resolve()
+            if timelines_output_path is not None
+            else pathlib.Path("mimiciv_timelines.parquet").resolve()
+        )
+
         self.cut_at_24h = cut_at_24h if cut_at_24h is not None else self.config["tokenizer"]["cut_at_24h"]
         self.day_stay_filter = day_stay_filter if day_stay_filter is not None else self.config["tokenizer"]["day_stay_filter"]
     
     def set_quants(self, v: np.array, c: str, label: str = None) -> None:
-        """Store training quantile information in the self.vocab object"""
+        """Store quantile information in the self.vocab object if missing"""
         designator = f"{label}_{c}" if label is not None else c
-        if not self.vocab.has_aux(designator) and self.vocab.is_training:
+        if not self.vocab.has_aux(designator):
             if self.quantizer == "deciles":
                 self.vocab.set_aux(
                     designator, np.nanquantile(v, np.arange(0.1, 1.0, 0.1)).tolist()
@@ -842,26 +855,21 @@ class Tokenizer:
         # return tt.collect()
 
         print('Writing final results to disk (streaming)')
-        # Write results to disk using streaming approach
-        output_path = "mimiciv_timelines.parquet"
-        vocab_path = "mimiciv_vocabulary.gzip"
-        
-        # Use sink_parquet for streaming write without collecting in memory
-        tt.sink_parquet(output_path)
-        print(f"Results written to {output_path}")
+        # Write results to disk using streaming approach (use configured paths)
+        tt.sink_parquet(str(self.timelines_output_path))
+        print(f"Results written to {self.timelines_output_path}")
         
         # Debug: Check final timeline count
-        final_df = pl.scan_parquet(output_path)
+        final_df = pl.scan_parquet(str(self.timelines_output_path))
         print(f"DEBUG: Final timelines has {final_df.collect().height} patients")
         print(f"DEBUG: Final timelines with null tokens: {final_df.filter(pl.col('tokens').is_null()).collect().height}")
         
-        # Save vocabulary for later use (important for summarization)
-        if self.vocab.is_training:
-            self.vocab.save(vocab_path)
-            print(f"Vocabulary saved to {vocab_path}")
+        # Save vocabulary for later use (always save)
+        self.vocab.save(str(self.vocab_save_path))
+        print(f"Vocabulary saved to {self.vocab_save_path}")
         
         # Return a lazy reference to the parquet file for streaming operations
-        return pl.scan_parquet(output_path)
+        return pl.scan_parquet(str(self.timelines_output_path))
     
     def print_aux(self) -> None:
         """Print auxiliary data (quantile information)"""
@@ -1006,14 +1014,24 @@ if __name__ == "__main__":
     Example usage of the tokenizer with CLIF data processor.
     This demonstrates how to use the new architecture.
     """
+    # Command line arguments
+    parser = argparse.ArgumentParser(description="Generate token timelines")
+    parser.add_argument('--config-path', type=str, default='/home/chend5/fms-ehrs/fms_ehrs/config/cfg_mimic_default.yaml', help='Config file path')
+    parser.add_argument('--data-dir', type=str, default='/gpfs/data/bbj-lab/data/physionet.org/files/mimiciv_parquet', help='Source data path')
+    parser.add_argument('--timelines-output', type=str, default='/home/chend5/fms-ehrs/fms_ehrs/framework/mimiciv_timelines.parquet', help='Output file path for tokenized timelines')
+    parser.add_argument('--vocab-output', type=str, default='/home/chend5/fms-ehrs/fms_ehrs/framework/mimiciv_vocabulary.gzip', help='Output file path for vocab')
+    parser.add_argument('--debug', action='store_true', default=False, help='Shows time for each token in printed summary')
+    args = parser.parse_args()
+
+
     import sys
     sys.path.append('..')
-    from preprocessing.clif_data_processor import CLIFDataProcessor
+    # from preprocessing.clif_data_processor import CLIFDataProcessor
     
     
-    # Configuration
-    data_dir = "/gpfs/data/bbj-lab/users/burkh4rt/development-sample/raw"
-    config_file = "../config/config-tokenizer.yaml"
+    # # Configuration
+    # data_dir = "/gpfs/data/bbj-lab/users/burkh4rt/development-sample/raw"
+    # config_file = "../config/config-tokenizer.yaml"
     
     # # Create data processor
     # clif_processor = CLIFDataProcessor(data_dir=data_dir)
@@ -1036,26 +1054,32 @@ if __name__ == "__main__":
     from preprocessing.mimiciv_data_processor import MIMICIVDataProcessor
     
     # Configuration for MIMIC-IV
-    mimiciv_data_dir = "/gpfs/data/bbj-lab/data/physionet.org/files/mimiciv_parquet"
+    # mimiciv_data_dir = "/gpfs/data/bbj-lab/data/physionet.org/files/mimiciv_parquet"
     
     # Create MIMIC-IV data processor
-    mimiciv_processor = MIMICIVDataProcessor(data_dir=mimiciv_data_dir, limit=100)
+    mimiciv_processor = MIMICIVDataProcessor(data_dir=args.data_dir, limit=100)
     
     # mimic_cfg = "../config/config-tokenizer-mimiciv.yaml"
-    mimic_cfg = "../config/cfg_mimic_default.yaml"
+    # mimic_cfg = "../config/cfg_mimic_default.yaml"
     # mimic_cfg = "../config/cfg_mimic_add_omr.yaml"
     # mimic_cfg = "../config/cfg_mimic_no_text.yaml"
-    vocab_path = "mimiciv_vocabulary.gzip"
+    # timelines_output_path = "mimiciv_timelines.parquet"
+    # vocab_save_path = "mimiciv_vocabulary.gzip"
     
     # Create tokenizer
-    tokenizer_mimiciv = Tokenizer(config_file=mimic_cfg)
+    # tokenizer_mimiciv = Tokenizer(config_file=args.config_path)
+    tokenizer_mimiciv = Tokenizer(
+        config_file=args.config_path,
+        vocab_save_path=args.vocab_output,
+        timelines_output_path=args.timelines_output,
+    )
     
     # Generate complete timelines for MIMIC-IV data
     timelines_mimiciv = tokenizer_mimiciv.get_tokens_timelines(mimiciv_processor)
 
     # Generate summary statistics for MIMIC-IV
     # Provide prefix_filter argument as a list of strings to filter example timelines by prefix
-    summarize(tokenizer_mimiciv, timelines_mimiciv, debug=True)  # Show all examples
+    summarize(tokenizer_mimiciv, timelines_mimiciv, debug=args.debug)  # Show all examples
     # summarize(tokenizer_mimiciv, timelines_mimiciv, prefix_filter=['RACE', 'VTL'])  # Show only timelines with RACE or VTL tokens
     # summarize(tokenizer_mimiciv, timelines_mimiciv, prefix_filter=['PROC'])  # Show only timelines with procedure tokens
     # summarize(tokenizer_mimiciv, timelines_mimiciv, prefix_filter=['VTL'])
