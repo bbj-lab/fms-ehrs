@@ -5,6 +5,7 @@ A completely independent generic tokenizer that can tokenize any data as long as
 This separates the tokenization process from data processing and doesn't rely on BaseTokenizer.
 """
 
+from inspect import Arguments
 import logging
 import argparse
 import os
@@ -1021,6 +1022,7 @@ if __name__ == "__main__":
     parser.add_argument('--timelines-output', type=str, default='/home/chend5/fms-ehrs/fms_ehrs/framework/mimiciv_timelines.parquet', help='Output file path for tokenized timelines')
     parser.add_argument('--vocab-output', type=str, default='/home/chend5/fms-ehrs/fms_ehrs/framework/mimiciv_vocabulary.gzip', help='Output file path for vocab')
     parser.add_argument('--debug', action='store_true', default=False, help='Shows time for each token in printed summary')
+    parser.add_argument('--limit', type=int, default=500, help='Set limit for number of admission records used')
     args = parser.parse_args()
 
 
@@ -1057,7 +1059,7 @@ if __name__ == "__main__":
     # mimiciv_data_dir = "/gpfs/data/bbj-lab/data/physionet.org/files/mimiciv_parquet"
     
     # Create MIMIC-IV data processor
-    mimiciv_processor = MIMICIVDataProcessor(data_dir=args.data_dir, limit=100)
+    mimiciv_processor = MIMICIVDataProcessor(data_dir=args.data_dir, limit=args.limit)
     
     # mimic_cfg = "../config/config-tokenizer-mimiciv.yaml"
     # mimic_cfg = "../config/cfg_mimic_default.yaml"
