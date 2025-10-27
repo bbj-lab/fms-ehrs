@@ -28,7 +28,7 @@ parser.add_argument("--data_version", type=str, default="W++_first_24h")
 parser.add_argument(
     "--model_loc",
     type=pathlib.Path,
-    default="../../mdls-archive/llama-smol-60358922_3-hp-W++",
+    default="../../mdls-archive/llama-med-60358922_1-hp-W++",
 )
 parser.add_argument("--batch_sz", type=int, default=2**5)
 parser.add_argument("splits", nargs="*", default=["test"])
