@@ -129,10 +129,10 @@ def bootstrap_pval(
         diffs = par(jl.delayed(get_diffs_i)(rng_i) for rng_i in rng.spawn(n_samples))
 
     if alternative == "one-sided":
-        return {ob: np.mean([d[ob] for d in diffs] > diff_obs[ob]) for ob in objs}
+        return {ob: np.mean([d[ob] > diff_obs[ob] for d in diffs]) for ob in objs}
     else:  # two-sided
         return {
-            ob: np.mean([np.abs(d[ob]) for d in diffs] > np.abs(diff_obs[ob]))
+            ob: np.mean([np.abs(d[ob]) > np.abs(diff_obs[ob]) for d in diffs])
             for ob in objs
         }
 
@@ -142,17 +142,19 @@ def generate_classifier_preds(
     num_preds: int = 1,
     frac_1: float = 0.8,
     rng: Generator = np.random.default_rng(seed=42),
-) -> tuple[np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     assert 0 <= frac_1 <= 1
     y_seed = rng.uniform(size=n)
     y_true = (y_seed > 1 - frac_1).astype(int)
 
-    y_preds = [
-        np.clip(
-            y_seed + rng.normal(scale=(2 * i + 5) / 27, size=1000), a_min=0, a_max=1
-        )
-        for i in range(num_preds)
-    ]
+    y_preds = np.array(
+        [
+            np.clip(
+                y_seed + rng.normal(scale=(2 * i + 5) / 27, size=1000), a_min=0, a_max=1
+            )
+            for i in range(num_preds)
+        ]
+    )
 
     if num_preds > 2:
         y_preds[-1] = 0.975 * y_preds[-1]
