@@ -27,6 +27,7 @@ class MIMICIVDataProcessor:
         
         Args:
             data_dir: Directory containing MIMIC-IV parquet files
+            limit: Number of admission records to process. If None or -1, process all records.
         """
         self.data_dir = pathlib.Path(data_dir).expanduser().resolve()
         self.hosp_dir = self.data_dir / "hosp"
@@ -40,8 +41,8 @@ class MIMICIVDataProcessor:
             self.hosp_dir / "admissions.parquet"
         )
 
-        # Limit the number of admission records used if limit is specified
-        if self.limit is not None:
+        # Limit the number of admission records used if limit is specified and not -1
+        if self.limit is not None and self.limit != -1:
             df = df.limit(self.limit)
         
         # Join patient demographics
@@ -109,8 +110,8 @@ class MIMICIVDataProcessor:
         # Load the event table
         df = pl.scan_parquet(table_path)
 
-        # Apply hospitalization limit if specified
-        if self.limit is not None:
+        # Apply hospitalization limit if specified and not -1
+        if self.limit is not None and self.limit != -1:
             # Get the same limited set of hospitalizations from admissions
             limited_hospitalizations = (
                 pl.scan_parquet(self.hosp_dir / "admissions.parquet")
@@ -161,7 +162,7 @@ class MIMICIVDataProcessor:
         )
         
         # Filter out events without hadm_id for tables that require it
-        if table in ["labevents"]:
+        if table in ["labevents", "microbiologyevents"]:
             df = df.filter(pl.col("hadm_id").is_not_null())
         
         # Handle numeric and text values intelligently
