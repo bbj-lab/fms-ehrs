@@ -29,7 +29,7 @@ events:
     code: itemid
     numeric_value: valuenum
     text_value: value
-    time: charttime
+    time: charttime    
 
   # Lab Events
   - table: labevents
