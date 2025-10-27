@@ -13,6 +13,7 @@ import numpy as np
 from plotly import express as px
 from plotly import graph_objects as go
 from plotly import io as pio
+from plotly.subplots import make_subplots
 from sklearn import calibration as skl_cal
 from sklearn import metrics as skl_mets
 
@@ -310,6 +311,109 @@ def imshow_text(
         font_family="CMU Serif, Times New Roman, serif",
         **layout_kwargs,
     )
+
+    if savepath is None:
+        fig.show()
+    else:
+        set_perms(fig.write_image)(pathlib.Path(savepath).expanduser().resolve())
+
+
+def plot_attentions_and_importances(
+    attentions: np.ndarray,
+    names: np.ndarray,
+    metrics: dict[str, np.ndarray],
+    norm_metrics: bool = False,
+    *,
+    savepath=None,
+):
+    m_len = len(names)
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.01)
+    fig.add_trace(
+        go.Heatmap(
+            z=attentions,
+            x=list(range(m_len)),
+            y=list(range(m_len)),
+            colorscale=px.colors.sequential.Viridis,
+            reversescale=False,
+            showscale=True,
+            zsmooth=False,
+            xgap=1,
+            ygap=1,
+            name="top",
+            colorbar=dict(title="attentions", len=0.5, y=0.775),
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Heatmap(
+            z=np.vstack(
+                [
+                    v[:m_len]
+                    / (v[:m_len].sum(axis=-1, keepdims=True) if norm_metrics else 1)
+                    for v in metrics.values()
+                ]
+            ),
+            x=list(range(m_len)),
+            y=list(range(m_len)),
+            colorscale=px.colors.sequential.Viridis,
+            reversescale=False,
+            showscale=True,
+            zsmooth=False,
+            xgap=1,
+            ygap=1,
+            name="bottom",
+            colorbar=dict(title="values & metrics", len=0.5, orientation="h", y=0.1),
+        ),
+        row=2,
+        col=1,
+    )
+    fig.update_layout(
+        xaxis=dict(
+            showgrid=False,
+            zeroline=False,
+            tickvals=list(range(m_len)),
+            ticktext=names[:m_len],
+            showticklabels=True,
+            tickangle=-90,
+            tickfont=dict(size=20),
+            side="bottom",
+        ),
+        yaxis=dict(
+            showgrid=False,
+            zeroline=False,
+            showticklabels=True,
+            autorange="reversed",
+            tickvals=list(range(m_len)),
+            ticktext=names[:m_len],
+            tickfont=dict(size=20),
+            scaleanchor="x",
+            ticks="outside",
+            ticklabelposition="inside",
+        ),
+        height=2000,
+        width=2000,
+        font_family="CMU Serif, Times New Roman, serif",
+        xaxis_scaleanchor="y",
+        plot_bgcolor="white",
+        template="plotly_white",
+        margin=dict(l=120, r=0, t=0, b=0),
+    )
+    fig.update_yaxes(title_standoff=5, row=1, col=1)
+    fig.update_yaxes(
+        showgrid=False,
+        zeroline=False,
+        showticklabels=True,
+        autorange="reversed",
+        tickvals=list(np.arange(len(metrics.keys())) + 0.5),
+        ticktext=list(metrics.keys()),
+        tickfont=dict(size=20),
+        scaleanchor="x",
+        row=2,
+        col=1,
+        title_standoff=5,
+    )
+    fig.update_xaxes(showgrid=False, zeroline=False, showticklabels=False, row=2, col=1)
 
     if savepath is None:
         fig.show()

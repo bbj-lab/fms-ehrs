@@ -24,9 +24,9 @@ from plotly.subplots import make_subplots
 from transformers import AutoModelForCausalLM
 
 from fms_ehrs.framework.logger import get_logger
-from fms_ehrs.framework.plotting import imshow_text
+from fms_ehrs.framework.plotting import imshow_text, plot_attentions_and_importances
 from fms_ehrs.framework.storage import fix_perms, set_perms
-from fms_ehrs.framework.util import agg_str2fn, token_importance, attention_rollout
+from fms_ehrs.framework.util import agg_str2fn, attention_rollout, token_importance
 from fms_ehrs.framework.vocabulary import Vocabulary
 
 Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
@@ -115,7 +115,12 @@ selected_data = concatenate_datasets(
 model = AutoModelForCausalLM.from_pretrained(
     model_loc, attn_implementation="eager"
 )  # in eval mode by default
+
 d = model.config.hidden_size
+num_heads = model.config.num_attention_heads
+head_dim = model.config.head_dim
+
+w_out = model.model.layers[0].self_attn.o_proj.weight  # d × (num_heads * head_dim)
 model = model.to(device)
 
 with t.inference_mode():
@@ -123,6 +128,7 @@ with t.inference_mode():
         input_ids=selected_data["input_ids"][: len(selected_data)].to(device),
         output_attentions=True,
         use_cache=True,
+        output_hidden_states=True,
     )
 attns = np.stack(
     [_.cpu() for _ in x.attentions]
@@ -130,6 +136,10 @@ attns = np.stack(
 vals = np.stack(
     [_[1].cpu() for _ in x.past_key_values]
 )  # n_layers × batch_size × num_heads × sequence_length × d_vals
+states = np.stack(
+    [_.cpu() for _ in x.hidden_states]
+)  # (n_layers+1) × batch_size × sequence_length × sequence_length
+embeddings = states[0]  # batch_size × sequence_length × sequence_length
 
 # Llama3 uses grouped query attention
 # see, https://www.ibm.com/think/topics/grouped-query-attention
@@ -138,6 +148,21 @@ vals = np.stack(
 n_groups = attns.shape[2] // vals.shape[2]
 if n_groups > 1:
     vals = np.repeat(vals, repeats=n_groups, axis=2)
+
+wts = np.stack(
+    np.split(w_out.detach().cpu().numpy().T, num_heads)
+)  # num_heads × d_vals × d
+fs = np.einsum(
+    "lbhtd,hdD->lbhtD", vals, wts
+)  # n_layers × batch_size × num_heads × sequence_length × d
+
+alpha_fs_normed = np.zeros(
+    shape=(*attns.shape[:2], *attns.shape[3:])
+)  # n_layers × batch_size × sequence_length × sequence_length
+for t_i in range(alpha_fs_normed.shape[-1]):
+    alpha_fs_normed[..., t_i] = np.linalg.norm(
+        np.einsum("lbht,lbhtD->lbtD", attns[..., t_i], fs), axis=-1
+    )
 
 selected_decoded = np.array(
     [
@@ -159,9 +184,9 @@ for agg_fn_str in args.agg_fns:
         attns, axis=(0, 2)
     )  # now: batch_size × sequence_length × sequence_length
     metrics = collections.OrderedDict()
-    metrics["value-norms"] = agg_str2fn(agg_fn_str)(
-        np.linalg.norm(vals, axis=-1, ord=1), axis=(0, 2)
-    )
+    # metrics["value-norms"] = agg_str2fn(agg_fn_str)(
+    #     np.linalg.norm(vals, axis=-1, ord=1), axis=(0, 2)
+    # )
     metrics["H2O"] = token_importance(attns, aggregation=agg_fn_str)
     metrics["RO-H2O"] = token_importance(attns, aggregation=agg_fn_str, rollout=True)
     metrics["H2O-VA"] = token_importance(attns, values=vals, aggregation=agg_fn_str)
@@ -169,11 +194,18 @@ for agg_fn_str in args.agg_fns:
     metrics["SH-100-VA"] = token_importance(
         attns, values=vals, window=100, aggregation=agg_fn_str
     )
+    metrics["NRM-H20"] = token_importance(
+        np.expand_dims(alpha_fs_normed, axis=2), aggregation=agg_fn_str
+    )
     for i in range(len(selected_data)):
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.01)
         fig.add_trace(
             go.Heatmap(
-                z=np.log(agg_attn[i, : args.max_attn_len, : args.max_attn_len]),
+                z=np.log(
+                    alpha_fs_normed.mean(axis=0)[
+                        i, : args.max_attn_len, : args.max_attn_len
+                    ]
+                ),
                 x=list(range(args.max_attn_len)),
                 y=list(range(args.max_attn_len)),
                 colorscale=px.colors.sequential.Viridis,
@@ -193,7 +225,7 @@ for agg_fn_str in args.agg_fns:
                 z=np.vstack(
                     [
                         v[i, : args.max_attn_len]
-                        / v[i, : args.max_tl_len].sum(axis=-1, keepdims=True)
+                        / v[i, : args.max_attn_len].sum(axis=-1, keepdims=True)
                         for v in metrics.values()
                     ]
                 ),
@@ -259,7 +291,7 @@ for agg_fn_str in args.agg_fns:
         set_perms(fig.write_image)(
             pathlib.Path(
                 out_dir.joinpath(
-                    "attn-{sid}-{agg}-{dv}-{mv}.pdf".format(
+                    "nrm-attn-{sid}-{agg}-{dv}-{mv}.pdf".format(
                         sid=selected_data["hospitalization_id"][i],
                         agg=agg_fn_str,
                         dv=args.data_version,
@@ -270,6 +302,24 @@ for agg_fn_str in args.agg_fns:
             .expanduser()
             .resolve()
         )
+        # plot_attentions_and_importances(
+        #     attentions=np.log(
+        #         alpha_fs_normed.sum(axis=0)[i, : args.max_attn_len, : args.max_attn_len]
+        #     ),
+        #     names=selected_decoded[i, : args.max_attn_len],
+        #     metrics={k: v[i][: args.max_attn_len] for k, v in metrics.items()},
+        #     norm_metrics=True,
+        #     savepath=pathlib.Path(
+        #         out_dir.joinpath(
+        #             "nrm-attn-{sid}-{agg}-{dv}-{mv}.pdf".format(
+        #                 sid=selected_data["hospitalization_id"][i],
+        #                 agg=agg_fn_str,
+        #                 dv=args.data_version,
+        #                 mv=model_loc.stem,
+        #             )
+        #         )
+        #     ),
+        # )
     n_cols = 6
     n_rows = args.max_tl_len // n_cols
     max_len = n_rows * n_cols
@@ -389,33 +439,3 @@ for i in range(len(selected_data)):
         .resolve()
     )
 logger.info("---fin")
-
-# for i in range(4):
-#     ai = (
-#         np.log(attns[-1, 0][i][:42, :42])
-#         if i < 3
-#         else np.log(attns[-1, 0].mean(axis=0)[:42, :42])
-#     )
-#     vi = vals[-1, 0][i][:42] if i < 3 else vals[-1, 0].mean(axis=0)[:42]
-#     for k, v in {"a": ai, "v": vi}.items():
-#         fig = go.Figure(
-#             data=go.Heatmap(
-#                 z=v,
-#                 colorscale=px.colors.sequential.Viridis[4:],
-#                 reversescale=False,
-#                 zsmooth=False,
-#                 xgap=1,
-#                 ygap=1,
-#                 showscale=False,
-#             )
-#         )
-#         fig.update_layout(
-#             xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-#             yaxis=dict(
-#                 showgrid=False,
-#                 zeroline=False,
-#                 showticklabels=False,
-#                 autorange="reversed",
-#             ),
-#         )
-#         fig.write_image(out_dir.joinpath(f"{k}{i if i <3 else 'm'}.pdf"))
