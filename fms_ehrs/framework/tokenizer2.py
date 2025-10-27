@@ -214,8 +214,11 @@ class Tokenizer:
     def process_event_with_values(self, df: Frame, label: str) -> pl.LazyFrame:
         """Process event data by grouping by subject_id, code, and time."""
         # Group by subject_id, code, and time - each measurement is processed individually
+        # Add a unique row identifier using with_row_index to handle cases where 
+        # events have the same subject_id, code, and time.
         return (
-            df.group_by("subject_id", "code", "time", maintain_order=True)
+            df.with_row_index(name="_row_id")
+            .group_by("subject_id", "code", "time", "_row_id", maintain_order=True)
             .map_groups(
                 lambda group: self._process_event_with_values(group, label, "time"),
                 schema={
@@ -268,11 +271,8 @@ class Tokenizer:
         # Ensure that ms precision is used for time.
         x = x.with_columns(
             pl.col(time_col).cast(pl.Datetime(time_unit="ms")).alias(time_col)
-        )
-        
-        # Note: Deduplication is now handled at the data processor level for efficiency
-        # No need to deduplicate here since the data processor already removes duplicates
-        
+        )        
+       
         # Get numeric values for quantile computation
         v = x["numeric_value"].to_numpy().ravel()
         c = x["code"][0]
@@ -538,8 +538,8 @@ class Tokenizer:
         print(f"Raw event data from table: {event_config.get('table', 'UNKNOWN')} (first 5 rows):")
         print(df.head(5).collect())
         print("="*50)
-
-        
+               
+             
         prefix = event_config["prefix"]
         
         # Check if this event has numeric_value or text_value columns (categorical-value pairs)
