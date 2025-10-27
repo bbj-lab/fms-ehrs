@@ -22,57 +22,37 @@ from typing import List, Dict, Tuple, Optional
 MIMIC_DATA_PATH = "/gpfs/data/bbj-lab/data/physionet.org/files/mimiciv_parquet"
 
 # Hospital Admission ID to validate against
-HADM_ID = 27880650
+HADM_ID = 28289260
 
 # Timeline to validate (replace with your actual timeline)
-# TIMELINE = [
-#     'TL_START', 'RACE_black/african_american', 'SEX_m', 'Q4', 'ADMN_ew_emer.', 
-#     'PROC_0fb23zx', 'LAB_50971', 'Q2', 'Q3', 'LAB_51250', 'Q9', 'LAB_50983', 
-#     'LAB_51657', 'Q9', 'Q9', 'Q9', 'LAB_50937', 'LAB_50947', 'Q7', 'LAB_51301', 
-#     'LAB_50878', 'Q0', 'LAB_50902', 'Q9', 'Q0', 'LAB_51249', 'Q0', 'LAB_50882', 
-#     'Q2', 'LAB_50947', 'Q9', 'LAB_51662', 'Q9', 'LAB_50943', 'Q9', 'LAB_51222', 
-#     'LAB_51663', 'LAB_50912', 'Q9', 'LAB_51659', 'Q9', 'Q9', 'LAB_50940', 
-#     'LAB_51006', 'Q0', 'LAB_50868', 'LAB_51265', 'Q2', 'LAB_52172', 'Q0', 
-#     'LAB_51678', 'LAB_51248', 'Q0', 'LAB_50861', 'Q0', 'LAB_50934', 'Q0', 'Q0', 
-#     'Q9', 'LAB_51237', 'LAB_50938', 'Q1', 'Q9', 'Q9', 'LAB_51279', 'Q0', 
-#     'LAB_50934', 'Q5', 'LAB_51274', 'LAB_50954', 'LAB_50893', 'LAB_51221', 
-#     'LAB_50931', 'LAB_50941', 'Q9', 'LAB_50954', 'Q0', 'Q9', 'Q0', 'LAB_50863', 
-#     'LAB_51277', 'LAB_51658', 'LAB_51678', 'LAB_50885', 'Q9', 'Q9', 'LAB_51660', 
-#     'Q9', 'LAB_50942', 'LAB_51476', 'LAB_51466', 'LAB_51508', 'LAB_51498', 'Q9', 
-#     'LAB_51516', 'LAB_51484', 'Q0', 'Q9', 'LAB_51519', 'LAB_51493', 'LAB_52425', 
-#     'LAB_51514', 'LAB_51506', 'LAB_51486', 'LAB_51492', 'Q9', 'LAB_51464', 
-#     'LAB_51487', 'TEXT_DONE', 'Q5', 'LAB_51463', 'LAB_51491', 'LAB_51512', 
-#     'LAB_51478', 'LAB_51839', 'Q6', 'Q3', 'LAB_51678', 'Q0', 'LAB_51248', 'Q0', 
-#     'Q0', 'LAB_50902', 'Q0', 'Q9', 'LAB_50912', 'Q9', 'LAB_51250', 'LAB_50947', 
-#     'Q2', 'Q9', 'LAB_51279', 'LAB_51222', 'Q0', 'LAB_51221', 'Q0', 'LAB_51301', 
-#     'Q0', 'LAB_50931', 'LAB_51265', 'LAB_51274', 'Q9', 'Q9', 'LAB_50983', 'Q2', 
-#     'LAB_50885', 'Q9', 'Q9', 'LAB_51277', 'Q8', 'LAB_50868', 'LAB_50971', 'Q9', 
-#     'LAB_51237', 'LAB_50878', 'LAB_50882', 'Q0', 'LAB_50970', 'Q5', 'Q0', 'Q0', 
-#     'LAB_50960', 'LAB_51249', 'Q6', 'LAB_50863', 'LAB_50861', 'Q0', 'LAB_52172', 
-#     'Q0', 'Q9', 'LAB_50934', 'Q3', 'LAB_51006', 'LAB_50868', 'Q0', 'Q0', 'Q9', 
-#     'LAB_50882', 'Q9', 'LAB_51248', 'Q0', 'LAB_50902', 'LAB_51250', 'LAB_51249', 
-#     'LAB_50970', 'Q0', 'LAB_51006', 'Q9', 'LAB_50947', 'LAB_50912', 'Q9', 
-#     'LAB_51678', 'Q0', 'Q0', 'LAB_52172', 'Q0', 'Q5', 'LAB_50971', 'Q9', 'Q3', 
-#     'LAB_50861', 'Q0', 'LAB_50934', 'Q1', 'LAB_51279', 'Q2', 'LAB_51222', 
-#     'LAB_50863', 'Q0', 'Q0', 'LAB_51277', 'LAB_51221', 'Q9', 'Q9', 'LAB_50960', 
-#     'Q0', 'Q9', 'Q0', 'LAB_50885', 'LAB_50878', 'Q9', 'LAB_51301', 'Q0', 'Q2', 
-#     'LAB_50983', 'Q0', 'LAB_50931', 'LAB_51265', 'LAB_51237', 'LAB_51274', 'Q9', 
-#     'Q0', 'LAB_51301', 'LAB_51222', 'Q9', 'Q0', 'LAB_51277', 'Q0', 'LAB_51221', 
-#     'LAB_51249', 'Q0', 'Q0', 'Q0', 'LAB_52172', 'LAB_51265', 'Q9', 'LAB_51279', 
-#     'Q9', 'LAB_51250', 'Q9', 'LAB_51248', 'Q0', 'Q9', 'LAB_52172', 'Q0', 'Q9', 
-#     'LAB_50882', 'Q0', 'LAB_51250', 'LAB_51265', 'LAB_51006', 'Q9', 'LAB_50878', 
-#     'Q5', 'LAB_50902', 'LAB_50924', 'Q8', 'Q9', 'Q9', 'Q3', 'LAB_50998', 
-#     'LAB_50971', 'LAB_50983', 'Q0', 'Q0', 'LAB_50863', 'Q0', 'Q0', 'Q9', 
-#     'LAB_50885', 'LAB_50868', 'LAB_50912', 'LAB_51248', 'Q9', 'Q0', 'Q3', 
-#     'LAB_50861', 'LAB_51678', 'Q0', 'LAB_51277', 'LAB_51283', 'Q9', 'Q6', 'Q9', 
-#     'LAB_51279', 'LAB_50934', 'LAB_51249', 'Q0', 'Q1', 'LAB_50947', 'LAB_50953', 
-#     'LAB_51301', 'Q0', 'Q9', 'Q0', 'LAB_50931', 'Q3', 'Q0', 'LAB_51221', 
-#     'LAB_51282', 'LAB_51222', 'Q0', 'LAB_50952', 'DSCG_home', 'TL_END'
-# ]
-# TIMELINE = ['TL_START', 'RACE_black/african_american', 'SEX_m', 'Q4', 'ADMN_ew_emer.', 'PROC_0fb23zx', 'Q9', 'LAB_50940', 'Q7', 'LAB_50971', 'LAB_51660', 'Q9', 'Q8', 'LAB_51678', 'Q6', 'LAB_51678', 'Q6', 'Q4', 'LAB_51221', 'Q9', 'LAB_50943', 'LAB_50954', 'Q9', 'LAB_51301', 'LAB_51663', 'LAB_50893', 'LAB_50954', 'Q7', 'Q2', 'LAB_51006', 'LAB_50941', 'Q0', 'Q1', 'LAB_50983', 'Q1', 'LAB_50878', 'LAB_50938', 'LAB_50942', 'Q9', 'LAB_50947', 'Q9', 'LAB_50947', 'Q6', 'Q3', 'Q9', 'LAB_50937', 'LAB_52172', 'LAB_51249', 'LAB_51662', 'Q9', 'LAB_51237', 'Q7', 'LAB_50931', 'LAB_51265', 'Q8', 'Q8', 'Q6', 'LAB_51279', 'Q2', 'LAB_50882', 'LAB_50934', 'Q9', 'LAB_51658', 'LAB_50912', 'Q5', 'LAB_51222', 'LAB_50861', 'Q4', 'Q8', 'Q9', 'LAB_50863', 'Q1', 'Q9', 'LAB_50934', 'Q4', 'LAB_51659', 'LAB_51274', 'LAB_50868', 'LAB_51250', 'Q4', 'LAB_50902', 'LAB_51277', 'Q4', 'LAB_51248', 'Q0', 'Q6', 'LAB_50885', 'Q0', 'LAB_51657', 'LAB_51486', 'LAB_52425', 'LAB_51508', 'LAB_51519', 'Q1', 'LAB_51514', 'LAB_51476', 'Q3', 'LAB_51492', 'LAB_51484', 'Q9', 'LAB_51464', 'LAB_51466', 'LAB_51512', 'LAB_51493', 'TEXT_DONE', 'LAB_51478', 'LAB_51463', 'LAB_51491', 'LAB_51487', 'LAB_51516', 'LAB_51506', 'Q5', 'LAB_51498', 'Q9', 'LAB_51839', 'LAB_50960', 'Q8', 'LAB_51248', 'Q0', 'LAB_50971', 'Q6', 'Q1', 'LAB_50983', 'Q0', 'LAB_51250', 'Q4', 'LAB_51277', 'LAB_50885', 'Q5', 'Q4', 'Q3', 'LAB_50861', 'Q8', 'LAB_51265', 'Q0', 'LAB_51221', 'Q2', 'Q8', 'LAB_51249', 'LAB_50931', 'Q8', 'LAB_50934', 'Q3', 'LAB_51279', 'Q5', 'Q3', 'LAB_50868', 'Q8', 'Q3', 'LAB_50902', 'Q5', 'LAB_51301', 'LAB_50882', 'Q5', 'LAB_50970', 'LAB_51678', 'Q1', 'LAB_50878', 'Q8', 'LAB_50912', 'Q7', 'LAB_50863', 'Q8', 'LAB_52172', 'LAB_51237', 'Q0', 'LAB_51006', 'Q2', 'LAB_51274', 'Q8', 'Q9', 'LAB_50947', 'LAB_51222', 'LAB_51274', 'LAB_50912', 'Q0', 'Q2', 'LAB_50971', 'Q7', 'LAB_51221', 'Q1', 'LAB_51222', 'LAB_50861', 'LAB_51249', 'Q4', 'Q6', 'Q3', 'Q9', 'LAB_50947', 'LAB_50970', 'Q1', 'LAB_50983', 'Q7', 'Q6', 'LAB_50931', 'Q6', 'Q8', 'LAB_51237', 'LAB_51279', 'LAB_50934', 'Q1', 'Q3', 'Q9', 'Q8', 'LAB_50960', 'Q3', 'Q7', 'LAB_50863', 'LAB_51301', 'Q4', 'LAB_51006', 'Q1', 'Q4', 'LAB_50882', 'Q0', 'LAB_51248', 'Q9', 'LAB_51678', 'Q0', 'LAB_51250', 'LAB_50868', 'Q2', 'Q1', 'LAB_50878', 'LAB_52172', 'Q3', 'LAB_50902', 'LAB_50885', 'LAB_51265', 'LAB_51277', 'Q7', 'Q6', 'LAB_51277', 'LAB_51301', 'Q5', 'Q4', 'LAB_51222', 'LAB_51279', 'LAB_52172', 'Q0', 'LAB_51250', 'Q0', 'Q4', 'Q0', 'Q7', 'LAB_51265', 'LAB_51249', 'LAB_51221', 'Q3', 'LAB_51248', 'Q9', 'Q2', 'Q9', 'LAB_51283', 'Q9', 'LAB_51265', 'Q2', 'LAB_50998', 'Q5', 'LAB_50952', 'LAB_50971', 'LAB_50861', 'LAB_50882', 'Q2', 'LAB_50885', 'Q0', 'LAB_52172', 'Q3', 'LAB_50912', 'LAB_51301', 'Q3', 'Q5', 'LAB_51279', 'Q7', 'LAB_51277', 'LAB_50902', 'Q6', 'Q4', 'Q8', 'LAB_50868', 'Q0', 'LAB_50878', 'Q1', 'LAB_51678', 'Q0', 'Q1', 'LAB_51006', 'LAB_50863', 'Q7', 'Q1', 'LAB_50934', 'LAB_51250', 'Q0', 'LAB_50924', 'LAB_51222', 'Q6', 'LAB_50931', 'Q8', 'LAB_51248', 'LAB_51282', 'Q5', 'LAB_51249', 'Q0', 'LAB_50983', 'LAB_50947', 'Q5', 'Q0', 'Q2', 'LAB_50953', 'Q6', 'Q2', 'LAB_51221', 'Q5', 'DSCG_home', 'TL_END']
-# TIMELINE = ['TL_START', 'RACE_black/african_american', 'SEX_m', 'Q4', 'ADMN_ew_emer.', 'PROC_0fb23zx', 'LAB_50943', 'LAB_50912', 'Q9', 'Q4', 'LAB_50868', 'Q6', 'LAB_51006', 'Q8', 'LAB_50931', 'Q8', 'Q3', 'LAB_51250', 'LAB_51248', 'LAB_51274', 'LAB_50861', 'LAB_51678', 'Q4', 'Q6', 'Q2', 'Q0', 'LAB_51678', 'Q7', 'LAB_50940', 'LAB_51657', 'Q9', 'Q6', 'LAB_50863', 'Q6', 'LAB_50983', 'Q1', 'LAB_51279', 'LAB_50885', 'LAB_50938', 'LAB_51265', 'LAB_51658', 'Q8', 'LAB_51222', 'LAB_50934', 'Q0', 'LAB_51221', 'LAB_51660', 'Q4', 'Q5', 'Q4', 'LAB_51659', 'Q9', 'LAB_51237', 'Q9', 'Q9', 'Q8', 'Q9', 'LAB_50971', 'Q0', 'Q9', 'LAB_51301', 'LAB_50902', 'Q1', 'LAB_52172', 'LAB_50934', 'LAB_50893', 'LAB_50942', 'Q6', 'LAB_50937', 'LAB_50941', 'LAB_51662', 'Q7', 'LAB_51249', 'Q1', 'Q2', 'LAB_50878', 'Q4', 'LAB_51277', 'Q9', 'Q9', 'LAB_51663', 'Q7', 'LAB_50882', 'Q9', 'LAB_50954', 'LAB_50947', 'Q9', 'LAB_50947', 'LAB_50954', 'LAB_51512', 'LAB_51492', 'Q3', 'LAB_51519', 'LAB_51484', 'LAB_51463', 'Q9', 'LAB_51498', 'Q5', 'LAB_51466', 'LAB_52425', 'LAB_51486', 'LAB_51516', 'LAB_51476', 'LAB_51491', 'TEXT_DONE', 'LAB_51493', 'LAB_51508', 'LAB_51478', 'LAB_51514', 'Q9', 'LAB_51506', 'LAB_51487', 'LAB_51464', 'Q1', 'LAB_51839', 'Q0', 'LAB_51279', 'Q3', 'LAB_50902', 'Q4', 'Q8', 'LAB_51250', 'Q0', 'LAB_50868', 'Q8', 'Q8', 'LAB_50931', 'Q3', 'LAB_51678', 'LAB_50971', 'Q2', 'Q8', 'LAB_51248', 'Q0', 'LAB_51237', 'Q8', 'LAB_50970', 'LAB_51265', 'LAB_50861', 'Q6', 'LAB_50960', 'LAB_52172', 'Q5', 'Q7', 'LAB_50863', 'Q5', 'LAB_50934', 'LAB_50885', 'LAB_50983', 'Q1', 'LAB_51006', 'LAB_51274', 'Q8', 'Q8', 'LAB_51249', 'LAB_51221', 'Q2', 'Q4', 'Q3', 'LAB_51222', 'LAB_51277', 'Q3', 'Q1', 'Q8', 'LAB_50878', 'Q0', 'LAB_50882', 'LAB_50947', 'LAB_50912', 'Q5', 'LAB_51301', 'Q9', 'Q5', 'Q7', 'Q1', 'LAB_50947', 'Q9', 'LAB_51006', 'LAB_50912', 'Q3', 'LAB_50861', 'LAB_51265', 'LAB_51301', 'LAB_50882', 'LAB_50878', 'Q8', 'Q2', 'LAB_51222', 'LAB_50960', 'Q4', 'Q1', 'LAB_51250', 'LAB_50971', 'Q6', 'LAB_50931', 'Q1', 'LAB_51221', 'Q0', 'Q7', 'LAB_51249', 'Q0', 'Q6', 'LAB_51274', 'Q9', 'LAB_50868', 'Q2', 'Q0', 'Q1', 'LAB_50983', 'LAB_50934', 'Q3', 'LAB_50970', 'Q9', 'Q8', 'LAB_51277', 'LAB_50902', 'LAB_50885', 'Q6', 'Q4', 'Q3', 'LAB_50863', 'LAB_52172', 'LAB_51279', 'LAB_51248', 'LAB_51678', 'Q4', 'Q3', 'Q1', 'LAB_51237', 'Q7', 'Q7', 'Q0', 'LAB_51279', 'Q9', 'Q4', 'Q5', 'Q0', 'LAB_51250', 'LAB_51277', 'Q7', 'LAB_51265', 'LAB_51249', 'Q4', 'LAB_51221', 'Q0', 'LAB_51301', 'Q3', 'Q6', 'LAB_51222', 'LAB_52172', 'LAB_51248', 'Q2', 'Q9', 'LAB_50931', 'Q5', 'Q8', 'LAB_50924', 'Q1', 'LAB_51006', 'LAB_50863', 'Q2', 'LAB_50885', 'Q7', 'LAB_50861', 'Q9', 'Q1', 'LAB_50934', 'LAB_50882', 'LAB_51265', 'Q0', 'LAB_51282', 'Q6', 'LAB_50868', 'Q8', 'Q6', 'Q1', 'LAB_50983', 'LAB_50971', 'Q5', 'LAB_50998', 'LAB_51279', 'Q3', 'LAB_51301', 'Q5', 'LAB_51221', 'LAB_51248', 'Q0', 'LAB_52172', 'Q7', 'LAB_50912', 'LAB_50952', 'LAB_51678', 'Q0', 'Q0', 'Q3', 'LAB_50878', 'Q5', 'Q2', 'Q2', 'Q0', 'Q5', 'LAB_50953', 'LAB_50947', 'Q6', 'LAB_51283', 'Q0', 'LAB_51250', 'LAB_50902', 'Q4', 'LAB_51277', 'Q2', 'LAB_51222', 'LAB_51249', 'DSCG_home', 'TL_END']
-TIMELINE = ['TL_START', 'RACE_black/african_american', 'SEX_m', 'Q4', 'ADMN_ew_emer.', 'LAB_50924', 'Q8', 'LAB_50938', 'LAB_51493', 'Q5', 'LAB_50934', 'Q1', 'LAB_50934', 'Q4', 'LAB_50934', 'Q3', 'LAB_50934', 'Q1', 'LAB_50934', 'Q1', 'LAB_51221', 'Q4', 'LAB_51221', 'Q2', 'LAB_51221', 'Q1', 'LAB_51221', 'Q3', 'LAB_51221', 'Q2', 'LAB_52172', 'Q0', 'LAB_52172', 'Q0', 'LAB_52172', 'Q0', 'LAB_52172', 'Q0', 'LAB_52172', 'Q0', 'LAB_51006', 'Q2', 'LAB_51006', 'Q2', 'LAB_51006', 'Q1', 'LAB_51006', 'Q1', 'LAB_51463', 'LAB_51478', 'LAB_50893', 'Q6', 'LAB_51492', 'Q9', 'LAB_51519', 'LAB_50868', 'Q4', 'LAB_50868', 'Q8', 'LAB_50868', 'Q2', 'LAB_50868', 'Q8', 'LAB_50960', 'Q3', 'LAB_50960', 'Q3', 'LAB_51248', 'Q0', 'LAB_51248', 'Q0', 'LAB_51248', 'Q0', 'LAB_51248', 'Q0', 'LAB_51248', 'Q0', 'LAB_50970', 'Q5', 'LAB_50970', 'Q7', 'LAB_51279', 'Q6', 'LAB_51279', 'Q5', 'LAB_51279', 'Q4', 'LAB_51279', 'Q6', 'LAB_51279', 'Q5', 'LAB_51658', 'LAB_51282', 'Q0', 'LAB_51486', 'LAB_50943', 'LAB_51514', 'LAB_50861', 'Q4', 'LAB_50861', 'Q4', 'LAB_50861', 'Q3', 'LAB_50861', 'Q3', 'LAB_51464', 'LAB_50885', 'Q6', 'LAB_50885', 'Q5', 'LAB_50885', 'Q6', 'LAB_50885', 'Q2', 'LAB_50947', 'Q9', 'LAB_50947', 'Q9', 'LAB_50947', 'Q9', 'LAB_50947', 'Q9', 'LAB_50947', 'Q5', 'LAB_51512', 'LAB_51476', 'LAB_50902', 'Q3', 'LAB_50902', 'Q3', 'LAB_50902', 'Q3', 'LAB_50902', 'Q6', 'LAB_51498', 'Q9', 'LAB_51491', 'Q1', 'LAB_51660', 'Q9', 'LAB_51222', 'Q5', 'LAB_51222', 'Q3', 'LAB_51222', 'Q2', 'LAB_51222', 'Q4', 'LAB_51222', 'Q2', 'LAB_50952', 'Q5', 'LAB_50953', 'Q2', 'LAB_51237', 'Q9', 'LAB_51237', 'Q8', 'LAB_51237', 'Q8', 'LAB_50878', 'Q1', 'LAB_50878', 'Q1', 'LAB_50878', 'Q1', 'LAB_50878', 'Q1', 'LAB_51277', 'Q4', 'LAB_51277', 'Q4', 'LAB_51277', 'Q4', 'LAB_51277', 'Q4', 'LAB_51277', 'Q4', 'LAB_50971', 'Q6', 'LAB_50971', 'Q6', 'LAB_50971', 'Q7', 'LAB_50971', 'Q6', 'LAB_50882', 'Q2', 'LAB_50882', 'Q0', 'LAB_50882', 'Q3', 'LAB_50882', 'Q0', 'LAB_51657', 'Q9', 'LAB_51516', 'Q3', 'LAB_51662', 'Q9', 'LAB_51839', 'LAB_51659', 'Q9', 'LAB_51301', 'Q7', 'LAB_51301', 'Q5', 'LAB_51301', 'Q4', 'LAB_51301', 'Q5', 'LAB_51301', 'Q3', 'LAB_50931', 'Q8', 'LAB_50931', 'Q8', 'LAB_50931', 'Q6', 'LAB_50931', 'Q6', 'LAB_51663', 'Q9', 'LAB_50937', 'LAB_51274', 'Q9', 'LAB_51274', 'Q8', 'LAB_51274', 'Q8', 'LAB_51508', 'LAB_50998', 'Q2', 'LAB_50940', 'LAB_51466', 'LAB_51283', 'Q0', 'LAB_50912', 'Q8', 'LAB_50912', 'Q8', 'LAB_50912', 'Q7', 'LAB_50912', 'Q7', 'LAB_50863', 'Q7', 'LAB_50863', 'Q7', 'LAB_50863', 'Q7', 'LAB_50863', 'Q7', 'LAB_52425', 'TEXT_DONE', 'LAB_51484', 'LAB_50954', 'Q9', 'LAB_50954', 'Q9', 'LAB_51487', 'LAB_50942', 'LAB_51250', 'Q0', 'LAB_51250', 'Q0', 'LAB_51250', 'Q0', 'LAB_51250', 'Q0', 'LAB_51250', 'Q0', 'LAB_50983', 'Q1', 'LAB_50983', 'Q1', 'LAB_50983', 'Q1', 'LAB_50983', 'Q5', 'LAB_51506', 'LAB_51678', 'Q6', 'LAB_51678', 'Q8', 'LAB_51678', 'Q8', 'LAB_51678', 'Q9', 'LAB_51678', 'Q9', 'LAB_50941', 'LAB_51249', 'Q7', 'LAB_51249', 'Q8', 'LAB_51249', 'Q6', 'LAB_51249', 'Q7', 'LAB_51249', 'Q5', 'LAB_51265', 'Q8', 'LAB_51265', 'Q8', 'LAB_51265', 'Q9', 'LAB_51265', 'Q9', 'LAB_51265', 'Q9', 'PROC_0fb23zx', 'DSCG_home', 'TL_END']
-
+TIMELINE =  ['TL_START', 'RACE_white', 'SEX_f', 'Q1', 'ADMN_ew_emer.', 'LAB_51254', 'Q5', 'LAB_51466', 'TEXT_NEG', 
+             'LAB_50878', 'Q6', 'LAB_50931', 'Q4', 'LAB_50912', 'Q1', 'LAB_51265', 'Q2', 'LAB_51237', 'Q8', 'LAB_50843', 
+             'Q5', 'LAB_51097', 'Q9', 'LAB_51249', 'Q4', 'LAB_51100', 'LAB_51006', 'Q1', 'LAB_50983', 'Q0', 
+             'LAB_51200', 'Q5', 'LAB_51120', 'Q5', 'LAB_51487', 'TEXT_NEG', 'LAB_51250', 'Q9', 'LAB_50956', 'Q9', 
+             'LAB_51108', 'Q9', 'LAB_50931', 'Q5', 'LAB_51222', 'Q6', 'LAB_51274', 'Q8', 'LAB_52065', 'Q1', 'LAB_51248', 'Q9', 
+             'LAB_51277', 'Q3', 'LAB_50902', 'Q1', 'LAB_51301', 'Q9', 'LAB_51078', 'LAB_51117', 'Q9', 'LAB_50885', 'Q9', 
+             'LAB_51508', 'TEXT_Amber', 'LAB_51085', 'TEXT_NEG', 'LAB_51116', 'Q1', 'LAB_51476', 'TEXT_1120', 'LAB_51265', 'Q1', 
+             'LAB_51120', 'Q7', 'LAB_51118', 'Q8', 'LAB_51250', 'Q9', 'LAB_50861', 'Q4', 'LAB_50955', 'LAB_51514', 'Q1', 
+             'LAB_52065', 'Q5', 'LAB_51221', 'Q3', 'LAB_50878', 'Q8', 'LAB_50868', 'Q5', 'LAB_51249', 'Q5', 'LAB_51221', 'Q6', 
+             'LAB_51249', 'Q4', 'LAB_51006', 'Q0', 'LAB_50960', 'Q5', 'LAB_51265', 'Q3', 'LAB_51118', 'Q9', 'LAB_50902', 'Q2', 
+             'LAB_50971', 'Q4', 'LAB_50878', 'Q6', 'LAB_51277', 'Q3', 'LAB_51491', 'Q8', 'LAB_50861', 'Q4', 'LAB_51125', 'Q7', 
+             'LAB_51125', 'Q5', 'LAB_51127', 'Q8', 'LAB_50835', 'LAB_50933', 'LAB_51519', 'TEXT_NONE', 'LAB_51256', 'Q5', 
+             'LAB_50861', 'Q4', 'LAB_51493', 'TEXT_02', 'LAB_51093', 'Q6', 'LAB_51274', 'Q8', 'LAB_51067', 'Q9', 
+             'LAB_50893', 'Q0', 'LAB_51222', 'Q4', 'LAB_51127', 'Q2', 'LAB_51250', 'Q9', 'LAB_51082', 'Q8', 'LAB_51275', 'Q5', 
+             'LAB_50920', 'LAB_51463', 'TEXT_FEW', 'LAB_51082', 'Q9', 'LAB_50983', 'Q0', 'LAB_50868', 'Q1', 'LAB_50863', 'Q6', 
+             'LAB_51248', 'Q9', 'LAB_51087', 'Q9', 'LAB_51117', 'Q7', 'LAB_51221', 'Q4', 'LAB_50868', 'Q5', 'LAB_50863', 'Q4', 
+             'LAB_51277', 'Q3', 'LAB_50983', 'Q0', 'LAB_51265', 'Q1', 'LAB_51114', 'Q9', 'LAB_50971', 'Q7', 'LAB_50882', 'Q5', 
+             'LAB_50954', 'Q3', 'LAB_51277', 'Q3', 'LAB_50863', 'Q5', 'LAB_51250', 'Q9', 'LAB_51274', 'Q9', 'LAB_50885', 'Q8', 
+             'LAB_50954', 'Q7', 'LAB_51221', 'Q4', 'LAB_51498', 'Q6', 'LAB_51279', 'Q2', 'LAB_51146', 'Q5', 'LAB_51279', 'Q1', 
+             'LAB_51006', 'Q1', 'LAB_50882', 'Q5', 'LAB_51237', 'Q8', 'LAB_51486', 'TEXT_TR', 'LAB_50849', 'Q2', 'LAB_51301', 
+             'Q6', 'LAB_51249', 'Q5', 'LAB_50902', 'Q0', 'LAB_51222', 'Q4', 'LAB_51006', 'Q0', 'LAB_51244', 'Q4', 'LAB_51275', 
+             'Q6', 'LAB_51279', 'Q3', 'LAB_51248', 'Q9', 'LAB_50970', 'Q7', 'LAB_50862', 'Q3', 'LAB_51492', 'Q1', 
+             'LAB_51237', 'Q9', 'LAB_51222', 'Q4', 'LAB_51301', 'Q8', 'LAB_51506', 'TEXT_Clear', 'LAB_51279', 'Q1', 
+             'LAB_50885', 'Q6', 'LAB_51248', 'Q9', 'LAB_50862', 'Q1', 'LAB_51482', 'TEXT_02', 'LAB_51301', 'Q8', 
+             'LAB_51484', 'TEXT_TR', 'LAB_50882', 'Q6', 'LAB_51464', 'TEXT_SM', 'LAB_50912', 'Q1', 'LAB_51116', 'Q0', 
+             'LAB_51516', 'TEXT_610', 'LAB_50931', 'Q7', 'LAB_51087', 'LAB_50912', 'Q2', 'LAB_51221', 'Q5', 'LAB_50971', 'Q3', 
+             'LAB_50912', 'Q1', 'LAB_51104', 'Q6', 'LAB_51094', 'Q9', 'LAB_51478', 'TEXT_NEG', 'LAB_50862', 'Q0', 'LAB_51512', 
+             'TEXT_0CC', 'PROC_5491', 'DSCG_home', 'TL_END']
 # =============================================================================
 # VALIDATION FUNCTIONS
 # =============================================================================
@@ -186,6 +166,58 @@ def validate_timeline(timeline: List[str], hadm_id: int, mimic_path: str):
     # Get lab item names
     lab_names = get_lab_item_names(itemids, mimic_path)
     
+    # Order validation helper: ensure LAB token order follows charttime order
+    def validate_lab_ordering(lab_tokens: List[Tuple[int, int, Optional[int]]], actual_data: pl.DataFrame) -> None:
+        print("\n⏱️ ORDER VALIDATION (LAB tokens vs labevents.charttime):")
+        print("=" * 80)
+        if actual_data.is_empty():
+            print("No actual lab data available to validate ordering.")
+            return
+        # Build mapping itemid -> sorted list of charttimes
+        itemid_to_times: Dict[int, List] = {}
+        for row in (
+            actual_data
+            .select(["itemid", "charttime"])  # ensure only required cols
+            .sort(["itemid", "charttime"])   # global sort
+        ).to_dicts():
+            itemid_to_times.setdefault(row["itemid"], []).append(row["charttime"])        
+        matched = 0
+        missing = 0
+        out_of_order = 0
+        last_time = None
+        examples: List[str] = []
+        for pos, itemid, _ in lab_tokens:
+            times = itemid_to_times.get(itemid, [])
+            if not times:
+                missing += 1
+                examples.append(f"Missing data for token at pos {pos}: LAB_{itemid}")
+                continue
+            # Pop all earlier-than-last_time entries (these indicate potential out-of-order if exist)
+            popped_earlier = 0
+            if last_time is not None:
+                while times and times[0] < last_time:
+                    times.pop(0)
+                    popped_earlier += 1
+                if popped_earlier > 0:
+                    out_of_order += 1
+                    examples.append(f"Out-of-order token at pos {pos}: LAB_{itemid} (skipped {popped_earlier} earlier event(s))")
+            # Now match the next available time >= last_time
+            if times:
+                matched_time = times.pop(0)
+                matched += 1
+                last_time = matched_time
+            else:
+                # No remaining events for this itemid at/after last_time
+                missing += 1
+                examples.append(f"No remaining event >= prior time for token at pos {pos}: LAB_{itemid}")
+        print(f"Matched tokens: {matched}")
+        print(f"Out-of-order tokens: {out_of_order}")
+        print(f"Tokens with no matching event: {missing}")
+        if examples:
+            print("\nExamples:")
+            for msg in examples[:10]:
+                print("  - " + msg)
+
     # Analyze each lab token
     print(f"\n📋 Detailed Analysis:")
     print("=" * 80)
@@ -232,6 +264,9 @@ def validate_timeline(timeline: List[str], hadm_id: int, mimic_path: str):
         
         print()
     
+    # Validate ordering of LAB tokens against labevents charttime
+    validate_lab_ordering(lab_tokens, actual_data)
+
     # Summary
     tokens_with_data = sum(1 for _, itemid, _ in lab_tokens 
                           if len(actual_data.filter(pl.col("itemid") == itemid)) > 0)
