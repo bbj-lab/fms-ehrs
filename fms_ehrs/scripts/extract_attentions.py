@@ -24,7 +24,7 @@ from plotly.subplots import make_subplots
 from transformers import AutoModelForCausalLM
 
 from fms_ehrs.framework.logger import get_logger
-from fms_ehrs.framework.plotting import imshow_text, plot_attentions_and_importances
+from fms_ehrs.framework.plotting import imshow_text
 from fms_ehrs.framework.storage import fix_perms, set_perms
 from fms_ehrs.framework.util import agg_str2fn, attention_rollout, token_importance
 from fms_ehrs.framework.vocabulary import Vocabulary
@@ -125,7 +125,7 @@ model = model.to(device)
 
 with t.inference_mode():
     x = model.forward(
-        input_ids=selected_data["input_ids"][: len(selected_data)].to(device),
+        input_ids=selected_data["input_ids"][:].to(device),
         output_attentions=True,
         use_cache=True,
         output_hidden_states=True,
@@ -152,17 +152,17 @@ if n_groups > 1:
 wts = np.stack(
     np.split(w_out.detach().cpu().numpy().T, num_heads)
 )  # num_heads × d_vals × d
-fs = np.einsum(
-    "lbhtd,hdD->lbhtD", vals, wts
-)  # n_layers × batch_size × num_heads × sequence_length × d
+fs = np.matmul(vals, wts)  # n_layers × batch_size × num_heads × sequence_length × d
 
-alpha_fs_normed = np.zeros(
-    shape=(*attns.shape[:2], *attns.shape[3:])
-)  # n_layers × batch_size × sequence_length × sequence_length
-for t_i in range(alpha_fs_normed.shape[-1]):
-    alpha_fs_normed[..., t_i] = np.linalg.norm(
-        np.einsum("lbht,lbhtD->lbtD", attns[..., t_i], fs), axis=-1
-    )
+fs_normed = np.linalg.norm(
+    fs, axis=-1
+)  # n_layers × batch_size × num_heads × sequence_length
+
+""" ||af|| = |a|*||f|| """
+alpha_fs_normed = np.abs(attns) * np.expand_dims(
+    fs_normed, axis=-1
+)  # n_layers × batch_size × num_heads × sequence_length × sequence_length
+
 
 selected_decoded = np.array(
     [
