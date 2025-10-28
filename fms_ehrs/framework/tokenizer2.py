@@ -716,22 +716,19 @@ class Tokenizer:
             # Step 1: stack all event rows
             stacked = pl.concat(all_event_tokens)
 
-            # Step 2: Process each event group to create properly paired tokens
-            # Instead of exploding, we'll process each group as a unit
-            # Ensure global chronological order across all events per admission
+            # Step 2: Sort events by their timestamp (not individual token times)
+            # This preserves pairing within each event while ensuring chronological order
             events = (
                 stacked
                 .with_columns(
-                    tokens = pl.col("tokens").list.eval(pl.element()),
-                    times  = pl.col("times").list.eval(pl.element()),
+                    # Create a sort key from the first timestamp in each event
+                    sort_time = pl.col("times").list.first()
                 )
-                .explode(["tokens", "times"])           # one row per token/time
-                .drop_nulls(["tokens", "times"])         # safety
-                .sort(["hadm_id", "times"])             # chronological within admission
+                .sort(["hadm_id", "sort_time"])
                 .group_by("hadm_id", maintain_order=True)
                 .agg(
-                    tokens = pl.col("tokens"),
-                    times  = pl.col("times"),
+                    tokens = pl.col("tokens").list.eval(pl.element()).explode(),
+                    times  = pl.col("times").list.eval(pl.element()).explode(),
                 )
             )
             
@@ -804,8 +801,11 @@ class Tokenizer:
         # Debug: Check columns before final joins
         print('DEBUG: Before final joins:')
         print('  prefix_tokens columns:', prefix_tokens.collect_schema().names())
+        print('  prefix_tokens schema:', prefix_tokens.collect_schema())
         print('  events columns:', events.collect_schema().names())
+        print('  events schema:', events.collect_schema())
         print('  suffix_tokens columns:', suffix_tokens.collect_schema().names())
+        print('  suffix_tokens schema:', suffix_tokens.collect_schema())
         
         # Combine all components
         tt = (
