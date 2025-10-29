@@ -9,11 +9,12 @@
     dependencies = [
         "datasets>=3.2",
         "fire>=0.7",
+        "jax[cuda12]<=0.4.29",
         "joblib>=1.4",
         "kaleido>=0.2,<1",
         "lightgbm>=4.5",
         "numba>=0.61",
-        "numpy>=1.26,<2",
+        "numpy>=1.26",
         "optuna>=4.2",
         "pacmap==0.8.0",
         "pandas>=2.2",

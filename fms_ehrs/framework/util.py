@@ -12,12 +12,20 @@ import os
 import pathlib
 import typing
 
+import jax as jx
+import jax.numpy as jnp
+import numba as nb
 import numpy as np
 import pandas as pd
 import torch as t
 
 from fms_ehrs.framework.logger import get_logger
 from fms_ehrs.framework.vocabulary import Vocabulary
+
+jx.config.update("jax_default_matmul_precision", "bfloat16")
+
+# gpu --> OOM
+jx.config.update("jax_default_device", jx.devices("cpu")[0])
 
 Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
 Dictlike: typing.TypeAlias = collections.OrderedDict | dict
@@ -238,14 +246,37 @@ def attention_rollout(attentions: np.ndarray) -> np.ndarray:
     )
 
 
+@jx.jit
+def attention_rollout_jax(attentions: jnp.ndarray) -> jnp.ndarray:
+    return jx.lax.associative_scan(
+        lambda x, y: y @ x,
+        0.5
+        * (
+            attentions
+            + jnp.tile(
+                jnp.eye(attentions.shape[-1]), reps=(*attentions.shape[:3], 1, 1)
+            )
+        ),
+    )[-1]
+
+
+@nb.njit(nopython=True, fastmath=True)
+def attention_rollout_numba(attentions: np.ndarray) -> np.ndarray:
+    I = np.tile(np.eye(attentions.shape[-1]), reps=(*attentions.shape[:3], 1, 1))
+    ret = 0.5 * (attentions[0] + I)
+    for i in range(1, attentions.shape[0]):
+        ret = 0.5 * (attentions[i] + I) @ ret
+    return ret
+
+
 def token_importance(
     attentions: np.ndarray,
-    values: np.ndarray = None,
     *,
+    values: np.ndarray = None,
     window: int = None,
     aggregation: typing.Literal[
         "sum", "mean", "max", "median", "mean_log", "median_log", "Q70", "Q90", "Q95"
-    ] = "sum",
+    ] = "mean",
     last_layer_only: bool = False,
     rollout: bool = False,
 ) -> np.ndarray:
@@ -280,6 +311,37 @@ def token_importance(
     )
 
 
+@functools.partial(jx.jit, static_argnames=("window", "aggregation"))
+def token_importance_jax(
+    attentions: jnp.ndarray,
+    *,
+    values: jnp.ndarray = None,
+    aggregation: typing.Literal["mean", "mean_log"] = "mean",
+    window: int = None,
+    last_layer_only: bool = False,
+    rollout: bool = False,
+) -> jnp.ndarray:
+    if last_layer_only:
+        a = attentions[-1][jnp.newaxis]
+        v = values[-1][jnp.newaxis] if values is not None else 1
+    elif rollout:
+        a = attention_rollout_jax(attentions)[jnp.newaxis]
+        v = values
+    else:
+        a = attentions
+        v = values
+    lookahead_arr = (
+        (jnp.tri(a.shape[-1]) - jnp.tri(a.shape[-1], k=-window))
+        if window is not None
+        else 1
+    )
+    v = jnp.linalg.norm(v, axis=-1, ord=1, keepdims=True) if values is not None else 1
+    column_sums = jnp.sum(a * lookahead_arr * v, axis=3)
+    if "log" in aggregation:
+        column_sums = jnp.log(column_sums)
+    return jnp.nanmean(column_sums, axis=(0, 2))
+
+
 def count_top_q(values: list, q: float) -> typing.List[int]:
     """
     takes a ragged list of `values` and returns the number of values exceeding
@@ -287,7 +349,7 @@ def count_top_q(values: list, q: float) -> typing.List[int]:
     """
     values_flat = [v for val in values for v in val]
     qv = np.nanquantile(values_flat, q=q)
-    return [sum(v >= qv for v in val) for val in values]
+    return [int(sum(v >= qv for v in val)) for val in values]
 
 
 def set_pd_options() -> None:
@@ -298,6 +360,8 @@ def set_pd_options() -> None:
 
 
 if __name__ == "__main__":
+    import time
+
     print(ragged_lists_to_array([[2.0, 3.0], [3.0]]))
 
     tks = [np.arange(10)]
@@ -315,3 +379,70 @@ if __name__ == "__main__":
 
     print(count_top_q([[2, 2, 2, 9], [0, 1], [], [3, 9, 9]], q=0.8))
     # [1, 0, 0, 2]
+
+    rng = np.random.default_rng(42)
+    att_eg = np.tril(rng.normal(size=(1000, 8, 16, 4, 32, 32)))
+
+    t0 = time.time()
+    for i in range(1000):
+        rll = attention_rollout(att_eg[i])
+    t1 = time.time()
+    print("rollout: {:.2f}".format((t1 - t0)))
+
+    t2 = time.time()
+    for i in range(1000):
+        rll_jax = attention_rollout_jax(att_eg[i])
+    t3 = time.time()
+    print("jax rollout: {:.2f}".format((t3 - t2)))
+
+    @jx.jit
+    def attention_rollout_jax_alt(attentions: jnp.ndarray) -> jnp.ndarray:
+        I = jnp.tile(jnp.eye(attentions.shape[-1]), reps=(*attentions.shape[:3], 1, 1))
+        ret = 0.5 * (attentions[0] + I)
+        for i in range(1, attentions.shape[0]):
+            ret = 0.5 * (attentions[i] + I) @ ret
+        return ret
+
+    t4 = time.time()
+    for i in range(1000):
+        rll_jax_alt = attention_rollout_jax_alt(att_eg[i])
+    t5 = time.time()
+    print("alt jax rollout: {:.2f}".format((t5 - t4)))
+
+    assert np.allclose(rll, rll_jax, rtol=1e-3, atol=1e-1)
+    assert np.allclose(rll, rll_jax_alt, rtol=1e-2, atol=1e-1)
+
+    t6 = time.time()
+    for i in range(1000):
+        tk_imp = token_importance(att_eg[i])
+    t7 = time.time()
+    print("h20: {:.2f}".format((t7 - t6)))
+
+    t8 = time.time()
+    for i in range(1000):
+        tk_imp_jax = token_importance_jax(att_eg[i])
+    t9 = time.time()
+    print("jax h20: {:.2f}".format((t9 - t8)))
+
+    assert np.allclose(tk_imp, tk_imp_jax, rtol=1e-4, atol=1e-5)
+
+    t10 = time.time()
+    for i in range(1000):
+        tk_imp_sh = token_importance(att_eg[i], window=10)
+    t11 = time.time()
+    print("sh: {:.2f}".format((t11 - t10)))
+
+    t12 = time.time()
+    for i in range(1000):
+        tk_imp_sh_jax = token_importance_jax(att_eg[i], window=10)
+    t13 = time.time()
+    print("jax h20: {:.2f}".format((t13 - t12)))
+
+    assert np.allclose(tk_imp_sh, tk_imp_sh_jax, rtol=1e-4, atol=1e-5)
+
+    assert np.allclose(
+        token_importance(att_eg[-1], window=10, aggregation="mean_log"),
+        token_importance_jax(att_eg[-1], window=10, aggregation="mean_log"),
+        rtol=1e-4,
+        atol=1e-5,
+    )
