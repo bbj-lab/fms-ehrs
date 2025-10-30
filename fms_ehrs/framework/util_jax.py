@@ -11,22 +11,17 @@ import jax as jx
 import jax.numpy as jnp
 import numpy as np
 
-# gpu --> OOM
+# gpu --> OOM when batch size > 8
 jx.config.update("jax_default_device", jx.devices("cpu")[0])
 
 
 @jx.jit
 def attention_rollout(attentions: jnp.ndarray) -> jnp.ndarray:
-    return jx.lax.associative_scan(
-        lambda x, y: y @ x,
-        0.5
-        * (
-            attentions
-            + jnp.tile(
-                jnp.eye(attentions.shape[-1]), reps=(*attentions.shape[:3], 1, 1)
-            )
-        ),
-    )[-1]
+    I_n = jnp.broadcast_to(jnp.eye(attentions.shape[-1]), shape=attentions[0].shape)
+    ret = 0.5 * (attentions[0] + I_n)
+    for i in range(1, attentions.shape[0]):
+        ret = 0.5 * (attentions[i] + I_n) @ ret
+    return ret
 
 
 @functools.partial(
@@ -81,22 +76,7 @@ if __name__ == "__main__":
     t3 = time.time()
     print("jax rollout: {:.2f}".format((t3 - t2)))
 
-    @jx.jit
-    def attention_rollout_jax_alt(attentions: jnp.ndarray) -> jnp.ndarray:
-        I = jnp.tile(jnp.eye(attentions.shape[-1]), reps=(*attentions.shape[:3], 1, 1))
-        ret = 0.5 * (attentions[0] + I)
-        for i in range(1, attentions.shape[0]):
-            ret = 0.5 * (attentions[i] + I) @ ret
-        return ret
-
-    t4 = time.time()
-    for i in range(1000):
-        rll_jax_alt = attention_rollout_jax_alt(att_eg[i])
-    t5 = time.time()
-    print("alt jax rollout: {:.2f}".format((t5 - t4)))
-
     assert np.allclose(rll, rll_jax, rtol=1e-3, atol=1e-1)
-    assert np.allclose(rll, rll_jax_alt, rtol=1e-2, atol=1e-1)
 
     t6 = time.time()
     for i in range(1000):
