@@ -18,13 +18,18 @@ metrics=(
     "scissorhands-20"
     "scissorhands-va-10"
     "scissorhands-va-20"
+    "rollout-mean"
+    "rollout-mean_log"
     "h20-normed-mean"
     "h20-normed-mean_log"
 )
 
-python3 ../fms_ehrs/scripts/extract_all_attentions_jax.py \
+python3 ../fms_ehrs/scripts/extract_all_attentions.py \
     --data_dir "../../data-mimic" \
     --data_version "W++" \
     --model_loc "${hm}/mdls-archive/llama-med-60358922_1-hp-W++" \
     --batch_size 32 \
-    --metrics "${metrics[@]}"
+    --metrics "${metrics[@]}" \
+    --batch_num_start 0 \
+    --batch_num_end 10 \
+    --use_jax

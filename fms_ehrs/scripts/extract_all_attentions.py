@@ -18,7 +18,6 @@ from transformers import AutoModelForCausalLM
 
 from fms_ehrs.framework.logger import get_logger
 from fms_ehrs.framework.storage import set_perms
-from fms_ehrs.framework.util import token_importance
 from fms_ehrs.framework.vocabulary import Vocabulary
 
 Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
@@ -57,7 +56,13 @@ parser.add_argument(
         "h20-normed-mean_log",
     ],
 )
+parser.add_argument("--use_jax", action="store_true")
 args, unknowns = parser.parse_known_args()
+
+if args.use_jax:
+    from fms_ehrs.framework.util_jax import token_importance
+else:
+    from fms_ehrs.framework.util import token_importance
 
 for k, v in vars(args).items():
     logger.info(f"{k}: {v}")
@@ -85,7 +90,8 @@ stop_tokens = t.tensor([vocab("TRUNC"), vocab("TL_END")])
 
 # load and prep model
 model = AutoModelForCausalLM.from_pretrained(
-    model_loc, attn_implementation="eager"
+    model_loc,
+    attn_implementation="eager",  # dtype=t.float16
 )  # in eval mode by default
 
 d = model.config.hidden_size
@@ -122,13 +128,8 @@ for s in splits:
         if args.batch_num_end is not None and batch_num >= args.batch_num_end:
             continue
         batch = dataset[s]["input_ids"][batch_idx].to(device)
-        with t.inference_mode():
-            x = model.forward(
-                input_ids=batch,
-                output_attentions=True,
-                use_cache=True,
-                output_hidden_states=True,
-            )
+        with t.inference_mode():  # t.amp.autocast("cuda", dtype=t.float16):
+            x = model.forward(input_ids=batch, output_attentions=True, use_cache=True)
         attns = np.stack(
             [_.cpu() for _ in x.attentions]
         )  # n_layers × batch_size × num_heads × sequence_length × sequence_length
@@ -172,8 +173,11 @@ for s in splits:
                     )
                 case "h20-normed-mean" | "h20-normed-mean_log":
                     # ||af|| = |a|*||f||
-                    alpha_fs_normed = np.abs(attns) * np.expand_dims(
-                        np.linalg.norm(np.matmul(vals, wts), axis=-1), axis=-1
+                    alpha_fs_normed = (
+                        np.abs(attns)
+                        * np.expand_dims(
+                            np.linalg.norm(np.matmul(vals, wts), axis=-1), axis=-1
+                        )
                     )  # n_layers × batch_size × num_heads × sequence_length × sequence_length
                     metrics[met][batch_idx] = token_importance(
                         attentions=alpha_fs_normed, aggregation=met.split("-")[-1]
@@ -182,13 +186,26 @@ for s in splits:
                 if j > 0:
                     metrics[met][batch_idx[i], j + 1 :] = np.nan
 
-for met in args.metrics:
-    set_perms(np.save, compress=True)(
-        data_dirs[s].joinpath(
-            "importance-{met}-{mdl}.npy".format(met=met, mdl=model_loc.stem)
-        ),
-        metrics[met],
-    )
+    for met in args.metrics:
+        set_perms(np.save, compress=True)(
+            data_dirs[s].joinpath(
+                "importance-{met}-{mdl}{sn}{en}.npy".format(
+                    met=met,
+                    mdl=model_loc.stem,
+                    sn=(
+                        "-s" + str(ns).zfill(3)
+                        if (ns := args.batch_num_start) is not None
+                        else ""
+                    ),
+                    en=(
+                        "-e" + str(ne).zfill(3)
+                        if (ne := args.batch_num_end) is not None
+                        else ""
+                    ),
+                )
+            ),
+            metrics[met],
+        )
 
 
 logger.info("---fin")
