@@ -56,8 +56,8 @@ def parse_token(position: int, full_token: str) -> Token:
     # Match text tokens: TEXT_*
     elif base_token.startswith('TEXT_'):
         token_type = "text"
-    # Match code tokens: PREFIX_CODE (e.g., LAB_50934, VTL_123)
-    elif re.match(r'^[A-Z]+_[A-Z0-9]+', base_token):
+    # Match code tokens: PREFIX_CODE (e.g., LAB_50934, VTL_123, RACE_white, SEX_m)
+    elif re.match(r'^[A-Z]+_[A-Za-z0-9]+', base_token):
         token_type = "code"
     
     return Token(
@@ -68,17 +68,71 @@ def parse_token(position: int, full_token: str) -> Token:
     )
 
 # =============================================================================
+# SECTION DETECTION (PREFIX / EVENTS / SUFFIX)
+# =============================================================================
+
+def compute_event_section_mask(tokens: List[Token]) -> List[bool]:
+    """
+    Return a boolean mask of same length as tokens indicating positions that
+    are in the clinical events section. We treat:
+      - Prefix tokens: TL_START, RACE_*, SEX_*, ADMN_*, Q*
+      - Suffix tokens: DSCG_*, TL_END
+      - Everything else (codes like LAB_*, PROC_*, OMR_*, VTL_*, or any other
+        UPPER_lower style code not in the prefix/suffix sets) as events.
+    Once the first events code appears, we consider subsequent positions as
+    events until a suffix token is encountered.
+    """
+    prefix_starts = ("RACE_", "SEX_", "ADMN_")
+    suffix_starts = ("DSCG_",)
+
+    in_events = False
+    mask: List[bool] = []
+    for t in tokens:
+        # TL_START keeps us in prefix
+        if t.base == "TL_START":
+            mask.append(False)
+            continue
+        # TL_END is suffix; after this, not events
+        if t.base == "TL_END" or any(t.base.startswith(s) for s in suffix_starts):
+            in_events = False
+            mask.append(False)
+            continue
+        # Quantiles are prefix unless we've already entered events
+        if t.token_type == "quantile" and not in_events:
+            mask.append(False)
+            continue
+        # Known prefix codes keep us in prefix until we hit a non-prefix code
+        if t.token_type == "code" and not in_events and any(t.base.startswith(p) for p in prefix_starts):
+            mask.append(False)
+            continue
+        # Any other code transitions us into events
+        if t.token_type == "code" and not in_events:
+            in_events = True
+            mask.append(True)
+            continue
+        # If already in events, remain so unless suffix encountered
+        mask.append(in_events)
+    return mask
+
+# =============================================================================
 # VALIDATION
 # =============================================================================
 
 def validate_quantile_positions(tokens: List[Token]) -> List[dict]:
     """
-    Rule: Every QUANTILE must be immediately after a CODE. Otherwise it's invalid.
+    Rule: Every QUANTILE must be immediately after a CODE (events section only).
     QUANTILEs are optional; absence is fine.
+    Prefix section exemption: quantiles that appear before the first clinical
+    event code (e.g., LAB_/PROC_/VTL_/OMR_/MICRO_) are allowed standalone.
     """
     errors = []
+    events_mask = compute_event_section_mask(tokens)
+
     for i, t in enumerate(tokens):
         if t.token_type == "quantile":
+            # Only enforce inside the events section
+            if not events_mask[i]:
+                continue
             if i == 0 or tokens[i - 1].token_type != "code":
                 errors.append({
                     'position': max(0, i - 1),
@@ -94,8 +148,12 @@ def validate_text_positions(tokens: List[Token]) -> List[dict]:
     TEXT is optional; absence is fine.
     """
     errors = []
+    events_mask = compute_event_section_mask(tokens)
     for i, t in enumerate(tokens):
         if t.token_type == "text":
+            # Only enforce inside the events section
+            if not events_mask[i]:
+                continue
             if i == 0 or tokens[i - 1].token_type not in ["code", "quantile"]:
                 errors.append({
                     'position': max(0, i - 1),
