@@ -122,7 +122,9 @@ for s in splits:
     n = dataset[s].num_rows
     tl_len = len(dataset[s].select(range(1))["input_ids"][0])
     metrics = {k: np.zeros(shape=(n, tl_len)) for k in args.metrics}
-    for batch_num, batch_idx in tqdm(enumerate(t.split(t.arange(n), args.batch_size))):
+    batches = t.split(t.arange(n), args.batch_size)
+    logger.warning(f"For split {s=}, {len(batches)=} in total are required.")
+    for batch_num, batch_idx in tqdm(enumerate(batches)):
         if args.batch_num_start is not None and batch_num < args.batch_num_start:
             continue
         if args.batch_num_end is not None and batch_num >= args.batch_num_end:
@@ -173,11 +175,8 @@ for s in splits:
                     )
                 case "h20-normed-mean" | "h20-normed-mean_log":
                     # ||af|| = |a|*||f||
-                    alpha_fs_normed = (
-                        np.abs(attns)
-                        * np.expand_dims(
-                            np.linalg.norm(np.matmul(vals, wts), axis=-1), axis=-1
-                        )
+                    alpha_fs_normed = np.abs(attns) * np.expand_dims(
+                        np.linalg.norm(np.matmul(vals, wts), axis=-1), axis=-1
                     )  # n_layers × batch_size × num_heads × sequence_length × sequence_length
                     metrics[met][batch_idx] = token_importance(
                         attentions=alpha_fs_normed, aggregation=met.split("-")[-1]
