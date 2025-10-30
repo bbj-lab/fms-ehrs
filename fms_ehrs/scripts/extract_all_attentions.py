@@ -118,7 +118,7 @@ dataset = (
     .with_format("torch")
 )
 
-for s in splits:
+for s in args.splits:
     n = dataset[s].num_rows
     tl_len = len(dataset[s].select(range(1))["input_ids"][0])
     metrics = {k: np.zeros(shape=(n, tl_len)) for k in args.metrics}

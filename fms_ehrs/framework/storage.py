@@ -4,9 +4,9 @@
 provides functionality related to saving data and artifacts
 """
 
-import io
-import gzip
 import functools
+import gzip
+import io
 import os
 import pathlib
 import typing
@@ -20,6 +20,8 @@ def set_perms(saver: typing.Callable, compress: bool = False) -> typing.Callable
     def wrapper(file, *args, **kwargs):
         f = pathlib.Path(file).expanduser().resolve()
         if compress:
+            if not f.suffix.endswith(".gz"):
+                f = f.with_suffix(f.suffix + ".gz")
             with gzip.open(f, "wb") as fgz:
                 out = saver(fgz, *args, **kwargs)
         else:
