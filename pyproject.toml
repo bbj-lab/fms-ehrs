@@ -66,4 +66,5 @@
     requires      = [ "setuptools>=75.0", "wheel", "ninja" ]
 
 [tool.uv]
-    no-cache = true
+    exclude-newer = "2025-07-31T00:00:00Z"
+    no-cache      = true
