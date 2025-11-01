@@ -58,6 +58,12 @@ class Tokenizer:
             cut_at_24h: Whether to cut timelines at 24 hours (overrides config)
             day_stay_filter: Whether to filter for day stays only (overrides config)
         """
+
+        # For debugging and quantile cleanup tracking
+        self.current_event_table = None
+        self.previous_event_table = None  # Track previous prefix for cleanup
+        self.total_run_time = None
+
         # Load configuration
         self.config = yaml.YAML(typ="safe").load(
             pathlib.Path(config_file).expanduser().resolve()
@@ -220,6 +226,9 @@ class Tokenizer:
         # events have the same subject_id, code, and time.
         # Note: map_groups on LazyGroupBy executes the UDF (materializing groups) and returns a DataFrame,
         # so we convert back to lazy to maintain the lazy chain and match the return type.
+
+        print('Executing process_event_with_values')        
+
         return (
             df.with_row_index(name="_row_id")
             .group_by("subject_id", "code", "time", "_row_id", maintain_order=True)
@@ -271,8 +280,36 @@ class Tokenizer:
     #     )
     
     def _process_event_with_values(self, x: Frame, label: str, time_col: str) -> Frame:
-        """Process a single category group with both numeric and text values."""
+        """Process the numeric and text value for a single event."""        
+        # print(f'actual current event table: {label}, state:{self.current_event_table}')
+        # Track if this is the first time processing this event table
+        is_new_table = self.current_event_table != label
         
+        if is_new_table:
+            print(f'[DEBUG] Beginning to process event table with prefix {label}')
+            print(f'[DEBUG] Current state: current_event_table={self.current_event_table}, previous_event_table={self.previous_event_table}')
+            
+            # Clean up quantiles from the previous event table (if any)
+            # Note: We use current_event_table (not previous_event_table) because
+            # previous_event_table is only set when we transition, but current_event_table
+            # already has the previous prefix.
+            if self.current_event_table is not None:
+                previous_prefix = self.current_event_table
+                # Find and delete all quantiles for the previous prefix
+                keys_to_delete = [k for k in self.vocab.aux.keys() if k.startswith(f"{previous_prefix}_")]
+                deleted_count = 0
+                for key in keys_to_delete:
+                    del self.vocab.aux[key]
+                    deleted_count += 1
+                if deleted_count > 0:
+                    print(f"[DEBUG] Cleaned up {deleted_count} quantiles for previous prefix '{previous_prefix}'")
+                else:
+                    print(f"[DEBUG] No quantiles found to clean up for previous prefix '{previous_prefix}'")
+            
+            # Update tracking: previous becomes current, current becomes new
+            self.previous_event_table = self.current_event_table
+            self.current_event_table = label
+
         # Ensure that ms precision is used for time.
         x = x.with_columns(
             pl.col(time_col).cast(pl.Datetime(time_unit="ms")).alias(time_col)
@@ -360,11 +397,10 @@ class Tokenizer:
                 "times": [all_times]                  # Single flat list per group
             }).with_columns(
                 pl.col("times").cast(pl.List(pl.Datetime(time_unit="ms")))
-            )
-            return result
+            )                       
         else:
-            # Return empty DataFrame with correct schema
-            return pl.DataFrame({
+            # Set to empty DataFrame with correct schema
+            result = pl.DataFrame({
                 "subject_id": [],
                 "hadm_id": [],
                 "time": [],
@@ -378,7 +414,9 @@ class Tokenizer:
                 "code": pl.Utf8,
                 "tokens": pl.List(pl.Int64),
                 "times": pl.List(pl.Datetime(time_unit="ms"))
-            })
+            })     
+        
+        return result
     
     def time_spacing_inserter(self, tokens, times):
         """Insert time spacing tokens between events based on time differences."""
@@ -566,6 +604,7 @@ class Tokenizer:
                     designator = f"{prefix}_{itemid}"
                     self.vocab.set_aux(designator, quantile_bins)                    
             
+            print(f"DEBUG: About to process {event_config.get('table', 'UNKNOWN')} with prefix {prefix}")
             result = self.process_event_with_values(
                 df,
                 label=prefix,
@@ -575,14 +614,11 @@ class Tokenizer:
             # print("Processed result (first 5 rows):")
             # print(result.head(5).collect())
 
-            # Clean up quantiles for this table since they're no longer needed after token generation
-            if global_quantiles is not None:
-                for itemid in global_quantiles.keys():
-                    designator = f"{prefix}_{itemid}"
-                    if designator in self.vocab.aux:
-                        del self.vocab.aux[designator]
-                print(f"Cleared quantiles for {len(global_quantiles)} itemids from {event_config.get('table', 'UNKNOWN')}")
-
+            # NOTE: We do NOT clean up quantiles here anymore because map_groups is lazy.
+            # Quantiles are needed when map_groups actually executes (during sink_parquet).
+            # Cleanup is now handled in _process_event_with_values when is_new_table is detected,
+            # which happens when the UDF actually runs, ensuring quantiles are still available.
+            
             return result
         else:
             # Process as simple categorical events (only code token)
@@ -711,14 +747,17 @@ class Tokenizer:
         #     event_tokens = self.get_event(data_processor, event_config)
         #     all_event_tokens.append(event_tokens)
         for event_config in self.config["events"]:
+            table_name = event_config.get('table', 'UNKNOWN')
             try:
                 event_tokens = self.get_event(data_processor, event_config)
                 if event_tokens is not None:
                     all_event_tokens.append(event_tokens)
                 else:
-                    print(f"ERROR: get_event returned None for {event_config.get('table', 'UNKNOWN')}")
+                    print(f"ERROR: get_event returned None for {table_name}")
             except Exception as e:
-                print(f"ERROR: get_event failed for {event_config.get('table', 'UNKNOWN')}: {e}")
+                print(f"ERROR: get_event failed for {table_name}: {e}")
+                import traceback
+                traceback.print_exc()
                 # Skip this event entirely - don't append None
        
         # Combine all events 
@@ -864,8 +903,24 @@ class Tokenizer:
 
         print('Writing final results to disk (streaming)')
         # Write results to disk using streaming approach (use configured paths)
+        # EXPERIMENT: Limit number of records written (set to None to write all)
+        limit_records = 100  # Change this number to limit output
+        if limit_records is not None:
+            tt = tt.limit(limit_records)
+            print(f"DEBUG: Writing only first {limit_records} records")
         tt.sink_parquet(str(self.timelines_output_path), compression="snappy", row_group_size=50)
         print(f"Results written to {self.timelines_output_path}")
+        
+        # Clean up quantiles from the last event table processed
+        if self.current_event_table is not None:
+            last_prefix = self.current_event_table
+            keys_to_delete = [k for k in self.vocab.aux.keys() if k.startswith(f"{last_prefix}_")]
+            deleted_count = 0
+            for key in keys_to_delete:
+                del self.vocab.aux[key]
+                deleted_count += 1
+            if deleted_count > 0:
+                print(f"[DEBUG] Cleaned up {deleted_count} quantiles for final prefix '{last_prefix}'")
         
         # Debug: Check final timeline count
         # final_df = pl.scan_parquet(str(self.timelines_output_path))
@@ -1086,9 +1141,10 @@ if __name__ == "__main__":
     # Generate complete timelines for MIMIC-IV data
     timelines_mimiciv = tokenizer_mimiciv.get_tokens_timelines(mimiciv_processor)
 
-    # Generate summary statistics for MIMIC-IV
+    
+    # Generate summary statistics for MIMIC-IV    
     # Provide prefix_filter argument as a list of strings to filter example timelines by prefix
-    summarize(tokenizer_mimiciv, timelines_mimiciv, debug=args.debug)  # Show all examples
+    # summarize(tokenizer_mimiciv, timelines_mimiciv, debug=args.debug)  # Show all examples
     # summarize(tokenizer_mimiciv, timelines_mimiciv, prefix_filter=['RACE', 'VTL'])  # Show only timelines with RACE or VTL tokens
     # summarize(tokenizer_mimiciv, timelines_mimiciv, prefix_filter=['PROC'])  # Show only timelines with procedure tokens
     # summarize(tokenizer_mimiciv, timelines_mimiciv, prefix_filter=['VTL'])
