@@ -318,7 +318,8 @@ class Tokenizer:
                     all_times.append(x[time_col][i])
             
             # Add text value if it exists and passes filters
-            text_val = x["text_value"][i]
+            # If max_text_length is 0, disable text processing entirely
+            text_val = None if max_text_length == 0 else x["text_value"][i]
             if text_val is not None and str(text_val).strip():
                 text_str = str(text_val).strip()
                 
@@ -331,10 +332,6 @@ class Tokenizer:
                     
                     # Clean text: remove spaces and keep only alphanumeric characters
                     text_str = re.sub(r'[^a-zA-Z0-9]', '', text_str)
-                    
-                    # Filter out text values that are too long
-                    if len(text_str) > max_text_length:
-                        text_str = None
                     
                     # Filter out empty strings after cleaning
                     if text_str is not None and len(text_str) == 0:
