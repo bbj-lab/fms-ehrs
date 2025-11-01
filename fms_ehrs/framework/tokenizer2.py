@@ -6,6 +6,7 @@ This separates the tokenization process from data processing and doesn't rely on
 """
 
 from inspect import Arguments
+import time
 import logging
 import argparse
 import os
@@ -217,6 +218,8 @@ class Tokenizer:
         # Group by subject_id, code, and time - each measurement is processed individually
         # Add a unique row identifier using with_row_index to handle cases where 
         # events have the same subject_id, code, and time.
+        # Note: map_groups on LazyGroupBy executes the UDF (materializing groups) and returns a DataFrame,
+        # so we convert back to lazy to maintain the lazy chain and match the return type.
         return (
             df.with_row_index(name="_row_id")
             .group_by("subject_id", "code", "time", "_row_id", maintain_order=True)
@@ -231,6 +234,7 @@ class Tokenizer:
                     "times": pl.List(pl.Datetime(time_unit="ms"))
                 }
             )
+            .lazy()  # Convert back to lazy to maintain lazy evaluation chain
         )
     
     # def process_categorical_value(self, df: Frame, category_col: str, value_col: str, 
@@ -535,10 +539,10 @@ class Tokenizer:
         df = data_processor.get_event_query(event_config)
 
         # Debug: Show what the raw data looks like
-        print("="*50)
-        print(f"Raw event data from table: {event_config.get('table', 'UNKNOWN')} (first 5 rows):")
-        print(df.head(5).collect())
-        print("="*50)
+        # print("="*50)
+        # print(f"Raw event data from table: {event_config.get('table', 'UNKNOWN')} (first 5 rows):")
+        # print(df.head(5).collect())
+        # print("="*50)
                
              
         prefix = event_config["prefix"]
@@ -549,12 +553,13 @@ class Tokenizer:
             # print("Processing as categorical-value pairs with numeric and/or text values")
             
             # Special debugging for lab events
-            if event_config.get("table") == "labevents":
-                print("DEBUG LABEVENTS: About to process lab events data")
-                print(f"DEBUG LABEVENTS: df type: {type(df)}")
-                print(f"DEBUG LABEVENTS: df columns: {df.collect_schema().names()}")
+            # if event_config.get("table") == "labevents":
+                # print("DEBUG LABEVENTS: About to process lab events data")
+                # print(f"DEBUG LABEVENTS: df type: {type(df)}")
+                # print(f"DEBUG LABEVENTS: df columns: {df.collect_schema().names()}")
             
             # NEW: Pre-compute global quantiles for this event table
+            global_quantiles = None
             if "numeric_value" in df.collect_schema().names():
                 print(f"Computing global quantiles for {event_config.get('table', 'UNKNOWN')}...")
                 global_quantiles = self._compute_global_quantiles(df, label=prefix)
@@ -570,8 +575,16 @@ class Tokenizer:
             ).select("subject_id", "hadm_id", "tokens", "times")
 
             # Debug: Show what the processed result looks like
-            print("Processed result (first 5 rows):")
-            print(result.head(5).collect())
+            # print("Processed result (first 5 rows):")
+            # print(result.head(5).collect())
+
+            # Clean up quantiles for this table since they're no longer needed after token generation
+            if global_quantiles is not None:
+                for itemid in global_quantiles.keys():
+                    designator = f"{prefix}_{itemid}"
+                    if designator in self.vocab.aux:
+                        del self.vocab.aux[designator]
+                print(f"Cleared quantiles for {len(global_quantiles)} itemids from {event_config.get('table', 'UNKNOWN')}")
 
             return result
         else:
@@ -599,11 +612,11 @@ class Tokenizer:
                 .select("subject_id", "hadm_id", "tokens", "times")
             )
             
-            print(f"DEBUG: Simple categorical result schema: {result.collect_schema()}")
-            print(f"DEBUG: Simple categorical result columns: {result.collect_schema().names()}")
+            # print(f"DEBUG: Simple categorical result schema: {result.collect_schema()}")
+            # print(f"DEBUG: Simple categorical result columns: {result.collect_schema().names()}")
             
-            print("Processed result (first 5 rows):")
-            print(result.head(5).collect())
+            # print("Processed result (first 5 rows):")
+            # print(result.head(5).collect())
             return result
 
 
@@ -683,17 +696,17 @@ class Tokenizer:
         """
         # Process prefix tables
         prefix_query = data_processor.get_prefix_query()
-        print(f"DEBUG: Prefix query has {prefix_query.collect().height} patients")
-        print('DEBUG: prefix_query schema:', prefix_query.collect_schema())
-        print('DEBUG: prefix_query columns:', prefix_query.collect_schema().names())
+        # print(f"DEBUG: Prefix query has {prefix_query.collect().height} patients")
+        # print('DEBUG: prefix_query schema:', prefix_query.collect_schema())
+        # print('DEBUG: prefix_query columns:', prefix_query.collect_schema().names())
         
         prefix_tokens = self.process_prefix_data(prefix_query)
-        print(f"DEBUG: Prefix tokens has {prefix_tokens.collect().height} patients")
-        print('DEBUG: prefix_tokens schema:', prefix_tokens.collect_schema())
-        print('DEBUG: prefix_tokens columns:', prefix_tokens.collect_schema().names())
+        # print(f"DEBUG: Prefix tokens has {prefix_tokens.collect().height} patients")
+        # print('DEBUG: prefix_tokens schema:', prefix_tokens.collect_schema())
+        # print('DEBUG: prefix_tokens columns:', prefix_tokens.collect_schema().names())
         
-        print('debug prefix')
-        print(prefix_query.head(10).collect())
+        # print('debug prefix')
+        # print(prefix_query.head(10).collect())
 
         # Process event tables
         all_event_tokens = []
@@ -720,15 +733,13 @@ class Tokenizer:
             # This preserves pairing within each event while ensuring chronological order
             events = (
                 stacked
-                .with_columns(
-                    # Create a sort key from the first timestamp in each event
-                    sort_time = pl.col("times").list.first()
-                )
-                .sort(["hadm_id", "sort_time"])
-                .group_by("hadm_id", maintain_order=True)
+                .select("hadm_id", "tokens", "times")
+                # Flatten per-event lists to rows while keeping alignment
+                .explode(["tokens", "times"])
+                .group_by("hadm_id")
                 .agg(
-                    tokens = pl.col("tokens").list.eval(pl.element()).explode(),
-                    times  = pl.col("times").list.eval(pl.element()).explode(),
+                    times  = pl.col("times").sort(),
+                    tokens = pl.col("tokens").sort_by(pl.col("times")),
                 )
             )
             
@@ -739,8 +750,8 @@ class Tokenizer:
             #     tokens = row["tokens"]
             #     token_names = [self.vocab.reverse.get(t, f"UNK_{t}") for t in tokens[:20]]  # First 20 tokens
             #     print(f"  Event {i}: {token_names}")
-            print('DEBUG: events schema:', events.collect_schema())
-            print('DEBUG: events columns:', events.collect_schema().names())
+            # print('DEBUG: events schema:', events.collect_schema())
+            # print('DEBUG: events columns:', events.collect_schema().names())
             
             # Apply time spacing tokens if enabled
             if self.include_time_spacing_tokens:
@@ -762,24 +773,24 @@ class Tokenizer:
                 tokens=pl.lit([]).cast(pl.List(pl.Int64)),
                 times=pl.lit([]).cast(pl.List(pl.Datetime(time_unit="ms")))
             )
-            print('DEBUG: events (empty) schema:', events.collect_schema())
-            print('DEBUG: events (empty) columns:', events.collect_schema().names())
+            # print('DEBUG: events (empty) schema:', events.collect_schema())
+            # print('DEBUG: events (empty) columns:', events.collect_schema().names())
 
         # print('debug events')
         # print(events.limit(10).collect())
 
         # Process suffix
         suffix_query = data_processor.get_suffix_query()  
-        print('DEBUG: suffix_query schema:', suffix_query.collect_schema())
-        print('DEBUG: suffix_query columns:', suffix_query.collect_schema().names())
-        print('DEBUG: suffix_query sample data:')
-        print(suffix_query.head(5).collect())
+        # print('DEBUG: suffix_query schema:', suffix_query.collect_schema())
+        # print('DEBUG: suffix_query columns:', suffix_query.collect_schema().names())
+        # print('DEBUG: suffix_query sample data:')
+        # print(suffix_query.head(5).collect())
         
         suffix_tokens = self.process_suffix_data(suffix_query)
-        print('DEBUG: suffix_tokens schema:', suffix_tokens.collect_schema())
-        print('DEBUG: suffix_tokens columns:', suffix_tokens.collect_schema().names())
-        print('debug suffix tokens')
-        print(suffix_tokens.limit(10).collect())
+        # print('DEBUG: suffix_tokens schema:', suffix_tokens.collect_schema())
+        # print('DEBUG: suffix_tokens columns:', suffix_tokens.collect_schema().names())
+        # print('debug suffix tokens')
+        # print(suffix_tokens.limit(10).collect())
         
         # Debug: Check for duplicate hadm_ids
         # print("DEBUG: Checking for duplicate hadm_ids...")
@@ -799,13 +810,13 @@ class Tokenizer:
         #     print(suffix_duplicates.head())
 
         # Debug: Check columns before final joins
-        print('DEBUG: Before final joins:')
-        print('  prefix_tokens columns:', prefix_tokens.collect_schema().names())
-        print('  prefix_tokens schema:', prefix_tokens.collect_schema())
-        print('  events columns:', events.collect_schema().names())
-        print('  events schema:', events.collect_schema())
-        print('  suffix_tokens columns:', suffix_tokens.collect_schema().names())
-        print('  suffix_tokens schema:', suffix_tokens.collect_schema())
+        # print('DEBUG: Before final joins:')
+        # print('  prefix_tokens columns:', prefix_tokens.collect_schema().names())
+        # print('  prefix_tokens schema:', prefix_tokens.collect_schema())
+        # print('  events columns:', events.collect_schema().names())
+        # print('  events schema:', events.collect_schema())
+        # print('  suffix_tokens columns:', suffix_tokens.collect_schema().names())
+        # print('  suffix_tokens schema:', suffix_tokens.collect_schema())
         
         # Combine all components
         tt = (
@@ -836,11 +847,10 @@ class Tokenizer:
                 ),
             )
             .select("subject_id", "hadm_id", "tokens", "times")
-            .sort(by="hadm_id")
         )
         
         # Debug: Check final DataFrame columns
-        print('DEBUG: Final DataFrame columns after joins:', tt.collect_schema().names())
+        # print('DEBUG: Final DataFrame columns after joins:', tt.collect_schema().names())
         
         # Apply filters
         # if self.day_stay_filter:
@@ -857,13 +867,13 @@ class Tokenizer:
 
         print('Writing final results to disk (streaming)')
         # Write results to disk using streaming approach (use configured paths)
-        tt.sink_parquet(str(self.timelines_output_path))
+        tt.sink_parquet(str(self.timelines_output_path), compression="snappy", row_group_size=50)
         print(f"Results written to {self.timelines_output_path}")
         
         # Debug: Check final timeline count
-        final_df = pl.scan_parquet(str(self.timelines_output_path))
-        print(f"DEBUG: Final timelines has {final_df.collect().height} patients")
-        print(f"DEBUG: Final timelines with null tokens: {final_df.filter(pl.col('tokens').is_null()).collect().height}")
+        # final_df = pl.scan_parquet(str(self.timelines_output_path))
+        # print(f"DEBUG: Final timelines has {final_df.collect().height} patients")
+        # print(f"DEBUG: Final timelines with null tokens: {final_df.filter(pl.col('tokens').is_null()).collect().height}")
         
         # Save vocabulary for later use (always save)
         self.vocab.save(str(self.vocab_save_path))
@@ -1048,9 +1058,9 @@ if __name__ == "__main__":
     # summarize(tokenizer, timelines)
 
     # Example usage with MIMIC-IV data processor
-    print("\n" + "="*50)
-    print("MIMIC-IV Data Processor Example")
-    print("="*50)
+    # print("\n" + "="*50)
+    # print("MIMIC-IV Data Processor Example")
+    # print("="*50)
     
     # Import MIMIC-IV data processor
     from preprocessing.mimiciv_data_processor import MIMICIVDataProcessor
