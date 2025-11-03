@@ -9,11 +9,12 @@
     dependencies = [
         "datasets>=3.2",
         "fire>=0.7",
+        "jax[cuda12]<=0.4.29",
         "joblib>=1.4",
         "kaleido>=0.2,<1",
         "lightgbm>=4.5",
         "numba>=0.61",
-        "numpy>=1.26,<2",
+        "numpy>=1.26",
         "optuna>=4.2",
         "pacmap==0.8.0",
         "pandas>=2.2",
@@ -57,12 +58,13 @@
         [tool.ruff.lint.isort]
             known-first-party = [ "fms_ehrs" ]
 
-[tool.setuptools.packages]
-    find = {}
+[tool.setuptools.packages.find]
+    include = [ "fms_ehrs" ]
 
 [build-system]
     build-backend = "setuptools.build_meta"
     requires      = [ "setuptools>=75.0", "wheel", "ninja" ]
 
 [tool.uv]
-    no-cache = true
+    exclude-newer = "2025-07-31T00:00:00Z"
+    no-cache      = true

@@ -1,0 +1,106 @@
+%YAML 1.2
+---
+# Tokenizer configuration - defines how to tokenize data
+tokenizer:
+  subject_id: hospitalization_id
+  max_padded_len: 1024
+  quantizer: deciles
+  include_time_spacing_tokens: false
+  cut_at_24h: false
+  day_stay_filter: true
+
+# Data source configuration
+data:
+  reference_table: clif_hospitalization
+  start_time: admission_dttm
+  end_time: discharge_dttm
+  augmentation_tables:
+    - table: clif_patient
+      key: patient_id
+      validation: "m:1"
+  times_qc:
+    table: clif_vitals
+    time: recorded_dttm
+
+# Prefix tokens (demographics, admission info)
+prefix:
+  - column: race
+    prefix: RACE
+  - column: ethnicity
+    prefix: ETHN
+  - column: sex
+    prefix: SEX
+  - column: age_at_admission
+    quantize: true
+  - column: admission_type
+    prefix: ADMN
+
+# Event tokens (labs, vitals, medications, etc.)
+events:
+  - table: clif_adt
+    prefix: XFR
+    code: location_category
+    numeric_value: ~
+    text_value: ~
+    time: in_dttm
+
+  - table: clif_labs
+    prefix: LAB
+    code: lab_category
+    numeric_value: lab_value_numeric
+    text_value: ~
+    time: lab_result_dttm
+
+  - table: clif_vitals
+    prefix: VTL
+    code: vital_category
+    numeric_value: vital_value
+    text_value: ~
+    time: recorded_dttm
+
+  - table: clif_medication_admin_continuous
+    prefix: MED
+    code: med_category
+    numeric_value: med_dose
+    text_value: ~
+    time: admin_dttm
+
+  # quantitative assessments
+  - table: clif_patient_assessments
+    prefix: ASMT
+    filter: pl.col("numerical_value").is_not_null()
+    code: assessment_category
+    numeric_value: numerical_value
+    text_value: ~
+    time: recorded_dttm
+
+  #qualitative assessments
+  - table: clif_patient_assessments
+    prefix: ASMT
+    filter: pl.col("numerical_value").is_null()
+    code: assessment_category
+    numeric_value: ~
+    text_value: categorical_value
+    time: recorded_dttm
+
+  - table: clif_respiratory_support
+    prefix: RESP
+    code:
+        - mode_category
+        - device_category
+    numeric_value: ~
+    text_value: ~
+    time: recorded_dttm
+
+  - table: clif_position
+    prefix: POSN
+    filter: pl.col("position_category") == "prone"
+    code: position_category
+    numeric_value: ~
+    text_value: ~
+    time: recorded_dttm
+
+# Suffix tokens (discharge info)
+suffix:
+  - column: discharge_category
+    prefix: DSCG

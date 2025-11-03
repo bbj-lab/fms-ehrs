@@ -56,7 +56,7 @@ featfiles = sorted(
 )
 
 
-def get_urt_slice_from_shard(f: pathlib.PurePath) -> np.array:
+def get_urt_slice_from_shard(f: pathlib.PurePath) -> np.ndarray:
     raw = np.load(f)  # shape n_obs × tl_len × d_rep
     lens = np.argmin(np.isfinite(raw[:, :, 0]), axis=1)
     lens[lens == 0] = raw.shape[1]  # all finite gives 0

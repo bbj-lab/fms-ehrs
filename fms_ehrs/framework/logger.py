@@ -32,7 +32,7 @@ class SlurmLogger(logging.Logger):
             self.addHandler(ch)
         self.propagate = False
 
-    def log_env(self):
+    def log_env(self) -> None:
         self.info("from {}".format(os.getcwd()))
         self.info("with Python {}".format(sys.version))
         self.info("on {}".format(os.uname().nodename))
@@ -88,7 +88,7 @@ def get_logger() -> SlurmLogger | logging.Logger:
     return logging.getLogger("fms-ehrs-reps")
 
 
-def log_summary(arr: np.array, logger: logging.Logger) -> None:
+def log_summary(arr: np.ndarray, logger: logging.Logger) -> None:
     """log some summary stats for the array `arr`"""
     logger.info("Array of shape: {}".format(arr.shape))
     logger.info("Pct non-nan: {:.2f}".format(100 * np.isfinite(arr).mean()))
@@ -101,8 +101,8 @@ def log_summary(arr: np.array, logger: logging.Logger) -> None:
 
 
 def log_classification_metrics(
-    y_true: np.array, y_score: np.array, logger: logging.Logger
-):
+    y_true: np.ndarray, y_score: np.ndarray, logger: logging.Logger
+) -> None:
     """evaluate a classifier under a variety of metrics"""
     assert y_true.shape[0] == y_score.shape[0]
 

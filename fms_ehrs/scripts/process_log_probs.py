@@ -91,7 +91,7 @@ ent = {v: np.nanmean(infm[v], axis=1) for v in versions}
 inf_sum = {v: np.nansum(infm[v], axis=1) for v in versions}
 
 tl = {
-    v: np.array(
+    v: np.ndarray(
         pl.scan_parquet(data_dirs[v]["test"].joinpath("tokens_timelines.parquet"))
         .select("padded")
         .collect()
@@ -113,7 +113,7 @@ tm = {
 samp = {"orig": args.samp_orig, "new": args.samp_new}
 
 ids = {
-    v: np.array(
+    v: np.ndarray(
         pl.scan_parquet(data_dirs[v]["test"].joinpath("tokens_timelines.parquet"))
         .select("hospitalization_id")
         .collect()
