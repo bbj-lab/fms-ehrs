@@ -1,0 +1,77 @@
+%YAML 1.2
+---
+# Tokenizer configuration for MIMIC-IV dataset
+tokenizer:
+  subject_id: subject_id
+  max_padded_len: 1024
+  quantizer: deciles
+  include_time_spacing_tokens: false
+  cut_at_24h: false
+  day_stay_filter: true
+
+# Data source configuration
+data:
+  reference_table: admissions
+  start_time: admittime
+  end_time: dischtime
+  augmentation_tables:
+    - table: patients
+      key: subject_id
+      validation: "m:1"
+  times_qc:
+    table: icu/chartevents
+    time: charttime
+
+# Prefix tokens (demographics, admission info)
+prefix:
+  - column: race
+    prefix: RACE
+  - column: ethnicity
+    prefix: ETHN
+  - column: sex
+    prefix: SEX
+  - column: age_at_admission
+    quantize: true
+  - column: admission_type
+    prefix: ADMN
+
+# Event tokens (labs, vitals, medications, etc.)
+events:
+  # ICU Chart Events (vitals, measurements)
+  - table: icu/chartevents
+    prefix: VTL
+    code: itemid
+    numeric_value: valuenum
+    text_value: value
+    time: charttime
+    filter: pl.col("valuenum").is_not_null()
+
+  # Lab Events
+  - table: labevents
+    prefix: LAB
+    code: itemid
+    numeric_value: valuenum
+    text_value: value
+    time: charttime
+    filter: pl.col("valuenum").is_not_null()
+
+  # ICD Diagnoses
+  - table: diagnoses_icd
+    prefix: DIAG
+    code: icd_code
+    numeric_value: ~
+    text_value: ~
+    time: ~
+
+  # ICD Procedures
+  - table: procedures_icd
+    prefix: PROC
+    code: icd_code
+    numeric_value: ~
+    text_value: ~
+    time: chartdate
+
+# Suffix tokens (discharge info)
+suffix:
+  - column: discharge_category
+    prefix: DSCG
