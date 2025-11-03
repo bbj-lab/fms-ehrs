@@ -158,8 +158,9 @@ For example, the first few tokens for a timeline might look like this:
     `/gpfs/data/bbj-lab/.envs/apptainer`), you can define something like
 
     ```sh
+    export hm="/gpfs/data/bbj-lab/users/$(whoami)"
     python3() {
-        apptainer exec --nv /gpfs/data/bbj-lab/users/burkh4rt/env.sif python3 "$@"
+        apptainer exec --bind $hm:$hm --nv /gpfs/data/bbj-lab/users/burkh4rt/env.sif python3 "$@"
     }
     ```
 
@@ -211,11 +212,10 @@ rsync -avht \
 
 Run on randi:
 ```
-systemd-run --scope --user tmux new -s t3q
-systemd-run --scope --user tmux new -s t2q
-srun -p tier2q \
-  --mem=25GB \
-  --time=8:00:00 \
+systemd-run --scope --user tmux new -s t3q || tmux a -t t3q
+srun -p tier3q \
+  --mem=100GB \
+  --time=1:00:00 \
   --job-name=adhoc \
   --pty bash -i
 source venv/bin/activate
@@ -223,7 +223,7 @@ source venv/bin/activate
 
 Troubleshoot:
 ```
-systemd-run --scope --user tmux new -s gpuq
+systemd-run --scope --user tmux new -s gpuq || tmux a -t gpuq
 srun -p gpudev \
   --gres=gpu:1 \
   --time=8:00:00 \
@@ -263,63 +263,10 @@ Install directly from github:
 pip install -e "git+https://github.com/bbj-lab/clif-tokenizer.git@main#egg=fms-ehrs"
 ```
 
-
-Apptainer:
-
-```sh
-export TMPDIR="/scratch/$(whoami)/cache"
-export APPTAINER_TMPDIR="/scratch/$(whoami)/cache"
-export APPTAINER_CACHEDIR="/scratch/$(whoami)/cache"
-
-apptainer build env.sif env.def
-apptainer run --nv env.sif
-apptainer exec --nv env.sif ls
-```
-
-`env.def`:
-```
-Bootstrap: docker
-From: python:3.12.11-bullseye
-
-%files
-    pyproject.toml
-    fms_ehrs/
-
-%post
-    pip install uv
-    uv pip install --torch-backend=cu128 --link-mode=copy .
-```
-
-Add to `preamble.sh`:
-
-```
-python3() {
-    apptainer exec --nv ~/env.sif python3 "$@"
-}
-
-torchrun() {
-    apptainer exec --nv ~/env.sif torchrun "$@"
-}
-```
-
-Don't do this on a mac -- you'll never get cuda:
-```
-brew install lima
-limactl start template://apptainer
-limactl shell apptainer
-mkdir -p ~/build
-apptainer build ~/build/env.sif env.def
-exit
-limactl cp apptainer:~/build/env.sif ~/Downloads/env.sif
-limactl stop apptainer
-limactl delete apptainer
-```
-
 Fix permissions:
 
 ```sh
 chgrp -R cri-bbj_lab *
 chmod -R +770 *
 ```
-
 -->

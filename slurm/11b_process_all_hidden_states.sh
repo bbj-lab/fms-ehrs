@@ -34,4 +34,3 @@ python3 ../fms_ehrs/scripts/process_all_trajectories.py \
     --data_version QC_day_stays_first_24h \
     --model_loc "${hm}/mdls-archive/llama1b-57928921-run1" \
     --splits "${splits[$j]}"
-

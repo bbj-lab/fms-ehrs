@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 
 """
-learn the tokenizer on the training set and apply it to the validation and test sets
+learn the tokenizer on the training set and apply it to the validation and test
+sets
 """
 
 import os
@@ -11,7 +12,8 @@ import fire as fi
 
 from fms_ehrs.framework.logger import get_logger
 from fms_ehrs.framework.storage import set_perms
-from fms_ehrs.framework.tokenizer import ClifTokenizer, summarize
+from fms_ehrs.framework.tokenizer_old import ClifTokenizer
+from fms_ehrs.framework.tokenizer_base import summarize
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
