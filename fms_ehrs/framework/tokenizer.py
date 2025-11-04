@@ -199,9 +199,11 @@ class Tokenizer21(BaseTokenizer):
                 label=prefix,
             ).select(self.config["subject_id"], "event_time", "tokens", "times")
         else:
-            category_list = [code] if type(code) is str else code
+            category_list = [code] if isinstance(code, str) else code
             if text_value is not None:
-                category_list += [text_value] if type(text_value) is str else text_value
+                category_list += (
+                    [text_value] if isinstance(text_value, str) else text_value
+                )
             # tokenize provided categories directly
             return df.select(
                 pl.col(self.config["subject_id"]),
@@ -327,4 +329,25 @@ if __name__ == "__main__":
         dev_dir.joinpath("clif_medication_admin_intermittent.parquet")
     ).select("mar_action_name").to_series().value_counts().sort(
         "count", descending=True
+    )
+
+    print(
+        tt21.with_columns(
+            prefix=pl.col("tokens")
+            .list.head(n=6)
+            .list.eval(
+                pl.element().map_elements(
+                    lambda v: tkzr21.vocab.reverse[v], return_dtype=pl.String
+                )
+            )
+            .list.join(", "),
+            suffix=pl.col("tokens")
+            .list.tail(2)
+            .list.eval(
+                pl.element().map_elements(
+                    lambda v: tkzr21.vocab.reverse[v], return_dtype=pl.String
+                )
+            )
+            .list.join(", "),
+        )
     )

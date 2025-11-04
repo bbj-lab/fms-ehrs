@@ -503,7 +503,7 @@ def validate_timeline(timeline: List[str], hadm_id: int, mimic_path: str):
                 print("  - " + msg)
 
     # Analyze each lab token
-    print(f"\n📋 Detailed Analysis:")
+    print("\n📋 Detailed Analysis:")
     print("=" * 80)
 
     for i, (pos, itemid, quantile) in enumerate(lab_tokens):
@@ -534,7 +534,7 @@ def validate_timeline(timeline: List[str], hadm_id: int, mimic_path: str):
                         sample_values = numeric_values.head(5).to_list()
                         print(f"    🔍 Sample: {sample_values}")
                     else:
-                        print(f"    ⚠️  No numeric values found")
+                        print("    ⚠️  No numeric values found")
                         # Show raw values instead
                         sample_values = values.head(5).to_list()
                         print(f"    🔍 Raw sample: {sample_values}")
@@ -544,9 +544,9 @@ def validate_timeline(timeline: List[str], hadm_id: int, mimic_path: str):
                     sample_values = values.head(5).to_list()
                     print(f"    🔍 Raw sample: {sample_values}")
             else:
-                print(f"    ⚠️  No valid values found")
+                print("    ⚠️  No valid values found")
         else:
-            print(f"    ❌ No data found for this itemid")
+            print("    ❌ No data found for this itemid")
 
         print()
 
@@ -561,7 +561,7 @@ def validate_timeline(timeline: List[str], hadm_id: int, mimic_path: str):
     )
 
     print("=" * 80)
-    print(f"📊 SUMMARY:")
+    print("📊 SUMMARY:")
     print(f"  ✅ Lab tokens with actual data: {tokens_with_data}/{len(lab_tokens)}")
     print(
         f"  ❌ Lab tokens without data: {len(lab_tokens) - tokens_with_data}/{len(lab_tokens)}"
@@ -569,7 +569,7 @@ def validate_timeline(timeline: List[str], hadm_id: int, mimic_path: str):
     print(f"  📈 Total actual lab results: {len(actual_data)}")
 
     # Check for specific patterns
-    print(f"\n🔍 PATTERN ANALYSIS:")
+    print("\n🔍 PATTERN ANALYSIS:")
 
     # Count LAB_51222 occurrences
     lab_51222_count = sum(1 for _, itemid, _ in lab_tokens if itemid == 51222)
@@ -588,7 +588,7 @@ def validate_timeline(timeline: List[str], hadm_id: int, mimic_path: str):
                         f"  LAB_51222 value range: {numeric_values.min():.2f} - {numeric_values.max():.2f}"
                     )
                 else:
-                    print(f"  LAB_51222 has non-numeric values")
+                    print("  LAB_51222 has non-numeric values")
             except Exception as e:
                 print(f"  LAB_51222 could not convert to numeric: {e}")
 

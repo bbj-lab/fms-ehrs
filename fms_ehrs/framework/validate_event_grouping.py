@@ -550,7 +550,7 @@ def validate_timeline(timeline: List[str]):
             print(f"\nError {idx}: {error['error']}")
             print(f"  Pattern: {error['pattern']}")
             print(f"  Position: {error['position']}")
-            print(f"  Tokens:")
+            print("  Tokens:")
             for token in error["tokens"]:
                 print(
                     f"    Position {token.position}: {token.base} ({token.token_type})"

@@ -189,7 +189,7 @@ for s in splits:
                     .sink_parquet
                 )(dirs_out[s].joinpath(t.name))
                 continue
-            except pl.exceptions.ColumnNotFoundError as e:
+            except pl.exceptions.ColumnNotFoundError:
                 logger.warning(f"Failed to find {sbj_id_str} in {t}")
             try:
                 set_perms(
@@ -198,7 +198,7 @@ for s in splits:
                     .sink_parquet
                 )(dirs_out[s].joinpath(t.name))
                 continue
-            except pl.exceptions.ColumnNotFoundError as e:
+            except pl.exceptions.ColumnNotFoundError:
                 logger.warning(f"Failed to find {grp_id_str} in {t}")
 
 logger.info("---fin")
