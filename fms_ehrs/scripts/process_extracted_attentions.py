@@ -6,11 +6,13 @@ process importance metrics for all timelines in batches
 
 import argparse
 import gzip
+import itertools
 import os
 import pathlib
 import typing
 
 import numpy as np
+import tqdm as tq
 
 from fms_ehrs.framework.logger import get_logger
 from fms_ehrs.framework.storage import set_perms
@@ -63,9 +65,17 @@ data_dirs = {
 
 for s in args.splits:
     for met in args.metrics:
+        logger.info(f"{s=},{met=}")
         arrs = list(
-            data_dirs[s].glob(
-                "importance-{met}-{mdl}?*.npy".format(met=met, mdl=model_loc.stem)
+            itertools.chain(
+                data_dirs[s].glob(
+                    "importance-{met}-{mdl}?*.npy".format(met=met, mdl=model_loc.stem)
+                ),
+                data_dirs[s].glob(
+                    "importance-{met}-{mdl}?*.npy.gz".format(
+                        met=met, mdl=model_loc.stem
+                    )
+                ),
             )
         )
         if len(arrs) < 2:
@@ -73,14 +83,14 @@ for s in args.splits:
             logger.warning("Skipping...")
             continue
         with gzip.open(arrs.pop(), "rb") as f:
-            arr = np.load(f)
-        for arr_next in arrs:
+            arr = np.load(f).astype(np.float16)
+        for arr_next in tq.tqdm(arrs):
             with gzip.open(arr_next, "rb") as f:
-                new_arr = np.load(f)
+                new_arr = np.load(f).astype(np.float16)
                 arr[new_arr != 0] = new_arr[new_arr != 0]
         if (mask := (arr == 0).all(axis=1)).any():
             logger.warning(
-                f"Likely issues with {mask.sum()} arrays: {np.nonzero(mask)[0]}"
+                f"Likely issues for {met=} in {s=} with {mask.sum()} arrays: {np.nonzero(mask)[0]}"
             )
         set_perms(np.save, compress=True)(
             data_dirs[s].joinpath(

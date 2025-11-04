@@ -175,8 +175,11 @@ for s in args.splits:
                     )
                 case "h20-normed-mean" | "h20-normed-mean_log":
                     # ||af|| = |a|*||f||
-                    alpha_fs_normed = np.abs(attns) * np.expand_dims(
-                        np.linalg.norm(np.matmul(vals, wts), axis=-1), axis=-1
+                    alpha_fs_normed = (
+                        np.abs(attns)
+                        * np.expand_dims(
+                            np.linalg.norm(np.matmul(vals, wts), axis=-1), axis=-1
+                        )
                     )  # n_layers × batch_size × num_heads × sequence_length × sequence_length
                     metrics[met][batch_idx] = token_importance(
                         attentions=alpha_fs_normed, aggregation=met.split("-")[-1]
@@ -192,12 +195,12 @@ for s in args.splits:
                     met=met,
                     mdl=model_loc.stem,
                     sn=(
-                        "-s" + str(ns).zfill(3)
+                        "-s" + str(ns).zfill(4)
                         if (ns := args.batch_num_start) is not None
                         else ""
                     ),
                     en=(
-                        "-e" + str(ne).zfill(3)
+                        "-e" + str(ne).zfill(4)
                         if (ne := args.batch_num_end) is not None
                         else ""
                     ),
