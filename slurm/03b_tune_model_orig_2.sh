@@ -13,7 +13,7 @@ export data_version=W21
 echo "Training an FM on MIMIC data..."
 torchrun --nproc_per_node=2 \
     --rdzv_backend c10d \
-    --rdzv-id "$SLURM_ARRAY_TASK_ID" \
+    --rdzv-id "${SLURM_ARRAY_TASK_ID:-0}" \
     --rdzv-endpoint=localhost:0 \
     ../fms_ehrs/scripts/tune_model.py \
     --n_epochs 10 \

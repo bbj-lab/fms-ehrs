@@ -22,7 +22,7 @@ out_dirs=(
 
 torchrun --nproc_per_node=2 \
     --rdzv_backend c10d \
-    --rdzv-id "$SLURM_ARRAY_TASK_ID" \
+    --rdzv-id "${SLURM_ARRAY_TASK_ID:-0}" \
     --rdzv-endpoint=localhost:0 \
     ../fms_ehrs/scripts/extract_all_hidden_states.py \
     --data_dir "${data_dirs[$SLURM_ARRAY_TASK_ID]}" \
