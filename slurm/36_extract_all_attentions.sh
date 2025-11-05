@@ -5,10 +5,11 @@
 #SBATCH --partition=gpuq
 #SBATCH --time=1-00:00:00
 #SBATCH --gres=gpu:1
+#SBATCH --array=0-6
 
 source preamble.sh
 
-splits=("val")
+splits=("test")
 metrics=(
     "h2o-mean"
     "h2o-mean_log"
@@ -25,10 +26,12 @@ metrics=(
 )
 
 python3 ../fms_ehrs/scripts/extract_all_attentions.py \
-    --data_dir "../../data-ucmc" \
+    --data_dir "../../data-mimic" \
     --data_version "W++" \
     --model_loc "${hm}/mdls-archive/llama-med-60358922_1-hp-W++" \
     --batch_size 16 \
     --metrics "${metrics[@]}" \
     --splits "${splits[@]}" \
+    --batch_num_start $((1000 * SLURM_ARRAY_TASK_ID)) \
+    --batch_num_end $((1000 * (SLURM_ARRAY_TASK_ID + 1))) \
     --use_jax
