@@ -194,7 +194,7 @@ for agg_fn_str in args.agg_fns:
     metrics["SH-100-VA"] = token_importance(
         attns, values=vals, window=100, aggregation=agg_fn_str
     )
-    metrics["NRM-H20"] = token_importance(
+    metrics["NRM-H2O"] = token_importance(
         np.expand_dims(alpha_fs_normed, axis=2), aggregation=agg_fn_str
     )
     for i in range(len(selected_data)):

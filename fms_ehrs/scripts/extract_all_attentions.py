@@ -52,8 +52,8 @@ parser.add_argument(
         "scissorhands-va-20",
         "rollout-mean",
         "rollout-mean_log",
-        "h20-normed-mean",
-        "h20-normed-mean_log",
+        "h2o-normed-mean",
+        "h2o-normed-mean_log",
     ],
 )
 parser.add_argument("--use_jax", action="store_true")
@@ -173,7 +173,7 @@ for s in args.splits:
                     metrics[met][batch_idx] = token_importance(
                         attentions=attns, rollout=True, aggregation=met.split("-")[-1]
                     )
-                case "h20-normed-mean" | "h20-normed-mean_log":
+                case "h2o-normed-mean" | "h2o-normed-mean_log":
                     # ||af|| = |a|*||f||
                     alpha_fs_normed = (
                         np.abs(attns)

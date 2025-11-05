@@ -82,13 +82,13 @@ if __name__ == "__main__":
     for i in range(1000):
         tk_imp = token_importance_orig(att_eg[i])
     t7 = time.time()
-    print("h20: {:.2f}".format((t7 - t6)))
+    print("h2o: {:.2f}".format((t7 - t6)))
 
     t8 = time.time()
     for i in range(1000):
         tk_imp_jax = token_importance(att_eg[i])
     t9 = time.time()
-    print("jax h20: {:.2f}".format((t9 - t8)))
+    print("jax h2o: {:.2f}".format((t9 - t8)))
 
     assert np.allclose(tk_imp, tk_imp_jax, rtol=1e-4, atol=1e-5)
 
@@ -102,7 +102,7 @@ if __name__ == "__main__":
     for i in range(1000):
         tk_imp_sh_jax = token_importance(att_eg[i], window=10)
     t13 = time.time()
-    print("jax h20: {:.2f}".format((t13 - t12)))
+    print("jax h2o: {:.2f}".format((t13 - t12)))
 
     assert np.allclose(tk_imp_sh, tk_imp_sh_jax, rtol=1e-4, atol=1e-5)
 
