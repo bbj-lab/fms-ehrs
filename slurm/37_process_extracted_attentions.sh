@@ -20,8 +20,8 @@ metrics=(
     "scissorhands-va-20"
     "rollout-mean"
     "rollout-mean_log"
-    "h20-normed-mean"
-    "h20-normed-mean_log"
+    "h2o-normed-mean"
+    "h2o-normed-mean_log"
 )
 
 for ddir in "${data_dirs[@]}"; do

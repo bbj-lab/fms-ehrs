@@ -355,7 +355,7 @@ if __name__ == "__main__":
     for i in range(1000):
         tk_imp = token_importance(att_eg[i])
     t7 = time.time()
-    print("h20: {:.2f}".format((t7 - t6)))
+    print("h2o: {:.2f}".format((t7 - t6)))
 
     t10 = time.time()
     for i in range(1000):
