@@ -1,0 +1,17 @@
+#!/bin/bash
+
+#SBATCH --job-name=partition-data
+#SBATCH --output=./output/%j-%x.stdout
+#SBATCH --partition=tier3q
+#SBATCH --mem=100GB
+#SBATCH --time=1:00:00
+
+source preamble.sh
+
+python3 ../fms_ehrs/scripts/partition_w_config.py \
+    --data_dir_in "${hm}/mimiciv-3.1" \
+    --data_dir_out "${hm}/mimiciv-3.1-dev" \
+    --data_version_out raw \
+    --config_loc "${hm}/fms-ehrs-reps/fms_ehrs/config/config-mimiciv.yaml" \
+    --development_sample \
+    --dev_frac 0.01

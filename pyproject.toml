@@ -7,6 +7,7 @@
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
     ]
     dependencies = [
+        "captum~=0.8.0",
         "datasets>=3.2",
         "fire>=0.7",
         "jax[cuda12]<=0.4.29",
