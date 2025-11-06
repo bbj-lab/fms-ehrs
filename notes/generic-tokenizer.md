@@ -1,10 +1,10 @@
 # Generic Tokenizer
 
-The [fms_ehrs/framework/tokenizer2.py](fms_ehrs/framework/tokenizer2.py) script
-is a generic tokenizer that builds tokenized timelines from EHR data. It
+See[https://github.com/bbj-lab/generic-ehr-tokenizer](https://github.com/bbj-lab/generic-ehr-tokenizer)
+for a generic tokenizer that builds tokenized timelines from EHR data. It
 decouples tokenization logic from data pre-processing by requiring a data
-processor class that implements three methods: get_prefix_query, get_event_query,
-and get_suffix_query.
+processor class that implements three methods: `get_prefix_query`,
+`get_event_query`, and `get_suffix_query`.
 
 ## Required Data Processor Interface
 
