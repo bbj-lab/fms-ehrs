@@ -121,7 +121,7 @@ dataset = (
 for s in args.splits:
     n = dataset[s].num_rows
     tl_len = len(dataset[s].select(range(1))["input_ids"][0])
-    metrics = {k: np.zeros(shape=(n, tl_len)) for k in args.metrics}
+    metrics = {k: np.zeros(shape=(n, tl_len), dtype=np.float16) for k in args.metrics}
     batches = t.split(t.arange(n), args.batch_size)
     logger.warning(f"For split {s=}, {len(batches)=} in total are required.")
     for batch_num, batch_idx in tqdm(enumerate(batches)):
@@ -151,39 +151,36 @@ for s in args.splits:
                 case "h2o-mean" | "h2o-mean_log":
                     metrics[met][batch_idx] = token_importance(
                         attentions=attns, aggregation=met.split("-")[-1]
-                    )
+                    ).astype(np.float16)
                 case "h2o-va-mean" | "h2o-va-mean_log":
                     metrics[met][batch_idx] = token_importance(
                         attentions=attns, values=vals, aggregation=met.split("-")[-1]
-                    )
+                    ).astype(np.float16)
                 case "scissorhands-10" | "scissorhands-20":
                     metrics[met][batch_idx] = token_importance(
                         attentions=attns,
                         window=int(met.split("-")[-1]),
                         aggregation="mean",
-                    )
+                    ).astype(np.float16)
                 case "scissorhands-va-10" | "scissorhands-va-20":
                     metrics[met][batch_idx] = token_importance(
                         attentions=attns,
                         values=vals,
                         window=int(met.split("-")[-1]),
                         aggregation="mean",
-                    )
+                    ).astype(np.float16)
                 case "rollout-mean" | "rollout-mean_log":
                     metrics[met][batch_idx] = token_importance(
                         attentions=attns, rollout=True, aggregation=met.split("-")[-1]
-                    )
+                    ).astype(np.float16)
                 case "h2o-normed-mean" | "h2o-normed-mean_log":
                     # ||af|| = |a|*||f||
-                    alpha_fs_normed = (
-                        np.abs(attns)
-                        * np.expand_dims(
-                            np.linalg.norm(np.matmul(vals, wts), axis=-1), axis=-1
-                        )
+                    alpha_fs_normed = np.abs(attns) * np.expand_dims(
+                        np.linalg.norm(np.matmul(vals, wts), axis=-1), axis=-1
                     )  # n_layers × batch_size × num_heads × sequence_length × sequence_length
                     metrics[met][batch_idx] = token_importance(
                         attentions=alpha_fs_normed, aggregation=met.split("-")[-1]
-                    )
+                    ).astype(np.float16)
             for i, j in enumerate(first_stop_idx.cpu().numpy().ravel()):
                 if j > 0:
                     metrics[met][batch_idx[i], j + 1 :] = np.nan

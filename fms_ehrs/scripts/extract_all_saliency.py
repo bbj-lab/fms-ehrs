@@ -103,3 +103,5 @@ set_perms(np.save, compress=True)(
     data_dirs["test"].joinpath("saliency-{mdl}.npy".format(mdl=model_loc.stem)),
     saliency,
 )
+
+logger.info("---fin")
