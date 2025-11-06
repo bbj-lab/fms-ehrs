@@ -5,7 +5,7 @@
 #SBATCH --partition=gpuq
 #SBATCH --time=1-00:00:00
 #SBATCH --gres=gpu:1
-#SBATCH --array=0-6
+#SBATCH --array=0-3
 
 source preamble.sh
 
@@ -26,8 +26,8 @@ metrics=(
 )
 
 python3 ../fms_ehrs/scripts/extract_all_attentions.py \
-    --data_dir "../../data-mimic" \
-    --data_version "W++" \
+    --data_dir "${hm}/data-ucmc" \
+    --data_version "W++_first_24h" \
     --model_loc "${hm}/mdls-archive/llama-med-60358922_1-hp-W++" \
     --batch_size 16 \
     --metrics "${metrics[@]}" \

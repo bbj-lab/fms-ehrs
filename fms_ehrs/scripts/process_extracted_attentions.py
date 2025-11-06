@@ -96,7 +96,7 @@ for s in args.splits:
             data_dirs[s].joinpath(
                 "importance-{met}-{mdl}.npy.gz".format(met=met, mdl=model_loc.stem)
             ),
-            arr,
+            arr.astype(np.float16),
         )
 
 
