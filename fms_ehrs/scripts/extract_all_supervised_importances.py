@@ -10,13 +10,13 @@ import pathlib
 import datasets as ds
 import numpy as np
 import torch as t
-from transformers import AutoModelForSequenceClassification
-from captum.attr import Saliency
 import tqdm as tq
+from captum.attr import NoiseTunnel, Saliency
+from transformers import AutoModelForSequenceClassification
 
 from fms_ehrs.framework.logger import get_logger
-from fms_ehrs.framework.util import rt_padding_to_left
 from fms_ehrs.framework.storage import set_perms
+from fms_ehrs.framework.util import rt_padding_to_left
 from fms_ehrs.framework.vocabulary import Vocabulary
 
 logger = get_logger()
@@ -24,7 +24,7 @@ logger.info("running {}".format(__file__))
 logger.log_env()
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--batch_size", type=int, default=64)
+parser.add_argument("--batch_size", type=int, default=32)
 parser.add_argument(
     "--model_loc",
     type=pathlib.Path,
@@ -42,6 +42,7 @@ parser.add_argument(
     ],
     default="same_admission_death",
 )
+parser.add_argument("--noise_tunnel", action="store_true")
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -65,10 +66,7 @@ dataset = (
         },
     )
     .map(
-        lambda x: {
-            "same_admission_death_24h": False,
-            "long_length_of_stay_24h": False,
-        }
+        lambda x: {"same_admission_death_24h": False, "long_length_of_stay_24h": False}
     )
     .select_columns(["padded", args.outcome, f"{args.outcome}_24h"])
     .with_format("torch")
@@ -89,18 +87,41 @@ def forward_func(ems):
 
 
 s = Saliency(forward_func)
+if args.noise_tunnel:
+    nt = NoiseTunnel(s)
+
 input_ids = t.stack(list(dataset["test"]["input_ids"]))
 saliency = np.zeros(shape=input_ids.shape, dtype=np.float32)
 batches = t.split(t.arange(saliency.shape[0]), args.batch_size)
 
 for batch_idx in tq.tqdm(batches):
     batch_embeds = model.get_input_embeddings()(input_ids[batch_idx].to("cuda"))
-    attributions = t.norm(s.attribute(inputs=batch_embeds), dim=-1)
-    saliency[batch_idx] = attributions.cpu().detach().numpy().astype(np.float32)
-
+    saliency[batch_idx] = (
+        t.norm(
+            (
+                nt.attribute(
+                    batch_embeds,
+                    nt_type="smoothgrad",
+                    nt_samples=5,
+                    nt_samples_batch_size=1,
+                )
+                if args.noise_tunnel
+                else s.attribute(inputs=batch_embeds)
+            ),
+            dim=-1,
+        )
+        .cpu()
+        .detach()
+        .numpy()
+        .astype(np.float32)
+    )
 
 set_perms(np.save, compress=True)(
-    data_dirs["test"].joinpath("saliency-{mdl}.npy".format(mdl=model_loc.stem)),
+    data_dirs["test"].joinpath(
+        ("smoothgrad-{mdl}.npy" if args.noise_tunnel else "saliency-{mdl}.npy").format(
+            mdl=model_loc.stem
+        )
+    ),
     saliency,
 )
 
