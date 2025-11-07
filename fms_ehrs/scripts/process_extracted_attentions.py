@@ -83,10 +83,10 @@ for s in args.splits:
             logger.warning("Skipping...")
             continue
         with gzip.open(arrs.pop(), "rb") as f:
-            arr = np.load(f).astype(np.float16)
+            arr = np.load(f)
         for arr_next in tq.tqdm(arrs):
             with gzip.open(arr_next, "rb") as f:
-                new_arr = np.load(f).astype(np.float16)
+                new_arr = np.load(f)
                 arr[new_arr != 0] = new_arr[new_arr != 0]
         if (mask := (arr == 0).all(axis=1)).any():
             logger.warning(
@@ -96,7 +96,7 @@ for s in args.splits:
             data_dirs[s].joinpath(
                 "importance-{met}-{mdl}.npy.gz".format(met=met, mdl=model_loc.stem)
             ),
-            arr.astype(np.float16),
+            arr,
         )
 
 

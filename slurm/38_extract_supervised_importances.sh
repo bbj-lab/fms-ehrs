@@ -1,9 +1,9 @@
 #!/bin/bash
 
-#SBATCH --job-name=get-sals
-#SBATCH --output=./output/%j-%x.stdout
+#SBATCH --job-name=get-si
+#SBATCH --output=./output/%A_%a-%x.stdout
 #SBATCH --partition=gpuq
-#SBATCH --time=8:00:00
+#SBATCH --time=4:00:00
 #SBATCH --gres=gpu:1
 #SBATCH --array=0-7
 
@@ -35,9 +35,10 @@ models=(
     llama-med-60358922_1-hp-W++-sft-imve
 )
 
-python3 ../fms_ehrs/scripts/extract_all_saliency.py \
+python3 ../fms_ehrs/scripts/extract_all_supervised_importances.py \
     --data_dir "${data_dirs[$i]}" \
-    --data_version "W++" \
+    --data_version "W++_first_24h" \
     --model_loc "${hm}/mdls-archive/${models[$j]}" \
     --outcome "${outcomes[$j]}" \
-    --batch_size 64
+    --batch_size 16 \
+    --noise_tunnel

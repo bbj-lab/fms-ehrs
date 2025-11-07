@@ -1,7 +1,7 @@
 #!/bin/bash
 
-#SBATCH --job-name=get-attns
-#SBATCH --output=./output/%j-%x.stdout
+#SBATCH --job-name=attn-mimic
+#SBATCH --output=./output/%A_%a-%x.stdout
 #SBATCH --partition=gpuq
 #SBATCH --time=1-00:00:00
 #SBATCH --gres=gpu:1

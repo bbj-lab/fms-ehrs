@@ -75,7 +75,7 @@ For example, the first few tokens for a timeline might look like this:
 ## Usage notes
 
 -   We now have a configurable generic tokenizer and preprocessing scripts. See
-    [this repo](https://github.com/bbj-lab/generic-ehr-tokenizer) by @sudoris for further details.
+    [notes](notes/generic-tokenizer.md) for further details.
 
 -   Credentialed users may obtain the
     [MIMIC-IV-3.1 dataset](https://physionet.org/content/mimiciv/3.1/) from
