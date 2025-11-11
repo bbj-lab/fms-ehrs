@@ -41,4 +41,5 @@ python3 ../fms_ehrs/scripts/extract_all_supervised_importances.py \
     --model_loc "${hm}/mdls-archive/${models[$j]}" \
     --outcome "${outcomes[$j]}" \
     --batch_size 16 \
-    --noise_tunnel
+    --noise_tunnel \
+    --scaled

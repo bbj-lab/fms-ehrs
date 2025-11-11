@@ -43,6 +43,7 @@ parser.add_argument(
     default="same_admission_death",
 )
 parser.add_argument("--noise_tunnel", action="store_true")
+parser.add_argument("--scaled", action="store_true")
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -104,6 +105,11 @@ for batch_idx in tq.tqdm(batches):
                     nt_type="smoothgrad",
                     nt_samples=5,
                     nt_samples_batch_size=1,
+                    stdevs=(
+                        1.0 / np.sqrt(batch_embeds.shape[-1]).item()
+                        if args.scaled
+                        else 1.0
+                    ),
                 )
                 if args.noise_tunnel
                 else s.attribute(inputs=batch_embeds)
@@ -118,9 +124,9 @@ for batch_idx in tq.tqdm(batches):
 
 set_perms(np.save, compress=True)(
     data_dirs["test"].joinpath(
-        ("smoothgrad-{mdl}.npy" if args.noise_tunnel else "saliency-{mdl}.npy").format(
-            mdl=model_loc.stem
-        )
+        (
+            "smoothgrad{s}-{mdl}.npy" if args.noise_tunnel else "saliency-{mdl}.npy"
+        ).format(mdl=model_loc.stem, s="-scaled" if args.scaled else "")
     ),
     saliency,
 )

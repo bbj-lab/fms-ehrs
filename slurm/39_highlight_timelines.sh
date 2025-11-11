@@ -25,12 +25,12 @@ ids=(
     "24640534" # cf. Fig. 2
     "26886976" # Fig. 3
     "29022625" # Fig. 4
-    "20606203"
-    "29298288"
-    "28910506"
-    "28812737"
-    "20606203"
-    "29866426"
+    #    "20606203"
+    #    "29298288"
+    #    "28910506"
+    #    "28812737"
+    #    "20606203"
+    #    "29866426"
 )
 
 python3 ../fms_ehrs/scripts/visualize_timelines.py \
@@ -41,3 +41,24 @@ python3 ../fms_ehrs/scripts/visualize_timelines.py \
     --ids "${ids[@]}" \
     --out_dir "${hm}/figs" \
     --tl_len 1024
+
+models=(
+    "llama-med-60358922_1-hp-W++-sft-mort"
+    "llama-med-60358922_1-hp-W++-sft-llos"
+    "llama-med-60358922_1-hp-W++-sft-icua"
+    "llama-med-60358922_1-hp-W++-sft-imve"
+)
+metrics=(
+    "saliency"
+    "smoothgrad-scaled"
+)
+for mdl in "${models[@]}"; do
+    python3 ../fms_ehrs/scripts/visualize_timelines.py \
+        --data_dir "${hm}/data-mimic" \
+        --data_version "W++_first_24h" \
+        --model_loc "${hm}/mdls-archive/${mdl}" \
+        --metrics "${metrics[@]}" \
+        --ids "${ids[@]}" \
+        --out_dir "${hm}/figs" \
+        --tl_len 1024
+done
