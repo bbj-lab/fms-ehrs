@@ -29,7 +29,7 @@ logger.log_env()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data_dir", type=pathlib.Path, default="../../data-mimic")
-parser.add_argument("--data_version", type=str, default="W++")
+parser.add_argument("--data_version", type=str, default="W++_first_24h")
 parser.add_argument(
     "--model_loc",
     type=pathlib.Path,
@@ -89,7 +89,7 @@ tto = (
     .with_row_index()
     .filter(pl.col("hospitalization_id").is_in(args.ids))
     .with_columns(
-        decoded=pl.col("tokens").list.eval(
+        decoded=pl.col("padded").list.eval(
             pl.element().map_elements(vocab.reverse.__getitem__, return_dtype=pl.String)
         )
     )
@@ -103,7 +103,7 @@ mets = {
                 (
                     "importance-{met}-{mdl}.npy.gz"
                     if met.startswith(("h2o", "scissorhands", "rollout"))
-                    else "saliency-{mdl}.npy.gz"
+                    else "{met}-{mdl}.npy.gz"
                 ).format(met=met, mdl=model_loc.stem)
             ),
             "rb",
@@ -127,6 +127,8 @@ for i, hid in tq.tqdm(
         .item()
         .to_numpy()
     )
+    if (mis_len := max_len - len(tl)) > 0:
+        tl = np.append(tl, mis_len * ["—"])
     for k, v in mets.items():
         imshow_text(
             values=v[i, :max_len].reshape((-1, n_cols)),
