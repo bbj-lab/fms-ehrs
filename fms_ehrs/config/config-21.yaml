@@ -17,11 +17,24 @@ reference:
     end_time: discharge_dttm
     age: age_at_admission
 
-# other tables to join to the reference table
+# join other tables to the reference table
 augmentation_tables:
     - table: clif_patient
       key: patient_id
       validation: "m:1"
+
+    - table: clif_hospital_diagnosis
+      key: hospitalization_id
+      filter_expr: pl.col("diagnosis_primary") == 1
+      with_col_expr: pl.col("diagnosis_code").str.split(".").list.first().alias("primary_dx_type")
+      validation: "1:1"
+
+    - table: clif_hospital_diagnosis
+      key: hospitalization_id
+      filter_expr: pl.col("diagnosis_primary") == 0
+      with_col_expr: pl.col("diagnosis_code").str.split(".").list.first().alias("dx_type")
+      agg_expr: pl.col("dx_type").sort().alias("non_primary_dx_types")
+      validation: "1:1"
 
 # run QC for times if necessary
 times_qc:
@@ -31,25 +44,34 @@ times_qc:
 prefix:
     - column: race_category
       prefix: RACE
+
     - column: ethnicity_category
       prefix: ETHN
+
     - column: sex_category
       prefix: SEX
+
     - column: quantized_age
+
     - column: admission_type_name
       prefix: ADMN
 
 events:
     - table: clif_adt
-      prefix: XFR
+      prefix: XFR_IN
       code: location_category
       time: in_dttm
 
-    # - table: clif_code_status
-    #   prefix: CODE
-    #   code: code_status_category
-    #   time: start_dttm
-    #   reference_key: patient_id
+    - table: clif_adt
+      prefix: XFR_OUT
+      code: location_category
+      time: out_dttm
+
+    - table: clif_code_status
+      prefix: CODE
+      code: code_status_category
+      time: start_dttm
+      reference_key: patient_id
 
     - table: clif_crrt_therapy
       prefix: CRRT
@@ -57,20 +79,57 @@ events:
       numeric_value: blood_flow_rate
       time: recorded_dttm
 
+    # lab ordered
     - table: clif_labs
-      prefix: LAB
+      prefix: LAB_ORD
+      code: lab_category
+      time: lab_order_dttm
+
+    # lab result available
+    - table: clif_labs
+      prefix: LAB_RES
       code: lab_category
       numeric_value: lab_value_numeric
       time: lab_result_dttm
 
-    - table: clif_vitals
-      prefix: VTL
-      code: vital_category
-      numeric_value: vital_value
-      time: recorded_dttm
+    # culture ordered
+    - table: clif_microbiology_culture
+      prefix: CLTR_ORD
+      code: fluid_category
+      time: order_dttm
+
+    # culture result available
+    - table: clif_microbiology_culture
+      prefix: CLTR_RES
+      code: fluid_category
+      text_value:
+          - method_category
+          - organism_category
+      time: result_dttm
+
+    # nonculture ordered
+    - table: clif_microbiology_nonculture
+      prefix: NCLT_ORD
+      code: fluid_category
+      time: order_dttm
+
+    - table: clif_microbiology_nonculture
+      prefix: NCLT_RES
+      code: fluid_category
+      text_value:
+          - method_category
+          - organism_category
+          - result_category
+      time: result_dttm
 
     - table: clif_medication_admin_continuous
-      prefix: MED
+      prefix: MED_C
+      code: med_category
+      numeric_value: med_dose
+      time: admin_dttm
+
+    - table: clif_medication_admin_intermittent
+      prefix: MED_I
       code: med_category
       numeric_value: med_dose
       time: admin_dttm
@@ -78,17 +137,29 @@ events:
     # quantitative assessments
     - table: clif_patient_assessments
       prefix: ASMT
-      filter: pl.col("numerical_value").is_not_null()
+      filter_expr: pl.col("numerical_value").is_not_null()
       code: assessment_category
       numeric_value: numerical_value
       time: recorded_dttm
 
-    #qualitative assessments
+    # qualitative assessments
     - table: clif_patient_assessments
       prefix: ASMT
-      filter: pl.col("numerical_value").is_null()
+      filter_expr: pl.col("numerical_value").is_null()
       code: assessment_category
       text_value: categorical_value
+      time: recorded_dttm
+
+    - table: clif_patient_procedures
+      prefix: PROC
+      code: procedure_code
+      time: procedure_billed_dttm
+      fix_date_to_time: !!bool true
+
+    - table: clif_position
+      prefix: POSN
+      filter_expr: pl.col("position_category") == "prone"
+      code: position_category
       time: recorded_dttm
 
     - table: clif_respiratory_support
@@ -98,29 +169,22 @@ events:
           - device_category
       time: recorded_dttm
 
-    - table: clif_position
-      prefix: POSN
-      filter: pl.col("position_category") == "prone"
-      code: position_category
+    - table: clif_vitals
+      prefix: VTL
+      code: vital_category
+      numeric_value: vital_value
       time: recorded_dttm
-
-    # - table: clif_microbiology_culture
-    #   prefix: CLTR
-    #   code: method_category
-    #   text_value:
-    #       - fluid_category
-    #       - organism_category
-    #   time: lab_result_dttm
-
-    # - table: clif_microbiology_nonculture
-    #   prefix: NCLT
-    #   code: method_category
-    #   text_value:
-    #       - fluid_category
-    #       - organism_category
-    #       - result_category
-    #   time: lab_result_dttm
 
 suffix:
     - column: discharge_category
       prefix: DSCG
+
+    - column: primary_dx_type
+      prefix: DX
+
+    - column: diagnosis_code
+      prefix: DX
+
+    - column: non_primary_dx_types
+      prefix: DX
+      is_list: !!bool true

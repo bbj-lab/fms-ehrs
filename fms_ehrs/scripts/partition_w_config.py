@@ -82,7 +82,9 @@ if (
             {
                 config_ref.get("start_time", "admission_dttm"): pl.Datetime(
                     time_unit="ms"
-                )
+                ),
+                grp_id_str: pl.String,
+                sbj_id_str: pl.String,
             }
         )
         .filter(
@@ -172,11 +174,13 @@ for s in splits:
     for t in aug_tbls:
         set_perms(
             pl.scan_parquet(data_dir_in.joinpath(f"{t}.parquet"))
+            .with_columns(pl.col(grp_id_str).cast(pl.String))
             .join(grp_ids[s].lazy(), on=grp_id_str)
             .sink_parquet
         )(dirs_out[s].joinpath(f"{t}.parquet"))
     set_perms(
         pl.scan_parquet(data_dir_in.joinpath("{}.parquet".format(ref_tbl_str)))
+        .with_columns(pl.col(sbj_id_str).cast(pl.String))
         .join(sbj_ids[s].lazy(), on=sbj_id_str)
         .sink_parquet
     )(dirs_out[s].joinpath("{}.parquet".format(ref_tbl_str)))
@@ -185,6 +189,7 @@ for s in splits:
             try:
                 set_perms(
                     pl.scan_parquet(t)
+                    .with_columns(pl.col(sbj_id_str).cast(pl.String))
                     .join(sbj_ids[s].lazy(), on=sbj_id_str)
                     .sink_parquet
                 )(dirs_out[s].joinpath(t.name))
@@ -194,6 +199,7 @@ for s in splits:
             try:
                 set_perms(
                     pl.scan_parquet(t)
+                    .with_columns(pl.col(grp_id_str).cast(pl.String))
                     .join(grp_ids[s].lazy(), on=grp_id_str)
                     .sink_parquet
                 )(dirs_out[s].joinpath(t.name))
