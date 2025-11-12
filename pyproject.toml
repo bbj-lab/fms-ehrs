@@ -41,7 +41,7 @@
     name = "fms-ehrs"
     readme = { file = "README.md", content-type = "text/markdown" }
     requires-python = ">=3.12"
-    version = "25.1.0"
+    version = "25.2.0"
 
 [tool.ruff]
     line-length = 88
@@ -67,5 +67,5 @@
     requires      = [ "setuptools>=75.0", "wheel", "ninja" ]
 
 [tool.uv]
-    exclude-newer = "2025-07-31T00:00:00Z"
+    exclude-newer = "2025-11-11T00:00:00Z"
     no-cache      = true
