@@ -4,7 +4,7 @@
 #SBATCH --output=./output/%j-%x.stdout
 #SBATCH --partition=tier3q
 #SBATCH --mem=100GB
-#SBATCH --time=1:00:00
+#SBATCH --time=3:00:00
 
 source preamble.sh
 
@@ -26,3 +26,5 @@ python3 ../fms_ehrs/scripts/tokenize_w_config.py \
     --data_version_out ${data_version} \
     --include_24h_cut \
     --config_loc "../fms_ehrs/config/config-21.yaml"
+
+source postscript.sh

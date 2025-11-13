@@ -30,9 +30,10 @@ class Tokenizer21(BaseTokenizer):
         data_dir: Pathlike = pathlib.Path("../.."),
         vocab_path: Pathlike = None,
         max_padded_len: int = None,
-        quantizer: typing.Literal["deciles", "sigmas"] = None,
+        quantizer: typing.Literal["centiles", "deciles", "sigmas", "ventiles"] = None,
         cut_at_24h: bool = False,
         include_time_spacing_tokens: bool = None,
+        fused_category_values: bool = False,
         config_file: Pathlike = None,
     ):
         self.config = yaml.YAML(typ="safe").load(
@@ -55,6 +56,11 @@ class Tokenizer21(BaseTokenizer):
                 include_time_spacing_tokens
                 if include_time_spacing_tokens is not None
                 else self.config["options"]["include_time_spacing_tokens"]
+            ),
+            fused_category_values=(
+                fused_category_values
+                if fused_category_values is not None
+                else self.config["options"]["fused_category_values"]
             ),
         )
         self.cut_at_24h: bool = cut_at_24h
@@ -129,6 +135,14 @@ class Tokenizer21(BaseTokenizer):
                 v=age, c="AGE"
             )  # note this is a no-op if quants are already set for AGE
             df = df.with_columns(quantized_age=self.get_quants(v=age, c="AGE"))
+            if self.fused_category_values:
+                df = df.with_columns(
+                    pl.col("quantized_age").map_elements(
+                        lambda x: self.vocab(f"AGE_Q{x}"),
+                        return_dtype=pl.Int64,
+                        skip_nulls=False,
+                    )
+                )
         self.reference_frame = self.run_times_qc(df)
         return self.reference_frame
 
@@ -146,7 +160,8 @@ class Tokenizer21(BaseTokenizer):
                         (
                             pl.col(col["column"])
                             # .str.to_lowercase()
-                            .str.replace_all(" ", "_").map_elements(
+                            .str.replace_all(" ", "_")
+                            .map_elements(
                                 lambda x, prefix=col["prefix"]: self.vocab(
                                     f"{prefix}_{x}"
                                 ),
@@ -239,7 +254,8 @@ class Tokenizer21(BaseTokenizer):
                 pl.col(time).cast(pl.Datetime(time_unit="ms")).alias("event_time"),
                 pl.concat_list(
                     [
-                        pl.col(cat).cast(str)
+                        pl.col(cat)
+                        .cast(str)
                         # .str.to_lowercase()
                         .str.replace_all(" ", "_")
                         .str.strip_chars(".")
@@ -252,7 +268,8 @@ class Tokenizer21(BaseTokenizer):
                     ]
                 ).alias("tokens"),
                 pl.concat_list(
-                    [pl.col(time).cast(pl.Datetime("ms"))] * len(category_list)
+                    [pl.col(time).cast(pl.Datetime(time_unit="ms"))]
+                    * len(category_list)
                 ).alias("times"),
             ).collect()
 
@@ -260,6 +277,7 @@ class Tokenizer21(BaseTokenizer):
         event_tokens = (
             pl.concat(self.get_event(**evt) for evt in self.config["events"])
             .lazy()
+            .filter(pl.col("event_time").is_not_null())
             .sort("event_time", pl.col("tokens").list.first())
             .group_by("hospitalization_id", maintain_order=True)
             .agg(tokens=pl.col("tokens").explode(), times=pl.col("times").explode())
@@ -331,7 +349,6 @@ class Tokenizer21(BaseTokenizer):
 
 
 if __name__ == "__main__":
-
     dev_dir = (
         pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/development-sample-21/raw/dev")
         if os.uname().nodename.startswith("cri")
@@ -351,9 +368,7 @@ if __name__ == "__main__":
     )
     tt21 = tkzr21.get_tokens_timelines()
     summarize(tkzr21, tt21)
-
-    with pl.Config(tbl_cols=-1):
-        print(pl.read_parquet(dev_dir.joinpath("clif_adt.parquet")))
+    print(f"{len(tkzr21.vocab)=}")
 
     print(
         tt21.with_columns(
@@ -377,3 +392,17 @@ if __name__ == "__main__":
     )
 
     print(list(tkzr21.vocab.lookup.keys()))
+
+    tkzr21_fused = Tokenizer21(
+        config_file="../config/config-21.yaml",
+        data_dir=dev_dir,
+        include_time_spacing_tokens=True,
+        fused_category_values=True,
+    )
+    tt21_fused = tkzr21_fused.get_tokens_timelines()
+    summarize(tkzr21_fused, tt21_fused)
+    print(f"{len(tkzr21_fused.vocab)=}")
+    tkzr21_fused.vocab.print_aux()
+
+    with pl.Config(tbl_cols=-1):
+        print(pl.read_parquet(dev_dir.joinpath("clif_patient_procedures.parquet")))

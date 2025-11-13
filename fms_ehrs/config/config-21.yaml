@@ -4,10 +4,11 @@ subject_id: hospitalization_id
 group_id: patient_id
 
 options:
-    day_stay_filter: !!bool true
+    day_stay_filter: !!bool true # keep only hospitalizations >=24h in duration
     max_padded_len: !!int 1024
-    quantizer: deciles
-    include_time_spacing_tokens: !!bool false
+    quantizer: ventiles # 20 bins
+    include_time_spacing_tokens: !!bool true
+    fused_category_values: !!bool false
 
 # primary reference table for static data
 # to which other tables will be joined
@@ -27,6 +28,13 @@ augmentation_tables:
       key: hospitalization_id
       filter_expr: pl.col("diagnosis_primary") == 1
       with_col_expr: pl.col("diagnosis_code").str.split(".").list.first().alias("primary_dx_type")
+      agg_expr: pl.col("primary_dx_type").sort().alias("primary_dx_types")
+      validation: "1:1"
+
+    - table: clif_hospital_diagnosis
+      key: hospitalization_id
+      filter_expr: pl.col("diagnosis_primary") == 1
+      agg_expr: pl.col("diagnosis_code").sort().alias("primary_diagnoses")
       validation: "1:1"
 
     - table: clif_hospital_diagnosis
@@ -58,12 +66,12 @@ prefix:
 
 events:
     - table: clif_adt
-      prefix: XFR_IN
+      prefix: XFR-IN
       code: location_category
       time: in_dttm
 
     - table: clif_adt
-      prefix: XFR_OUT
+      prefix: XFR-OUT
       code: location_category
       time: out_dttm
 
@@ -81,55 +89,58 @@ events:
 
     # lab ordered
     - table: clif_labs
-      prefix: LAB_ORD
+      prefix: LAB-ORD
       code: lab_category
       time: lab_order_dttm
 
     # lab result available
     - table: clif_labs
-      prefix: LAB_RES
+      prefix: LAB-RES
       code: lab_category
       numeric_value: lab_value_numeric
       time: lab_result_dttm
 
-    # culture ordered
-    - table: clif_microbiology_culture
-      prefix: CLTR_ORD
-      code: fluid_category
-      time: order_dttm
+    # # culture ordered
+    # - table: clif_microbiology_culture
+    #   prefix: CLTR-ORD
+    #   code: fluid_category
+    #   time: order_dttm
 
-    # culture result available
-    - table: clif_microbiology_culture
-      prefix: CLTR_RES
-      code: fluid_category
-      text_value:
-          - method_category
-          - organism_category
-      time: result_dttm
+    # # culture result available
+    # - table: clif_microbiology_culture
+    #   prefix: CLTR-RES
+    #   code: fluid_category
+    #   text_value:
+    #       - method_category
+    #       - organism_category
+    #   time: result_dttm
 
-    # nonculture ordered
-    - table: clif_microbiology_nonculture
-      prefix: NCLT_ORD
-      code: fluid_category
-      time: order_dttm
+    # # nonculture ordered
+    # - table: clif_microbiology_nonculture
+    #   prefix: NCLT-ORD
+    #   code: fluid_category
+    #   time: order_dttm
 
-    - table: clif_microbiology_nonculture
-      prefix: NCLT_RES
-      code: fluid_category
-      text_value:
-          - method_category
-          - organism_category
-          - result_category
-      time: result_dttm
+    # # nonculture result available
+    # - table: clif_microbiology_nonculture
+    #   prefix: NCLT-RES
+    #   code: fluid_category
+    #   text_value:
+    #       - method_category
+    #       - organism_category
+    #       - result_category
+    #   time: result_dttm
 
     - table: clif_medication_admin_continuous
-      prefix: MED_C
+      prefix: MED-CTS
       code: med_category
       numeric_value: med_dose
       time: admin_dttm
 
+    # only tokenize meds that were actually administered
     - table: clif_medication_admin_intermittent
-      prefix: MED_I
+      prefix: MED-INT
+      filter_expr: pl.col("mar_action_category") == "given"
       code: med_category
       numeric_value: med_dose
       time: admin_dttm
@@ -179,11 +190,13 @@ suffix:
     - column: discharge_category
       prefix: DSCG
 
-    - column: primary_dx_type
+    - column: primary_dx_types
       prefix: DX
+      is_list: !!bool true
 
-    - column: diagnosis_code
+    - column: primary_diagnoses
       prefix: DX
+      is_list: !!bool true
 
     - column: non_primary_dx_types
       prefix: DX
