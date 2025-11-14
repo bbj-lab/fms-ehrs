@@ -2,7 +2,12 @@
 
 """
 provides a generic class for creating and maintaining a map from a vocabulary
-of strings to unique integers
+of strings to unique integers;
+The Vocabulary class has two modes: training and not-training.
+- During training, new items are added to the lookup table and new auxiliary
+information can be associated to them through the `aux` object.
+- During not-training, the vocabulary is frozen and new items are all mapped to the
+None item or None itself, and no new auxiliary information can be added.
 """
 
 import collections
@@ -26,7 +31,7 @@ class Vocabulary:
     """
     maintains a dictionary `lookup` mapping words -> tokens,
     a dictionary `reverse` inverting the lookup, and a dictionary
-    `aux` mapping words -> auxiliary info
+    `aux` mapping words -> auxiliary info;
     """
 
     def __init__(self, words: tuple = (), *, is_training: bool = True):
@@ -50,6 +55,13 @@ class Vocabulary:
                     )
                 )
                 return self.lookup[None] if None in self.lookup else None
+
+    def __repr__(self):
+        return "{sp} of {sz} words {md}".format(
+            sp=super().__repr__(),
+            sz=len(self),
+            md="in training mode" if self._is_training else "(frozen)",
+        )
 
     def set_aux(self, word: Hashable, aux_data):
         if self._is_training:
@@ -84,6 +96,8 @@ class Vocabulary:
         with gzip.open(pathlib.Path(filepath).expanduser().resolve(), mode="r+") as f:
             for k, v in pickle.load(f).items():
                 setattr(self, k, v)
+        # for added safety; typically, Vocabulary is only loaded after training
+        self._is_training = False
         return self
 
     def get_frame(self) -> Frame:

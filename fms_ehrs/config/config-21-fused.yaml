@@ -8,7 +8,7 @@ options:
     max_padded_len: !!int 1024
     quantizer: ventiles # 20 bins
     include_time_spacing_tokens: !!bool true
-    fused_category_values: !!bool false
+    fused_category_values: !!bool true
 
 # primary reference table for static data
 # to which other tables will be joined
@@ -87,11 +87,11 @@ events:
       numeric_value: blood_flow_rate
       time: recorded_dttm
 
-    # lab ordered
-    - table: clif_labs
-      prefix: LAB-ORD
-      code: lab_category
-      time: lab_order_dttm
+    # # lab ordered
+    # - table: clif_labs
+    #   prefix: LAB-ORD
+    #   code: lab_category
+    #   time: lab_order_dttm
 
     # lab result available
     - table: clif_labs
@@ -163,7 +163,8 @@ events:
 
     - table: clif_patient_procedures
       prefix: PROC
-      code: procedure_code
+      with_col_expr: pl.col("procedure_code").str.head(4).alias("proc4")
+      code: proc4
       time: procedure_billed_dttm
       fix_date_to_time: !!bool true
 

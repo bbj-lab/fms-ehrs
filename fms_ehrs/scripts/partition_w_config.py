@@ -72,133 +72,109 @@ sbj_ids = dict()
 grp_ids = dict()
 aug_tbls = [t["table"] for t in config.get("augmentation_tables", {}) if "table" in t]
 
-if (
-    args.match_other_split is None
-):  # create splits by grouping from scratch according to each group's first event
-    ref = (
-        pl.scan_parquet(data_dir_in.joinpath("{}.parquet".format(ref_tbl_str)))
-        .filter(pl.col(config_ref.get("age", "age_at_admission")) >= 18)
-        .cast(
-            {
-                config_ref.get("start_time", "admission_dttm"): pl.Datetime(
-                    time_unit="ms"
-                )
-            }
-        )
-        .filter(
-            pl.col(config_ref.get("start_time", "admission_dttm")).is_between(
-                pl.lit(args.valid_admission_window[0]).cast(pl.Date),
-                pl.lit(args.valid_admission_window[1]).cast(pl.Date),
-            )
-            if args.valid_admission_window is not None
-            else True
-        )
+ref = (
+    pl.scan_parquet(data_dir_in.joinpath("{}.parquet".format(ref_tbl_str)))
+    .filter(pl.col(config_ref.get("age", "age_at_admission")) >= 18)
+    .cast(
+        {
+            config_ref.get("start_time", "admission_dttm"): pl.Datetime(time_unit="ms"),
+            grp_id_str: pl.String,
+            sbj_id_str: pl.String,
+        }
     )
-
-    # partition patient ids
-    group_ids = (
-        ref.group_by(grp_id_str)
-        .agg(
-            pl.col(config_ref.get("start_time", "admission_dttm"))
-            .min()
-            .alias("first_time")
+    .filter(
+        pl.col(config_ref.get("start_time", "admission_dttm")).is_between(
+            pl.lit(args.valid_admission_window[0]).cast(pl.Date),
+            pl.lit(args.valid_admission_window[1]).cast(pl.Date),
         )
-        .sort("first_time")
-        .select(grp_id_str)
-        .collect()
+        if args.valid_admission_window is not None
+        else True
     )
+)
 
-    n_total = group_ids.n_unique()
+# partition patient ids
+group_ids = (
+    ref.group_by(grp_id_str)
+    .agg(
+        pl.col(config_ref.get("start_time", "admission_dttm")).min().alias("first_time")
+    )
+    .sort("first_time")
+    .select(grp_id_str)
+    .collect()
+)
 
-    if args.development_sample:  # make a development sample
-        n_dev = int(args.dev_frac * n_total)
-        logger.info(f"{grp_id_str} {n_total=}")
-        logger.info(f"Partition: {n_dev=}")
-        grp_ids["dev"] = group_ids.head(n_dev)
-    else:  # regular split
-        n_train = int(args.train_frac * n_total)
-        n_val = int(args.val_frac * n_total)
-        if (n_test := n_total - n_train - n_val) < 0:
-            raise f"check {args.train_frac=} and {args.val_frac=}"
-        logger.info(f"{grp_id_str} {n_total=}")
-        logger.info(f"Partition: {n_train=}, {n_val=}, {n_test=}")
-        grp_ids["train"] = group_ids.head(n_train)
-        grp_ids["val"] = group_ids.slice(n_train, n_val)
-        grp_ids["test"] = group_ids.tail(n_test)
-        assert sum(list(map(lambda x: x.n_unique(), grp_ids.values()))) == n_total
+n_total = group_ids.n_unique()
 
-    for s0, s1 in itertools.combinations(splits, 2):
-        assert grp_ids[s0].join(grp_ids[s1], on=grp_id_str).n_unique() == 0
+if args.development_sample:  # make a development sample
+    n_dev = int(args.dev_frac * n_total)
+    logger.info(f"{grp_id_str} {n_total=}")
+    logger.info(f"Partition: {n_dev=}")
+    grp_ids["dev"] = group_ids.head(n_dev)
+else:  # regular split
+    n_train = int(args.train_frac * n_total)
+    n_val = int(args.val_frac * n_total)
+    if (n_test := n_total - n_train - n_val) < 0:
+        raise f"check {args.train_frac=} and {args.val_frac=}"
+    logger.info(f"{grp_id_str} {n_total=}")
+    logger.info(f"Partition: {n_train=}, {n_val=}, {n_test=}")
+    grp_ids["train"] = group_ids.head(n_train)
+    grp_ids["val"] = group_ids.slice(n_train, n_val)
+    grp_ids["test"] = group_ids.tail(n_test)
+    assert sum(list(map(lambda x: x.n_unique(), grp_ids.values()))) == n_total
 
-    # partition subjects according to the group split
-    subject_ids = ref.select(grp_id_str, sbj_id_str).unique().collect()
+for s0, s1 in itertools.combinations(splits, 2):
+    assert grp_ids[s0].join(grp_ids[s1], on=grp_id_str).n_unique() == 0
 
-    for s in splits:
-        sbj_ids[s] = subject_ids.join(grp_ids[s], on=grp_id_str).select(sbj_id_str)
+# partition subjects according to the group split
+subject_ids = ref.select(grp_id_str, sbj_id_str).unique().collect()
 
-    for s0, s1 in itertools.combinations(splits, 2):
-        assert sbj_ids[s0].join(sbj_ids[s1], on=sbj_id_str).n_unique() == 0
+for s in splits:
+    sbj_ids[s] = subject_ids.join(grp_ids[s], on=grp_id_str).select(sbj_id_str)
 
-    n_total = sum(list(map(lambda x: x.n_unique(), sbj_ids.values())))
-    assert n_total <= subject_ids.n_unique()
+for s0, s1 in itertools.combinations(splits, 2):
+    assert sbj_ids[s0].join(sbj_ids[s1], on=sbj_id_str).n_unique() == 0
 
-    logger.info(f"{sbj_id_str} {n_total=}")
-    if not args.development_sample:
-        logger.info(
-            f"Partition: {sbj_ids['train'].n_unique()=}, "
-            f"{sbj_ids['val'].n_unique()=}, {sbj_ids['test'].n_unique()=}"
-        )
+n_total = sum(list(map(lambda x: x.n_unique(), sbj_ids.values())))
+assert n_total <= subject_ids.n_unique()
 
-else:  # create splits to match the splits of some other dataset located at `match_other_split`
-    if args.development_sample:
-        raise NotImplementedError
-    data_dir_other = pathlib.Path(args.match_other_split).expanduser().resolve()
-    for s in splits:
-        sbj_ids[s] = (
-            pl.scan_parquet(data_dir_other.joinpath(s, "tokens_timelines.parquet"))
-            .select(sbj_id_str)
-            .collect()
-        )
-        grp_ids[s] = (
-            pl.scan_parquet(data_dir_in.joinpath("{}.parquet".format(ref_tbl_str)))
-            .filter(pl.col(sbj_id_str).is_in(sbj_ids[s].to_series().to_list()))
-            .select(grp_id_str)
-            .unique()
-            .collect()
-        )
+logger.info(f"{sbj_id_str} {n_total=}")
+if not args.development_sample:
+    logger.info(
+        f"Partition: {sbj_ids['train'].n_unique()=}, "
+        f"{sbj_ids['val'].n_unique()=}, {sbj_ids['test'].n_unique()=}"
+    )
 
 # generate sub-tables
 for s in splits:
-    for t in aug_tbls:
-        set_perms(
-            pl.scan_parquet(data_dir_in.joinpath(f"{t}.parquet"))
-            .join(grp_ids[s].lazy(), on=grp_id_str)
-            .sink_parquet
-        )(dirs_out[s].joinpath(f"{t}.parquet"))
     set_perms(
         pl.scan_parquet(data_dir_in.joinpath("{}.parquet".format(ref_tbl_str)))
+        .with_columns(pl.col(sbj_id_str).cast(pl.String))
         .join(sbj_ids[s].lazy(), on=sbj_id_str)
         .sink_parquet
     )(dirs_out[s].joinpath("{}.parquet".format(ref_tbl_str)))
     for t in data_dir_in.glob("*.parquet"):
-        if t.stem not in aug_tbls + [ref_tbl_str]:
+        if t.stem != ref_tbl_str:
             try:
                 set_perms(
                     pl.scan_parquet(t)
+                    .with_columns(pl.col(sbj_id_str).cast(pl.String))
                     .join(sbj_ids[s].lazy(), on=sbj_id_str)
                     .sink_parquet
                 )(dirs_out[s].joinpath(t.name))
+                logger.info(f"Created {t.name} in {s} with {sbj_id_str}")
                 continue
-            except pl.exceptions.ColumnNotFoundError as e:
-                logger.warning(f"Failed to find {sbj_id_str} in {t}")
+            except pl.exceptions.ColumnNotFoundError:
+                logger.warning(f"Failed to find {sbj_id_str} in {t.name}")
             try:
                 set_perms(
                     pl.scan_parquet(t)
+                    .with_columns(pl.col(grp_id_str).cast(pl.String))
                     .join(grp_ids[s].lazy(), on=grp_id_str)
                     .sink_parquet
                 )(dirs_out[s].joinpath(t.name))
+                logger.info(f"Created {t.name} in {s} with {grp_id_str}")
                 continue
-            except pl.exceptions.ColumnNotFoundError as e:
-                logger.warning(f"Failed to find {grp_id_str} in {t}")
+            except pl.exceptions.ColumnNotFoundError:
+                logger.warning(f"Failed to find {grp_id_str} in {t.name}")
 
 logger.info("---fin")
