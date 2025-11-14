@@ -52,8 +52,8 @@ parser.add_argument(
         "scissorhands-va-20",
         "rollout-mean",
         "rollout-mean_log",
-        "h20-normed-mean",
-        "h20-normed-mean_log",
+        "h2o-normed-mean",
+        "h2o-normed-mean_log",
     ],
 )
 parser.add_argument("--use_jax", action="store_true")
@@ -90,8 +90,7 @@ stop_tokens = t.tensor([vocab("TRUNC"), vocab("TL_END")])
 
 # load and prep model
 model = AutoModelForCausalLM.from_pretrained(
-    model_loc,
-    attn_implementation="eager",  # dtype=t.float16
+    model_loc, attn_implementation="eager"
 )  # in eval mode by default
 
 d = model.config.hidden_size
@@ -121,7 +120,7 @@ dataset = (
 for s in args.splits:
     n = dataset[s].num_rows
     tl_len = len(dataset[s].select(range(1))["input_ids"][0])
-    metrics = {k: np.zeros(shape=(n, tl_len)) for k in args.metrics}
+    metrics = {k: np.zeros(shape=(n, tl_len), dtype=np.float32) for k in args.metrics}
     batches = t.split(t.arange(n), args.batch_size)
     logger.warning(f"For split {s=}, {len(batches)=} in total are required.")
     for batch_num, batch_idx in tqdm(enumerate(batches)):
@@ -130,7 +129,7 @@ for s in args.splits:
         if args.batch_num_end is not None and batch_num >= args.batch_num_end:
             continue
         batch = dataset[s]["input_ids"][batch_idx].to(device)
-        with t.inference_mode():  # t.amp.autocast("cuda", dtype=t.float16):
+        with t.inference_mode():
             x = model.forward(input_ids=batch, output_attentions=True, use_cache=True)
         attns = np.stack(
             [_.cpu() for _ in x.attentions]
@@ -151,36 +150,39 @@ for s in args.splits:
                 case "h2o-mean" | "h2o-mean_log":
                     metrics[met][batch_idx] = token_importance(
                         attentions=attns, aggregation=met.split("-")[-1]
-                    )
+                    ).astype(np.float32)
                 case "h2o-va-mean" | "h2o-va-mean_log":
                     metrics[met][batch_idx] = token_importance(
                         attentions=attns, values=vals, aggregation=met.split("-")[-1]
-                    )
+                    ).astype(np.float32)
                 case "scissorhands-10" | "scissorhands-20":
                     metrics[met][batch_idx] = token_importance(
                         attentions=attns,
                         window=int(met.split("-")[-1]),
                         aggregation="mean",
-                    )
+                    ).astype(np.float32)
                 case "scissorhands-va-10" | "scissorhands-va-20":
                     metrics[met][batch_idx] = token_importance(
                         attentions=attns,
                         values=vals,
                         window=int(met.split("-")[-1]),
                         aggregation="mean",
-                    )
+                    ).astype(np.float32)
                 case "rollout-mean" | "rollout-mean_log":
                     metrics[met][batch_idx] = token_importance(
                         attentions=attns, rollout=True, aggregation=met.split("-")[-1]
-                    )
-                case "h20-normed-mean" | "h20-normed-mean_log":
+                    ).astype(np.float32)
+                case "h2o-normed-mean" | "h2o-normed-mean_log":
                     # ||af|| = |a|*||f||
-                    alpha_fs_normed = np.abs(attns) * np.expand_dims(
-                        np.linalg.norm(np.matmul(vals, wts), axis=-1), axis=-1
+                    alpha_fs_normed = (
+                        np.abs(attns)
+                        * np.expand_dims(
+                            np.linalg.norm(np.matmul(vals, wts), axis=-1), axis=-1
+                        )
                     )  # n_layers × batch_size × num_heads × sequence_length × sequence_length
                     metrics[met][batch_idx] = token_importance(
                         attentions=alpha_fs_normed, aggregation=met.split("-")[-1]
-                    )
+                    ).astype(np.float32)
             for i, j in enumerate(first_stop_idx.cpu().numpy().ravel()):
                 if j > 0:
                     metrics[met][batch_idx[i], j + 1 :] = np.nan
@@ -192,12 +194,12 @@ for s in args.splits:
                     met=met,
                     mdl=model_loc.stem,
                     sn=(
-                        "-s" + str(ns).zfill(3)
+                        "-s" + str(ns).zfill(4)
                         if (ns := args.batch_num_start) is not None
                         else ""
                     ),
                     en=(
-                        "-e" + str(ne).zfill(3)
+                        "-e" + str(ne).zfill(4)
                         if (ne := args.batch_num_end) is not None
                         else ""
                     ),

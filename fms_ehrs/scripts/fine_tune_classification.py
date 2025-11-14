@@ -101,7 +101,7 @@ def main(
 
     def optuna_hp_space(trial):
         return {
-            "learning_rate": trial.suggest_float("learning_rate", 5e-6, 5e-5, log=True),
+            "learning_rate": trial.suggest_float("learning_rate", 1e-5, 1e-4, log=True),
             "gradient_accumulation_steps": trial.suggest_int(
                 "gradient_accumulation_steps", 1, 3
             ),

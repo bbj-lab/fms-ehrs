@@ -241,12 +241,12 @@ def attention_rollout(attentions: np.ndarray) -> np.ndarray:
 
 @nb.jit(nb.float32[:, :, :, :](nb.float32[:, :, :, :, :]), nopython=True)
 def attention_rollout_numba(attentions: np.ndarray) -> np.ndarray:
-    I = np.zeros(shape=attentions[0].shape, dtype=np.float32)
+    I_n = np.zeros(shape=attentions[0].shape, dtype=np.float32)
     _I = np.eye(attentions.shape[-1], dtype=np.float32)
     for i in nb.prange(attentions[0].shape[0]):
         for j in range(attentions[0].shape[1]):
-            I[i, j] = _I
-    ret = np.float32(0.5) * (attentions[0] + I)
+            I_n[i, j] = _I
+    ret = np.float32(0.5) * (attentions[0] + I_n)
     for i in range(1, attentions.shape[0]):
         for j in nb.prange(attentions.shape[1]):
             for k in range(attentions.shape[2]):
@@ -355,7 +355,7 @@ if __name__ == "__main__":
     for i in range(1000):
         tk_imp = token_importance(att_eg[i])
     t7 = time.time()
-    print("h20: {:.2f}".format((t7 - t6)))
+    print("h2o: {:.2f}".format((t7 - t6)))
 
     t10 = time.time()
     for i in range(1000):

@@ -20,8 +20,8 @@ Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
 
 class Tokenizer21(BaseTokenizer):
     """
-    tokenizes a directory containing a set of parquet files corresponding to
-    the CLIF-2.1 standard
+    tokenizes a directory containing a set of parquet files according to a
+    configuration file
     """
 
     def __init__(
@@ -30,9 +30,10 @@ class Tokenizer21(BaseTokenizer):
         data_dir: Pathlike = pathlib.Path("../.."),
         vocab_path: Pathlike = None,
         max_padded_len: int = None,
-        quantizer: typing.Literal["deciles", "sigmas"] = None,
+        quantizer: typing.Literal["centiles", "deciles", "sigmas", "ventiles"] = None,
         cut_at_24h: bool = False,
         include_time_spacing_tokens: bool = None,
+        fused_category_values: bool = None,
         config_file: Pathlike = None,
     ):
         self.config = yaml.YAML(typ="safe").load(
@@ -56,11 +57,16 @@ class Tokenizer21(BaseTokenizer):
                 if include_time_spacing_tokens is not None
                 else self.config["options"]["include_time_spacing_tokens"]
             ),
+            fused_category_values=(
+                fused_category_values
+                if fused_category_values is not None
+                else self.config["options"]["fused_category_values"]
+            ),
         )
         self.cut_at_24h: bool = cut_at_24h
         self.reference_frame = None
 
-    def run_times_qc(self, reference_frame) -> Frame:
+    def run_times_qc(self, reference_frame: Frame) -> Frame:
         return (
             (
                 reference_frame.join(
@@ -107,11 +113,19 @@ class Tokenizer21(BaseTokenizer):
             self.data_dir.joinpath(f"{self.config['reference']['table']}.parquet")
         )
         for tkv in self.config["augmentation_tables"]:
+            df_aug = pl.scan_parquet(
+                self.data_dir.joinpath(f"{tkv['table']}.parquet")
+            ).filter(eval(tkv["filter_expr"]) if "filter_expr" in tkv else True)
+            if "with_col_expr" in tkv:
+                df_aug = df_aug.with_columns(eval(tkv["with_col_expr"]))
+            if "agg_expr" in tkv:
+                df_aug = df_aug.group_by(tkv["key"]).agg(eval(tkv["agg_expr"]))
             df = df.join(
-                pl.scan_parquet(self.data_dir.joinpath(f"{tkv['table']}.parquet")),
+                df_aug,
                 on=tkv["key"],
                 validate=tkv["validation"],
                 how="left",
+                maintain_order="left",
             )
         if "age" in self.config["reference"]:
             age = (
@@ -121,6 +135,14 @@ class Tokenizer21(BaseTokenizer):
                 v=age, c="AGE"
             )  # note this is a no-op if quants are already set for AGE
             df = df.with_columns(quantized_age=self.get_quants(v=age, c="AGE"))
+            if self.fused_category_values:
+                df = df.with_columns(
+                    pl.col("quantized_age").map_elements(
+                        lambda x: self.vocab(f"AGE_Q{x}"),
+                        return_dtype=pl.Int64,
+                        skip_nulls=False,
+                    )
+                )
         self.reference_frame = self.run_times_qc(df)
         return self.reference_frame
 
@@ -130,49 +152,74 @@ class Tokenizer21(BaseTokenizer):
             if end_type == "prefix"
             else self.config["reference"]["end_time"]
         )
-        return self.get_reference_frame().select(
-            pl.col(self.config["subject_id"]),
-            pl.col(time_col).cast(pl.Datetime(time_unit="ms")).alias("event_time"),
+        df = self.get_reference_frame().with_columns(
             pl.concat_list(
                 ([self.vocab("TL_START")] if end_type == "prefix" else [])
                 + [
                     (
-                        pl.col(col["column"])
-                        .str.to_lowercase()
-                        .str.replace_all(" ", "_")
-                        .map_elements(
-                            lambda x, prefix=col["prefix"]: self.vocab(f"{prefix}_{x}"),
-                            return_dtype=pl.Int64,
-                            skip_nulls=False,
+                        (
+                            pl.col(col["column"])
+                            # .str.to_lowercase()
+                            .str.replace_all(" ", "_")
+                            .map_elements(
+                                lambda x, prefix=col["prefix"]: self.vocab(
+                                    f"{prefix}_{x}"
+                                ),
+                                return_dtype=pl.Int64,
+                                skip_nulls=False,
+                            )
+                            if not col["column"].startswith("quantized")
+                            else pl.col(col["column"])
                         )
-                        if not col["column"].startswith("quantized")
-                        else pl.col(col["column"])
+                        if "is_list" not in col or not col["is_list"]
+                        else pl.col(col["column"]).map_elements(
+                            lambda x, prefix=col["prefix"]: [
+                                self.vocab(f"{prefix}_{y}") for y in x
+                            ],
+                            return_dtype=pl.List(pl.Int64),
+                        )
                     )
                     for col in self.config[end_type]
                 ]
                 + ([self.vocab("TL_END")] if end_type == "suffix" else [])
-            ).alias("tokens"),
-            pl.concat_list(
-                [pl.col(time_col).cast(pl.Datetime(time_unit="ms"))]
-                * (len(self.config[end_type]) + 1)
-            ).alias("times"),
+            ).alias("tokens")
+        )
+        return df.select(
+            self.config["subject_id"],
+            pl.col(time_col).cast(pl.Datetime(time_unit="ms")).alias("event_time"),
+            "tokens",
+            pl.col(time_col)
+            .cast(pl.Datetime(time_unit="ms"))
+            .repeat_by(pl.col("tokens").list.len())
+            .alias("times"),
         )
 
     def get_event(
         self,
         table: str,
-        *,
-        prefix: str = None,
         time: str,
         code: str,
+        *,
+        prefix: str = None,
         numeric_value: str = None,
         text_value: str = None,
-        filter: str = None,
+        filter_expr: str = None,
+        with_col_expr: str = None,
         reference_key: str = None,
-    ):
-        df = pl.scan_parquet(self.data_dir.joinpath(f"{table}.parquet")).filter(
-            eval(filter) if filter is not None else True
+        fix_date_to_time: bool = None,
+    ) -> Frame:
+        """if a date was cast to a time, the default of 00:00:00 should be replaced with 23:59:59"""
+        df = (
+            pl.scan_parquet(self.data_dir.joinpath(f"{table}.parquet"))
+            .filter(eval(filter_expr) if filter_expr is not None else True)
+            .with_columns(eval(with_col_expr) if with_col_expr is not None else [])
         )
+        if fix_date_to_time is not None and bool(fix_date_to_time):
+            df = df.with_columns(
+                pl.col(time)
+                .cast(pl.Datetime(time_unit="ms"))
+                .dt.replace(hour=23, minute=59, second=59)
+            )
         if reference_key is not None:
             df = df.join(self.reference_frame, on=reference_key, how="inner").filter(
                 pl.col(time)
@@ -199,9 +246,11 @@ class Tokenizer21(BaseTokenizer):
                 label=prefix,
             ).select(self.config["subject_id"], "event_time", "tokens", "times")
         else:
-            category_list = [code] if type(code) is str else code
+            category_list = [code] if isinstance(code, str) else code
             if text_value is not None:
-                category_list += [text_value] if type(text_value) is str else text_value
+                category_list += (
+                    [text_value] if isinstance(text_value, str) else text_value
+                )
             # tokenize provided categories directly
             return df.select(
                 pl.col(self.config["subject_id"]),
@@ -210,7 +259,7 @@ class Tokenizer21(BaseTokenizer):
                     [
                         pl.col(cat)
                         .cast(str)
-                        .str.to_lowercase()
+                        # .str.to_lowercase()
                         .str.replace_all(" ", "_")
                         .str.strip_chars(".")
                         .map_elements(
@@ -222,7 +271,8 @@ class Tokenizer21(BaseTokenizer):
                     ]
                 ).alias("tokens"),
                 pl.concat_list(
-                    [pl.col(time).cast(pl.Datetime("ms"))] * len(category_list)
+                    [pl.col(time).cast(pl.Datetime(time_unit="ms"))]
+                    * len(category_list)
                 ).alias("times"),
             ).collect()
 
@@ -230,6 +280,7 @@ class Tokenizer21(BaseTokenizer):
         event_tokens = (
             pl.concat(self.get_event(**evt) for evt in self.config["events"])
             .lazy()
+            .filter(pl.col("event_time").is_not_null())
             .sort("event_time", pl.col("tokens").list.first())
             .group_by("hospitalization_id", maintain_order=True)
             .agg(tokens=pl.col("tokens").explode(), times=pl.col("times").explode())
@@ -302,29 +353,52 @@ class Tokenizer21(BaseTokenizer):
 
 if __name__ == "__main__":
     dev_dir = (
-        pathlib.Path("~/Documents/chicago/CLIF/development-sample/raw-21")
+        pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/development-sample-21/raw/dev")
+        if os.uname().nodename.startswith("cri")
+        else pathlib.Path("~/Downloads/development-sample-21")
         .expanduser()
-        .resolve()
+        .resolve()  # change if developing locally
     )
 
     # tkzr20 = Tokenizer21(config_file="../config/config-20.yaml", data_dir=dev_dir)
     # tt20 = tkzr20.get_tokens_timelines()
     # summarize(tkzr20, tt20)
 
-    tkzr21 = Tokenizer21(
-        config_file="../config/config-21.yaml",
-        data_dir=dev_dir,
-        include_time_spacing_tokens=True,
-    )
+    tkzr21 = Tokenizer21(config_file="../config/config-21.yaml", data_dir=dev_dir)
     tt21 = tkzr21.get_tokens_timelines()
     summarize(tkzr21, tt21)
+    print(f"{len(tkzr21.vocab)=}")
 
-    x = pl.read_parquet(dev_dir.joinpath("clif_medication_admin_intermittent.parquet"))
-    with pl.Config(tbl_cols=-1):
-        print(x)
-
-    pl.read_parquet(
-        dev_dir.joinpath("clif_medication_admin_intermittent.parquet")
-    ).select("mar_action_name").to_series().value_counts().sort(
-        "count", descending=True
+    print(
+        tt21.with_columns(
+            prefix=pl.col("tokens")
+            .list.head(n=len(tkzr21.config["prefix"]) + 1)
+            .list.eval(
+                pl.element().map_elements(
+                    lambda v: tkzr21.vocab.reverse[v], return_dtype=pl.String
+                )
+            )
+            .list.join(", "),
+            last_10=pl.col("tokens")
+            .list.tail(10)
+            .list.eval(
+                pl.element().map_elements(
+                    lambda v: tkzr21.vocab.reverse[v], return_dtype=pl.String
+                )
+            )
+            .list.join(", "),
+        )
     )
+
+    print(list(tkzr21.vocab.lookup.keys()))
+
+    tkzr21_fused = Tokenizer21(
+        config_file="../config/config-21-fused.yaml", data_dir=dev_dir
+    )
+    tt21_fused = tkzr21_fused.get_tokens_timelines()
+    summarize(tkzr21_fused, tt21_fused)
+    print(f"{len(tkzr21_fused.vocab)=}")
+    tkzr21_fused.vocab.print_aux()
+
+    # with pl.Config(tbl_cols=-1):
+    #     print(pl.read_parquet(dev_dir.joinpath("clif_patient_procedures.parquet")))
