@@ -33,7 +33,7 @@ class Tokenizer21(BaseTokenizer):
         quantizer: typing.Literal["centiles", "deciles", "sigmas", "ventiles"] = None,
         cut_at_24h: bool = False,
         include_time_spacing_tokens: bool = None,
-        fused_category_values: bool = False,
+        fused_category_values: bool = None,
         config_file: Pathlike = None,
     ):
         self.config = yaml.YAML(typ="safe").load(
@@ -66,7 +66,7 @@ class Tokenizer21(BaseTokenizer):
         self.cut_at_24h: bool = cut_at_24h
         self.reference_frame = None
 
-    def run_times_qc(self, reference_frame) -> Frame:
+    def run_times_qc(self, reference_frame: Frame) -> Frame:
         return (
             (
                 reference_frame.join(
@@ -204,12 +204,15 @@ class Tokenizer21(BaseTokenizer):
         numeric_value: str = None,
         text_value: str = None,
         filter_expr: str = None,
+        with_col_expr: str = None,
         reference_key: str = None,
         fix_date_to_time: bool = None,
-    ):
+    ) -> Frame:
         """if a date was cast to a time, the default of 00:00:00 should be replaced with 23:59:59"""
-        df = pl.scan_parquet(self.data_dir.joinpath(f"{table}.parquet")).filter(
-            eval(filter_expr) if filter_expr is not None else True
+        df = (
+            pl.scan_parquet(self.data_dir.joinpath(f"{table}.parquet"))
+            .filter(eval(filter_expr) if filter_expr is not None else True)
+            .with_columns(eval(with_col_expr) if with_col_expr is not None else [])
         )
         if fix_date_to_time is not None and bool(fix_date_to_time):
             df = df.with_columns(
@@ -361,11 +364,7 @@ if __name__ == "__main__":
     # tt20 = tkzr20.get_tokens_timelines()
     # summarize(tkzr20, tt20)
 
-    tkzr21 = Tokenizer21(
-        config_file="../config/config-21.yaml",
-        data_dir=dev_dir,
-        include_time_spacing_tokens=True,
-    )
+    tkzr21 = Tokenizer21(config_file="../config/config-21.yaml", data_dir=dev_dir)
     tt21 = tkzr21.get_tokens_timelines()
     summarize(tkzr21, tt21)
     print(f"{len(tkzr21.vocab)=}")
@@ -394,15 +393,12 @@ if __name__ == "__main__":
     print(list(tkzr21.vocab.lookup.keys()))
 
     tkzr21_fused = Tokenizer21(
-        config_file="../config/config-21.yaml",
-        data_dir=dev_dir,
-        include_time_spacing_tokens=True,
-        fused_category_values=True,
+        config_file="../config/config-21-fused.yaml", data_dir=dev_dir
     )
     tt21_fused = tkzr21_fused.get_tokens_timelines()
     summarize(tkzr21_fused, tt21_fused)
     print(f"{len(tkzr21_fused.vocab)=}")
     tkzr21_fused.vocab.print_aux()
 
-    with pl.Config(tbl_cols=-1):
-        print(pl.read_parquet(dev_dir.joinpath("clif_patient_procedures.parquet")))
+    # with pl.Config(tbl_cols=-1):
+    #     print(pl.read_parquet(dev_dir.joinpath("clif_patient_procedures.parquet")))
