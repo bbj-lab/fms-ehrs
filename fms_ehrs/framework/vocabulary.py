@@ -56,6 +56,13 @@ class Vocabulary:
                 )
                 return self.lookup[None] if None in self.lookup else None
 
+    def __repr__(self):
+        return "{sp} of {sz} words {md}".format(
+            sp=super().__repr__(),
+            sz=len(self),
+            md="in training mode" if self._is_training else "(frozen)",
+        )
+
     def set_aux(self, word: Hashable, aux_data):
         if self._is_training:
             self.aux[word] = aux_data

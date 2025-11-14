@@ -156,6 +156,7 @@ class BaseTokenizer:
                     token=pl.lit(self.vocab(f"{prefix}_{c}")).cast(pl.Int64),
                     token_quantile=self.get_quants(v=v, c=c, prefix=prefix),
                 )
+                .filter(~pl.col("token").is_in([self.vocab(None), self.vocab("nan")]))
                 .filter(
                     ~pl.col("token_quantile").is_in(
                         [self.vocab(None), self.vocab("nan")]
@@ -180,6 +181,9 @@ class BaseTokenizer:
                     ),
                 )
                 .filter(pl.col("quantile").is_finite())
+                .filter(
+                    ~pl.col("quantile").is_in([self.vocab(None), self.vocab("nan")])
+                )
                 .with_columns(
                     tokens=pl.concat_list(
                         pl.col("quantile").map_elements(
@@ -201,19 +205,15 @@ class BaseTokenizer:
             self.process_single_category(x, label) for x in df.partition_by("category")
         )
 
-    def time_spacing_inserter(self, tokens, times):
+    def time_spacing_inserter(
+        self, tokens: np.ndarray, times: np.ndarray
+    ) -> dict[str, list]:
         assert len(tokens) == len(times)
-        tdiffs = np.diff(times).astype("timedelta64[s]").astype(int)
-        try:
-            ix, td = zip(
-                *filter(
-                    lambda x: x[1] > 0,
-                    enumerate(np.digitize(tdiffs, bins=self.t_breakpoints).tolist()),
-                )
-            )
-        except ValueError:  # no digitized tdiffs > 0; no insertions to be made
-            assert np.count_nonzero(np.digitize(tdiffs, bins=self.t_breakpoints)) == 0
-            return {"tokens": tokens, "times": times}
+        binned = np.digitize(
+            np.diff(times).astype("timedelta64[s]").astype(int), bins=self.t_breakpoints
+        )
+        ix = np.flatnonzero(binned)
+        td = binned[ix]
         new_tokens = np.insert(
             tokens,
             np.array(ix) + 1,  # insert *after* ix
