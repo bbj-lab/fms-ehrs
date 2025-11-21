@@ -57,3 +57,76 @@ for out in args.outcomes:
     logger.info(lm_len.summary())
     preds = lm_len.predict(tto_test)
     log_classification_metrics(y_true=tto_test[out], y_score=preds, logger=logger)
+
+
+""" query raw tables
+"""
+
+df = pl.read_csv(
+    "/gpfs/data/bbj-lab/code/divergence/physionet.org/files/mimiciv/2.2/hosp/admissions.csv.gz"
+)
+
+with pl.Config(tbl_rows=-1):
+    df.group_by("race").len().with_columns(
+        pct=pl.col("len") / pl.col("len").sum()
+    ).sort("len", descending=True)
+
+with pl.Config(tbl_rows=-1):
+    df.with_columns(
+        prefix=pl.col("race")
+        .str.replace(r"[-/]", "-")
+        .str.split("-")
+        .list.first()
+        .str.strip_chars()
+        .replace(
+            {
+                "HISPANIC OR LATINO": "HISPANIC",
+                "UNABLE TO OBTAIN": "UNKNOWN",
+                "PATIENT DECLINED TO ANSWER": "UNKNOWN",
+                "PORTUGUESE": "WHITE",
+                "AMERICAN INDIAN": "OTHER",
+                "MULTIPLE RACE": "OTHER",
+                "SOUTH AMERICAN": "OTHER",
+                "NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER": "OTHER",
+            }
+        )
+    ).group_by("prefix").len().with_columns(
+        pct=pl.col("len") / pl.col("len").sum()
+    ).sort("len", descending=True)
+
+
+"""
+"""
+
+# df = pl.read_parquet(
+#     "/gpfs/data/bbj-lab/users/burkh4rt/data-raw/mimic-2.1.0/clif_respiratory_support.parquet"
+# )
+#
+# df = pl.scan_csv("/gpfs/data/bbj-lab/users/burkh4rt/mimiciv-3.1/icu/chartevents.csv.gz")
+#
+# df.head(1000).collect()
+
+
+# import time
+
+# def test1():
+#     start = time.perf_counter()
+#     pl.scan_csv(
+#         "/gpfs/data/bbj-lab/users/burkh4rt/mimiciv-3.1/icu/chartevents.csv.gz"
+#     ).head(1000).collect()
+#     end = time.perf_counter()
+#     return f"Elapsed: {end - start:.6f} seconds"
+#
+#
+# def test2():
+#     start = time.perf_counter()
+#     pl.scan_csv(
+#         "/gpfs/data/bbj-lab/users/burkh4rt/mimiciv-3.1/icu/chartevents.csv.gz",
+#         n_rows=1000,
+#     ).collect()
+#     end = time.perf_counter()
+#     return f"Elapsed: {end - start:.6f} seconds"
+#
+#
+# print(test1())
+# print(test2())
