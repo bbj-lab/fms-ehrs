@@ -8,14 +8,15 @@ cf. https://github.com/Common-Longitudinal-ICU-data-Format/CLIF-epi-of-sedation
 import argparse
 import pathlib
 
-# import requests
+import clifpy as cpy
 
+# import requests
 import duckdb as ddb
 import pandas as pd
 import polars as pl
-import clifpy as cpy
 
 from fms_ehrs.framework.logger import get_logger
+from fms_ehrs.framework.storage import set_perms
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
@@ -132,7 +133,7 @@ logger.info(
     )
 )
 
-extub_flag.to_parquet(
+set_perms(extub_flag.to_parquet)(
     out_loc := data_dir.joinpath("clif_successful_extubation.parquet")
 )
 logger.info(f"Saved frame to {out_loc}.")
