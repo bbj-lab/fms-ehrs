@@ -52,7 +52,7 @@ def main(
     model_version: str = "llama1b",
     model_name: str = "meta-llama/Llama-3.2-1B",
     per_device_train_batch_size: int = 4,
-    max_grad_norm: float = 1.0,
+    # max_grad_norm: float = 1.0,
     lr_min: float = 5e-5,
     lr_max: float = 5e-4,
     gr_acc_min: int = 1,
@@ -63,7 +63,7 @@ def main(
     jid: str = os.getenv("SLURM_JOB_ID", ""),
     wandb_project: str = None,
     n_trials: int = 5,
-    iterable_dataset: bool = True,
+    iterable_dataset: bool = False,
     **kwargs,
 ):
     """pass additional model configuration parameters with kwargs"""
@@ -128,7 +128,7 @@ def main(
         output_dir=str(output_dir),
         per_device_train_batch_size=per_device_train_batch_size,
         per_device_eval_batch_size=4,
-        max_grad_norm=max_grad_norm,
+        # max_grad_norm=max_grad_norm,
         num_train_epochs=1,  # this is handled in our dataset object
         save_total_limit=1,
         metric_for_best_model="eval_loss",
