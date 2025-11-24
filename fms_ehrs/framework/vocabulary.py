@@ -6,7 +6,7 @@ of strings to unique integers;
 The Vocabulary class has two modes: training and not-training.
 - During training, new items are added to the lookup table and new auxiliary
 information can be associated to them through the `aux` object.
-- During testing, the vocabulary is frozen and new items are all mapped to the
+- During not-training, the vocabulary is frozen and new items are all mapped to the
 None item or None itself, and no new auxiliary information can be added.
 """
 
@@ -56,6 +56,13 @@ class Vocabulary:
                 )
                 return self.lookup[None] if None in self.lookup else None
 
+    def __repr__(self):
+        return "{sp} of {sz} words {md}".format(
+            sp=super().__repr__(),
+            sz=len(self),
+            md="in training mode" if self._is_training else "(frozen)",
+        )
+
     def set_aux(self, word: Hashable, aux_data):
         if self._is_training:
             self.aux[word] = aux_data
@@ -89,7 +96,8 @@ class Vocabulary:
         with gzip.open(pathlib.Path(filepath).expanduser().resolve(), mode="r+") as f:
             for k, v in pickle.load(f).items():
                 setattr(self, k, v)
-        self._is_training = False  # for extra safety; typically, Vocabulary is only loaded during testing
+        # for added safety; typically, Vocabulary is only loaded after training
+        self._is_training = False
         return self
 
     def get_frame(self) -> Frame:

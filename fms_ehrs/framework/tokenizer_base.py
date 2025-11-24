@@ -26,8 +26,11 @@ class BaseTokenizer:
         data_dir: Pathlike = pathlib.Path("../.."),
         vocab_path: Pathlike = None,
         max_padded_len: int = None,
-        quantizer: typing.Literal["deciles", "sigmas"] = "deciles",
+        quantizer: typing.Literal[
+            "centiles", "deciles", "sigmas", "ventiles"
+        ] = "deciles",
         include_time_spacing_tokens: bool = False,
+        fused_category_values: bool = False,
     ):
         """
         if no vocabulary is provided, we are in training mode; otherwise, the
@@ -35,14 +38,18 @@ class BaseTokenizer:
         """
         self.data_dir = pathlib.Path(data_dir).expanduser().resolve()
         self.quantizer = quantizer
-        self.q_tokens = (
-            tuple(map(lambda i: f"Q{i}", range(10)))
-            if self.quantizer == "deciles"
-            else ("Q3-", "Q2-", "Q1-", "Q0-", "Q0+", "Q1+", "Q2+", "Q3+")
-        )
+        if quantizer == "centiles":
+            self.q_tokens = tuple(map(lambda i: f"Q{i}", range(100)))
+        elif quantizer == "deciles":
+            self.q_tokens = tuple(map(lambda i: f"Q{i}", range(10)))
+        elif quantizer == "ventiles":
+            self.q_tokens = tuple(map(lambda i: f"Q{i}", range(20)))
+        elif quantizer == "sigmas":
+            self.q_tokens = ("Q3-", "Q2-", "Q1-", "Q0-", "Q0+", "Q1+", "Q2+", "Q3+")
         self.special: tuple = ("TL_START", "TL_END", "PAD", "TRUNC", None, "nan")
         self.max_padded_length = max_padded_len
         self.include_time_spacing_tokens = include_time_spacing_tokens
+        self.fused_category_values = fused_category_values
         if self.include_time_spacing_tokens:
             self.t_tokens = (
                 "T_5m-15m",
@@ -77,7 +84,7 @@ class BaseTokenizer:
         if vocab_path is None:
             self.vocab_path = None
             self.vocab = Vocabulary(
-                self.q_tokens
+                (self.q_tokens if not fused_category_values else tuple())
                 + self.special
                 + (self.t_tokens if self.include_time_spacing_tokens else tuple())
             )
@@ -91,9 +98,17 @@ class BaseTokenizer:
         """store training quantile information in the self.vocab object"""
         designator = f"{prefix}_{c}" if prefix is not None else c
         if not self.vocab.has_aux(designator) and self.vocab.is_training:
-            if self.quantizer == "deciles":
+            if self.quantizer == "centiles":
+                self.vocab.set_aux(
+                    designator, np.nanquantile(v, np.arange(0.01, 1.0, 0.01)).tolist()
+                )
+            elif self.quantizer == "deciles":
                 self.vocab.set_aux(
                     designator, np.nanquantile(v, np.arange(0.1, 1.0, 0.1)).tolist()
+                )
+            elif self.quantizer == "ventiles":
+                self.vocab.set_aux(
+                    designator, np.nanquantile(v, np.arange(0.05, 1.0, 0.05)).tolist()
                 )
             elif self.quantizer == "sigmas":
                 μ = np.nanmean(v)
@@ -135,24 +150,53 @@ class BaseTokenizer:
         v = x.select("value").to_numpy().ravel()
         c = x.select("category").row(0)[0]
         self.set_quants(v=v, c=c, prefix=prefix)
-        return (
-            x.with_columns(
-                token=pl.lit(self.vocab(f"{prefix}_{c}")).cast(pl.Int64),
-                token_quantile=self.get_quants(v=v, c=c, prefix=prefix),
+        if not self.fused_category_values:
+            return (
+                x.with_columns(
+                    token=pl.lit(self.vocab(f"{prefix}_{c}")).cast(pl.Int64),
+                    token_quantile=self.get_quants(v=v, c=c, prefix=prefix),
+                )
+                .filter(~pl.col("token").is_in([self.vocab(None), self.vocab("nan")]))
+                .filter(
+                    ~pl.col("token_quantile").is_in(
+                        [self.vocab(None), self.vocab("nan")]
+                    )
+                )
+                .with_columns(
+                    tokens=pl.concat_list("token", "token_quantile").cast(
+                        pl.List(pl.Int64)
+                    ),
+                    times=pl.concat_list("event_time", "event_time").cast(
+                        pl.List(pl.Datetime(time_unit="ms"))
+                    ),
+                )
+                .drop("token", "token_quantile")
             )
-            .filter(~pl.col("token").is_in([self.vocab(None), self.vocab("nan")]))
-            .filter(
-                ~pl.col("token_quantile").is_in([self.vocab(None), self.vocab("nan")])
+        else:
+            return (
+                x.with_columns(
+                    quantile=self.get_quants(v=v, c=c, prefix=prefix),
+                    times=pl.concat_list("event_time").cast(
+                        pl.List(pl.Datetime(time_unit="ms"))
+                    ),
+                )
+                .filter(pl.col("quantile").is_finite())
+                .filter(
+                    ~pl.col("quantile").is_in([self.vocab(None), self.vocab("nan")])
+                )
+                .with_columns(
+                    tokens=pl.concat_list(
+                        pl.col("quantile").map_elements(
+                            lambda x, c=c, prefix=prefix: self.vocab(
+                                f"{prefix}_{c}_Q{x}"
+                            ),
+                            return_dtype=pl.Int64,
+                            skip_nulls=False,
+                        )
+                    )
+                )
+                .drop("quantile")
             )
-            .with_columns(
-                tokens=pl.concat_list("token", "token_quantile").cast(
-                    pl.List(pl.Int64)
-                ),
-                times=pl.concat_list("event_time", "event_time").cast(
-                    pl.List(pl.Datetime(time_unit="ms"))
-                ),
-            )
-        )
 
     def process_cat_val_frame(self, df: Frame, label: str) -> Frame:
         """handle tables that can mostly be described in terms of categories and
@@ -161,19 +205,15 @@ class BaseTokenizer:
             self.process_single_category(x, label) for x in df.partition_by("category")
         )
 
-    def time_spacing_inserter(self, tokens, times):
+    def time_spacing_inserter(
+        self, tokens: np.ndarray, times: np.ndarray
+    ) -> dict[str, list]:
         assert len(tokens) == len(times)
-        tdiffs = np.diff(times).astype("timedelta64[s]").astype(int)
-        try:
-            ix, td = zip(
-                *filter(
-                    lambda x: x[1] > 0,
-                    enumerate(np.digitize(tdiffs, bins=self.t_breakpoints).tolist()),
-                )
-            )
-        except ValueError:  # no digitized tdiffs > 0; no insertions to be made
-            assert np.count_nonzero(np.digitize(tdiffs, bins=self.t_breakpoints)) == 0
-            return {"tokens": tokens, "times": times}
+        binned = np.digitize(
+            np.diff(times).astype("timedelta64[s]").astype(int), bins=self.t_breakpoints
+        )
+        ix = np.flatnonzero(binned)
+        td = binned[ix]
         new_tokens = np.insert(
             tokens,
             np.array(ix) + 1,  # insert *after* ix
