@@ -9,9 +9,9 @@
 source preamble.sh
 
 tables=(
-    # clif_respiratory_support_processed
-    # clif_sofa
-    # clif_successful_extubation
+    clif_respiratory_support_processed
+    clif_sofa
+    clif_successful_extubation
     clif_medication_admin_continuous_converted
     clif_medication_admin_intermittent_converted
 )

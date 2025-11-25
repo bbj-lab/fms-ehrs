@@ -8,7 +8,7 @@ options:
     max_padded_len: !!int 1024
     quantizer: ventiles # 20 bins
     include_time_spacing_tokens: !!bool true
-    fused_category_values: !!bool false
+    fused_category_values: !!bool true
 
 # primary reference table for static data
 # to which other tables will be joined

@@ -2,15 +2,16 @@
 
 #SBATCH --job-name=tune-mdl
 #SBATCH --output=./output/%j-%x.stdout
-##SBATCH --partition=gpuq
-#SBATCH --partition=sxmq
-#SBATCH --reservation=sxmtest
+#SBATCH --partition=gpuq
+##SBATCH --partition=sxmq
+##SBATCH --reservation=sxmtest
 #SBATCH --gres=gpu:8
 #SBATCH --time=1-00:00:00
+#SBATCH --depend=afterok:1960286
 
 source preamble.sh
 
-export data_version=W21
+export data_version=W21++
 
 echo "Training an FM on MIMIC data..."
 torchrun --nproc_per_node=8 \
@@ -18,7 +19,7 @@ torchrun --nproc_per_node=8 \
     --rdzv-id "${SLURM_ARRAY_TASK_ID:-0}" \
     --rdzv-endpoint=localhost:0 \
     ../fms_ehrs/scripts/tune_model.py \
-    --n_epochs 10 \
+    --n_epochs 20 \
     --n_trials 5 \
     --data_dir "${hm}/data-mimic" \
     --data_version "${data_version}" \
