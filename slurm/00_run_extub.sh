@@ -11,11 +11,11 @@ source preamble.sh
 python3 ../fms_ehrs/scripts/run_successful_extubation_determination.py \
     --data_dir "${hm}/data-raw/ucmc-2.1.0" \
     --q_dir "${hm}/fms-ehrs-reps/fms_ehrs/misc" \
-    --tz "US/Central"
+    --tz "UTC"
 
 python3 ../fms_ehrs/scripts/run_successful_extubation_determination.py \
     --data_dir "${hm}/data-raw/mimic-2.1.0" \
     --q_dir "${hm}/fms-ehrs-reps/fms_ehrs/misc" \
-    --tz "US/Eastern"
+    --tz "UTC"
 
 source postscript.sh

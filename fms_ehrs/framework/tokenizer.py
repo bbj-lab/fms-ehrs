@@ -117,7 +117,12 @@ class Tokenizer21(BaseTokenizer):
                 self.data_dir.joinpath(f"{tkv['table']}.parquet")
             ).filter(eval(tkv["filter_expr"]) if "filter_expr" in tkv else True)
             if "with_col_expr" in tkv:
-                df_aug = df_aug.with_columns(eval(tkv["with_col_expr"]))
+                if isinstance(tkv["with_col_expr"], str):
+                    df_aug = df_aug.with_columns(eval(tkv["with_col_expr"]))
+                else:  # list
+                    df_aug = df_aug.with_columns(
+                        [eval(c) for c in tkv["with_col_expr"]]
+                    )
             if "agg_expr" in tkv:
                 df_aug = df_aug.group_by(tkv["key"]).agg(eval(tkv["agg_expr"]))
             df = df.join(
@@ -209,11 +214,14 @@ class Tokenizer21(BaseTokenizer):
         fix_date_to_time: bool = None,
     ) -> Frame:
         """if a date was cast to a time, the default of 00:00:00 should be replaced with 23:59:59"""
-        df = (
-            pl.scan_parquet(self.data_dir.joinpath(f"{table}.parquet"))
-            .filter(eval(filter_expr) if filter_expr is not None else True)
-            .with_columns(eval(with_col_expr) if with_col_expr is not None else [])
-        )
+        df = pl.scan_parquet(self.data_dir.joinpath(f"{table}.parquet"))
+        if filter_expr is not None:
+            df = df.filter(eval(filter_expr))
+        if with_col_expr is not None:
+            if isinstance(with_col_expr, str):
+                df = df.with_columns(eval(with_col_expr))
+            else:  # list
+                df = df.with_columns([eval(c) for c in with_col_expr])
         if fix_date_to_time is not None and bool(fix_date_to_time):
             df = df.with_columns(
                 pl.col(time)
@@ -353,9 +361,11 @@ class Tokenizer21(BaseTokenizer):
 
 if __name__ == "__main__":
     dev_dir = (
-        pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/development-sample-21/raw/dev")
+        pathlib.Path(
+            "/gpfs/data/bbj-lab/users/burkh4rt/development-sample-21/raw-mimic/dev"
+        )
         if os.uname().nodename.startswith("cri")
-        else pathlib.Path("~/Downloads/development-sample-21")
+        else pathlib.Path("~/Downloads/development-sample-21/raw-ucmc/dev")
         .expanduser()
         .resolve()  # change if developing locally
     )
@@ -364,41 +374,55 @@ if __name__ == "__main__":
     # tt20 = tkzr20.get_tokens_timelines()
     # summarize(tkzr20, tt20)
 
-    tkzr21 = Tokenizer21(config_file="../config/config-21.yaml", data_dir=dev_dir)
-    tt21 = tkzr21.get_tokens_timelines()
-    summarize(tkzr21, tt21)
-    print(f"{len(tkzr21.vocab)=}")
+    # tkzr21 = Tokenizer21(config_file="../config/config-21.yaml", data_dir=dev_dir)
+    # tt21 = tkzr21.get_tokens_timelines()
+    # summarize(tkzr21, tt21)
+    # print(f"{len(tkzr21.vocab)=}")
 
-    print(
-        tt21.with_columns(
-            prefix=pl.col("tokens")
-            .list.head(n=len(tkzr21.config["prefix"]) + 1)
-            .list.eval(
-                pl.element().map_elements(
-                    lambda v: tkzr21.vocab.reverse[v], return_dtype=pl.String
-                )
-            )
-            .list.join(", "),
-            last_10=pl.col("tokens")
-            .list.tail(10)
-            .list.eval(
-                pl.element().map_elements(
-                    lambda v: tkzr21.vocab.reverse[v], return_dtype=pl.String
-                )
-            )
-            .list.join(", "),
-        )
-    )
+    # print(
+    #     tt21.with_columns(
+    #         prefix=pl.col("tokens")
+    #         .list.head(n=len(tkzr21.config["prefix"]) + 1)
+    #         .list.eval(
+    #             pl.element().map_elements(
+    #                 lambda v: tkzr21.vocab.reverse[v], return_dtype=pl.String
+    #             )
+    #         )
+    #         .list.join(", "),
+    #         last_10=pl.col("tokens")
+    #         .list.tail(10)
+    #         .list.eval(
+    #             pl.element().map_elements(
+    #                 lambda v: tkzr21.vocab.reverse[v], return_dtype=pl.String
+    #             )
+    #         )
+    #         .list.join(", "),
+    #     )
+    # )
 
-    print(list(tkzr21.vocab.lookup.keys()))
+    # print(list(tkzr21.vocab.lookup.keys()))
 
-    tkzr21_fused = Tokenizer21(
-        config_file="../config/config-21-fused.yaml", data_dir=dev_dir
-    )
-    tt21_fused = tkzr21_fused.get_tokens_timelines()
-    summarize(tkzr21_fused, tt21_fused)
-    print(f"{len(tkzr21_fused.vocab)=}")
-    tkzr21_fused.vocab.print_aux()
+    # tkzr21_fused = Tokenizer21(
+    #     config_file="../config/config-21-fused.yaml", data_dir=dev_dir
+    # )
+    # tt21_fused = tkzr21_fused.get_tokens_timelines()
+    # summarize(tkzr21_fused, tt21_fused)
+    # print(f"{len(tkzr21_fused.vocab)=}")
+    # tkzr21_fused.vocab.print_aux()
+    # print(list(tkzr21_fused.vocab.lookup.keys()))
+
+    tkzr21_pp = Tokenizer21(config_file="../config/config-21++.yaml", data_dir=dev_dir)
+    tt21_pp = tkzr21_pp.get_tokens_timelines()
+    summarize(tkzr21_pp, tt21_pp)
+    print(f"{len(tkzr21_pp.vocab)=}")
+    tkzr21_pp.vocab.print_aux()
+    print(list(tkzr21_pp.vocab.lookup.keys()))
 
     # with pl.Config(tbl_cols=-1):
-    #     print(pl.read_parquet(dev_dir.joinpath("clif_patient_procedures.parquet")))
+    #     print(pl.read_parquet(dev_dir.joinpath("clif_respiratory_support.parquet")))
+
+    # with pl.Config(tbl_width_chars=1000, tbl_cols=-1):
+    #     x = pl.read_parquet(
+    #         dev_dir.joinpath("clif_medication_admin_intermittent_converted.parquet")
+    #     )
+    #     print(x)
