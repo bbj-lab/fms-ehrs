@@ -27,7 +27,7 @@ parser.add_argument(
     "--data_dir", type=pathlib.Path, default="../../data-raw/mimic-2.1.0"
 )
 parser.add_argument("--q_dir", type=pathlib.Path, default="../fms_ehrs/misc")
-parser.add_argument("--tz", type=str, default="US/Eastern")
+parser.add_argument("--tz", type=str, default="UTC")
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():

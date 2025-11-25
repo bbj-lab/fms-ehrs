@@ -21,7 +21,7 @@ parser.add_argument(
     "--data_dir", type=pathlib.Path, default="../../data-raw/ucmc-2.1.0"
 )
 parser.add_argument("--out_dir", type=pathlib.Path, default="../../figs")
-parser.add_argument("--tz", type=str, default="US/Central")
+parser.add_argument("--tz", type=str, default="UTC")
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():

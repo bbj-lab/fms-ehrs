@@ -27,5 +27,6 @@
     },
     "[yaml]": {
         "editor.defaultFormatter": "esbenp.prettier-vscode"
-    }
+    },
+    "python.experiments.enabled": false
 }

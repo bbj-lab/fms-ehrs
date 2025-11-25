@@ -218,7 +218,7 @@ Run on randi:
 systemd-run --scope --user tmux new -s t3q || tmux a -t t3q
 srun -p tier3q \
   --mem=100GB \
-  --time=1:00:00 \
+  --time=8:00:00 \
   --job-name=adhoc \
   --pty bash -i
 source venv/bin/activate
@@ -241,6 +241,14 @@ Grab generated plots:
 ```
 rsync -avht \
     randi:/gpfs/data/bbj-lab/users/burkh4rt/figs \
+    ~/Downloads
+```
+
+Grab dev sample:
+```
+rsync -avht \
+    --delete \
+    randi:/gpfs/data/bbj-lab/users/burkh4rt/development-sample-21 \
     ~/Downloads
 ```
 

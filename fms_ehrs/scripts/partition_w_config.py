@@ -27,7 +27,6 @@ parser.add_argument("--data_dir_in", type=pathlib.Path, default="../../tmp-test/
 parser.add_argument("--train_frac", type=float, default=0.7)
 parser.add_argument("--val_frac", type=float, default=0.1)
 parser.add_argument("--valid_admission_window", nargs=2, type=str)
-parser.add_argument("--match_other_split", type=pathlib.Path)
 parser.add_argument(
     "--config_loc", type=pathlib.Path, default="../fms_ehrs/config/config-20.yaml"
 )

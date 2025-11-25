@@ -10,10 +10,10 @@ source preamble.sh
 
 python3 ../fms_ehrs/scripts/run_sofa_scoring.py \
     --data_dir "${hm}/data-raw/ucmc-2.1.0" \
-    --tz "US/Central"
+    --tz "UTC"
 
 python3 ../fms_ehrs/scripts/run_sofa_scoring.py \
     --data_dir "${hm}/data-raw/mimic-2.1.0" \
-    --tz "US/Eastern"
+    --tz "UTC"
 
 source postscript.sh
