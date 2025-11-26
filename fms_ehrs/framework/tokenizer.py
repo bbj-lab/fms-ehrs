@@ -164,7 +164,6 @@ class Tokenizer21(BaseTokenizer):
                     (
                         (
                             pl.col(col["column"])
-                            # .str.to_lowercase()
                             .str.replace_all(" ", "_")
                             .map_elements(
                                 lambda x, prefix=col["prefix"]: self.vocab(
@@ -252,7 +251,7 @@ class Tokenizer21(BaseTokenizer):
                     pl.col(numeric_value).alias("value"),
                 ).collect(),
                 label=prefix,
-            ).select(self.config["subject_id"], "event_time", "tokens", "times")
+            ).select(self.config["subject_id"], "event_time", "tokens")
         else:
             category_list = [code] if isinstance(code, str) else code
             if text_value is not None:
@@ -267,7 +266,6 @@ class Tokenizer21(BaseTokenizer):
                     [
                         pl.col(cat)
                         .cast(str)
-                        # .str.to_lowercase()
                         .str.replace_all(" ", "_")
                         .str.strip_chars(".")
                         .map_elements(
@@ -278,10 +276,6 @@ class Tokenizer21(BaseTokenizer):
                         for cat in category_list
                     ]
                 ).alias("tokens"),
-                pl.concat_list(
-                    [pl.col(time).cast(pl.Datetime(time_unit="ms"))]
-                    * len(category_list)
-                ).alias("times"),
             ).collect()
 
     def get_events(self) -> Frame:
@@ -290,8 +284,10 @@ class Tokenizer21(BaseTokenizer):
             .lazy()
             .filter(pl.col("event_time").is_not_null())
             .sort("event_time", pl.col("tokens").list.first())
-            .group_by("hospitalization_id", maintain_order=True)
-            .agg(tokens=pl.col("tokens").explode(), times=pl.col("times").explode())
+            .explode("tokens")
+            .filter(pl.col("tokens") != self.vocab(None))
+            .group_by(self.config["subject_id"], maintain_order=True)
+            .agg(tokens=pl.col("tokens"), times=pl.col("event_time").alias("times"))
         )
 
         if self.include_time_spacing_tokens:
@@ -343,8 +339,8 @@ class Tokenizer21(BaseTokenizer):
                 tokens=pl.concat_list("prefix_tokens", "tokens", "suffix_tokens"),
                 times=pl.concat_list("prefix_times", "times", "suffix_times"),
             )
-            .select("hospitalization_id", "tokens", "times")
-            .sort(by="hospitalization_id")
+            .select(self.config["subject_id"], "tokens", "times")
+            .sort(by=self.config["subject_id"])
         )
 
         if self.config["options"]["day_stay_filter"]:
@@ -360,63 +356,36 @@ class Tokenizer21(BaseTokenizer):
 
 
 if __name__ == "__main__":
+    import tempfile
+
     dev_dir = (
-        pathlib.Path(
-            "/gpfs/data/bbj-lab/users/burkh4rt/development-sample-21/raw-mimic/dev"
-        )
+        pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/development-sample-21")
         if os.uname().nodename.startswith("cri")
-        else pathlib.Path("~/Downloads/development-sample-21/raw-ucmc/dev")
+        else pathlib.Path("~/Downloads/development-sample-21")
         .expanduser()
         .resolve()  # change if developing locally
     )
 
-    # tkzr20 = Tokenizer21(config_file="../config/config-20.yaml", data_dir=dev_dir)
-    # tt20 = tkzr20.get_tokens_timelines()
-    # summarize(tkzr20, tt20)
-
-    # tkzr21 = Tokenizer21(config_file="../config/config-21.yaml", data_dir=dev_dir)
-    # tt21 = tkzr21.get_tokens_timelines()
-    # summarize(tkzr21, tt21)
-    # print(f"{len(tkzr21.vocab)=}")
-
-    # print(
-    #     tt21.with_columns(
-    #         prefix=pl.col("tokens")
-    #         .list.head(n=len(tkzr21.config["prefix"]) + 1)
-    #         .list.eval(
-    #             pl.element().map_elements(
-    #                 lambda v: tkzr21.vocab.reverse[v], return_dtype=pl.String
-    #             )
-    #         )
-    #         .list.join(", "),
-    #         last_10=pl.col("tokens")
-    #         .list.tail(10)
-    #         .list.eval(
-    #             pl.element().map_elements(
-    #                 lambda v: tkzr21.vocab.reverse[v], return_dtype=pl.String
-    #             )
-    #         )
-    #         .list.join(", "),
-    #     )
-    # )
-
-    # print(list(tkzr21.vocab.lookup.keys()))
-
-    # tkzr21_fused = Tokenizer21(
-    #     config_file="../config/config-21-fused.yaml", data_dir=dev_dir
-    # )
-    # tt21_fused = tkzr21_fused.get_tokens_timelines()
-    # summarize(tkzr21_fused, tt21_fused)
-    # print(f"{len(tkzr21_fused.vocab)=}")
-    # tkzr21_fused.vocab.print_aux()
-    # print(list(tkzr21_fused.vocab.lookup.keys()))
-
-    tkzr21_pp = Tokenizer21(config_file="../config/config-21++.yaml", data_dir=dev_dir)
+    tkzr21_pp = Tokenizer21(
+        config_file="../config/config-21++.yaml",
+        data_dir=dev_dir.joinpath("raw-mimic/dev"),
+    )
     tt21_pp = tkzr21_pp.get_tokens_timelines()
     summarize(tkzr21_pp, tt21_pp)
     print(f"{len(tkzr21_pp.vocab)=}")
     tkzr21_pp.vocab.print_aux()
     print(list(tkzr21_pp.vocab.lookup.keys()))
 
+    with tempfile.NamedTemporaryFile() as fp:
+        tkzr21_pp.vocab.save(fp.name)
+        tkzr21_pp_ucmc = Tokenizer21(
+            vocab_path=fp.name,
+            config_file="../config/config-21++.yaml",
+            data_dir=dev_dir.joinpath("raw-ucmc/dev"),
+        )
+        tt21_pp_ucmc = tkzr21_pp_ucmc.get_tokens_timelines()
+        summarize(tkzr21_pp_ucmc, tt21_pp_ucmc)
+
     # with pl.Config(tbl_cols=-1):
-    #     print(pl.read_parquet(dev_dir.joinpath("clif_respiratory_support.parquet")))
+    #     x = pl.read_parquet(dev_dir.joinpath("clif_respiratory_support.parquet"))
+    #     print(x)

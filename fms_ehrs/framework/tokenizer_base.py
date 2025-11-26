@@ -165,10 +165,7 @@ class BaseTokenizer:
                 .with_columns(
                     tokens=pl.concat_list("token", "token_quantile").cast(
                         pl.List(pl.Int64)
-                    ),
-                    times=pl.concat_list("event_time", "event_time").cast(
-                        pl.List(pl.Datetime(time_unit="ms"))
-                    ),
+                    )
                 )
                 .drop("token", "token_quantile")
             )
