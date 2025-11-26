@@ -153,7 +153,7 @@ for s in splits:
     )(dirs_out[s].joinpath("{}.parquet".format(ref_tbl_str)))
     for t in data_dir_in.glob("*.parquet"):
         if t.stem != ref_tbl_str:
-            try:
+            try:  # attempt to partition on subject id
                 set_perms(
                     pl.scan_parquet(t)
                     .with_columns(pl.col(sbj_id_str).cast(pl.String))
@@ -164,7 +164,20 @@ for s in splits:
                 continue
             except pl.exceptions.ColumnNotFoundError:
                 logger.warning(f"Failed to find {sbj_id_str} in {t.name}")
-            try:
+            try:  # maybe it's in MEDS?
+                set_perms(
+                    pl.scan_parquet(t)
+                    .with_columns(
+                        pl.col("subject_id").alias(sbj_id_str).cast(pl.String)
+                    )
+                    .join(sbj_ids[s].lazy(), on=sbj_id_str)
+                    .sink_parquet
+                )(dirs_out[s].joinpath(t.name))
+                logger.info(f"Created {t.name} in {s} with {sbj_id_str}")
+                continue
+            except pl.exceptions.ColumnNotFoundError:
+                logger.warning(f"Failed to find 'subject_id' in {t.name}")
+            try:  # attempt to partition on group id
                 set_perms(
                     pl.scan_parquet(t)
                     .with_columns(pl.col(grp_id_str).cast(pl.String))
