@@ -60,23 +60,26 @@ snippet to our configuration file
 tokenization process:
 
 ```yaml
-- table: clif_sofa
-  prefix: SOFA
-  with_col_expr:
-      - (pl.lit("cv-") + pl.col("sofa_cv_97").cast(str)).alias("cv")
-      - (pl.lit("cns-") + pl.col("sofa_cns").cast(str)).alias("cns")
-      - (pl.lit("coag-") + pl.col("sofa_coag").cast(str)).alias("coag")
-      - (pl.lit("liver-") + pl.col("sofa_liver").cast(str)).alias("liver")
-      - (pl.lit("renal-") + pl.col("sofa_renal").cast(str)).alias("renal")
-      - (pl.lit("resp-") + pl.col("sofa_resp").cast(str)).alias("resp")
-  code:
-      - cv
-      - cns
-      - coag
-      - liver
-      - renal
-      - resp
-  time: event_time
+events:
+    # ...
+
+    - table: clif_sofa
+      prefix: SOFA
+      with_col_expr:
+          - (pl.lit("cv-") + pl.col("sofa_cv_97").cast(str)).alias("cv")
+          - (pl.lit("cns-") + pl.col("sofa_cns").cast(str)).alias("cns")
+          - (pl.lit("coag-") + pl.col("sofa_coag").cast(str)).alias("coag")
+          - (pl.lit("liver-") + pl.col("sofa_liver").cast(str)).alias("liver")
+          - (pl.lit("renal-") + pl.col("sofa_renal").cast(str)).alias("renal")
+          - (pl.lit("resp-") + pl.col("sofa_resp").cast(str)).alias("resp")
+      code:
+          - cv
+          - cns
+          - coag
+          - liver
+          - renal
+          - resp
+      time: event_time
 ```
 
 This causes tokens `SOFA_cv-0`, ..., `SOFA_cv-4`, and so on for each type of
@@ -135,6 +138,43 @@ This gives us tokens: `DX_I11`, `DX_I61`, `DX_C01`, `DX_A40`, `DX_J10`, etc. The
 recieve a diagnosis / billing code with a
 [J10 prefix](https://www.icd10data.com/ICD10CM/Codes/J00-J99/J09-J18/J10-) for
 "Influenza due to other identified influenza virus".
+
+## Arbitrary event-based outcome
+
+Suppose you want to add an arbitrary event-based outcome to the tokenization
+process. You can create a new parquet table in the
+[MEDS schema](https://github.com/Medical-Event-Data-Standard/meds) with columns:
+
+-   subject_id (int or str, required)
+-   time (datetime, required)
+-   code (str, required)
+-   numeric_value (float, optional)
+-   text_value (str, optional)
+
+Depending on whether or not your data had already been partitioned into training,
+validation, and test sets, you would then need to either run
+[partition_w_config.py](../fms_ehrs/scripts/partition_w_config.py) or
+[partition_posthoc_w_config.py](../fms_ehrs/scripts/partition_posthoc_w_config.py),
+both of which now convert "subject_id" columns to the value of the `subject_id`
+key in our config file. You would want to create a configuration (based on the
+configurations in the [config folder](../fms_ehrs/config/)) that includes this
+table. In the most basic instance, you could add an event for your new
+`table_name.parquet` table by adding the following to the list of events in the
+config file:
+
+```yaml
+events:
+    # ...
+
+    - table: table_name
+      prefix: MY-NEW-THING
+      code: code
+      time: time
+```
+
+If everything went according to plan, this would insert tokens `MY-NEW-THING_xxx`
+where `xxx` corresponds to the codes in your code column. You would then want to
+rerun tokenization, training, etc. with this new config.
 
 [^1]:
     This is unnecessary for same-admission mortality, because we filter out all
