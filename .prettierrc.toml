@@ -1,2 +1,7 @@
 printWidth = 81
 proseWrap  = "always"
+
+[[overrides]]
+    files = "*.yaml"
+    [overrides.options]
+        printWidth = 100

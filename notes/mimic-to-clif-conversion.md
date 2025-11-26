@@ -25,4 +25,4 @@ pip install -r requirements.txt
 python3 main.py
 ```
 
-This leaves parquet tables in ./output/rclif-2.0
+This leaves parquet tables in `./output/rclif-2.0`.
