@@ -420,9 +420,3 @@ if __name__ == "__main__":
 
     # with pl.Config(tbl_cols=-1):
     #     print(pl.read_parquet(dev_dir.joinpath("clif_respiratory_support.parquet")))
-
-    # with pl.Config(tbl_width_chars=1000, tbl_cols=-1):
-    #     x = pl.read_parquet(
-    #         dev_dir.joinpath("clif_medication_admin_intermittent_converted.parquet")
-    #     )
-    #     print(x)

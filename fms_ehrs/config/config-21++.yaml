@@ -229,12 +229,13 @@ events:
           - resp
       time: event_time
 
-    - table: clif_successful_extubation
-      prefix: XTUB
-      filter_expr: pl.col("_success_extub") == 1
-      with_col_expr: pl.lit("success").alias("code")
-      code: code
-      time: event_dttm
+    # # this is defined to preclude subsequent mortality
+    # - table: clif_successful_extubation
+    #   prefix: XTUB
+    #   filter_expr: pl.col("_success_extub") == 1
+    #   with_col_expr: pl.lit("success").alias("code")
+    #   code: code
+    #   time: event_dttm
 
     - table: clif_vitals
       prefix: VTL
