@@ -210,10 +210,15 @@ class Tokenizer21(BaseTokenizer):
         filter_expr: str = None,
         with_col_expr: str = None,
         reference_key: str = None,
+        subject_id_str: str = None,
         fix_date_to_time: bool = None,
     ) -> Frame:
         """if a date was cast to a time, the default of 00:00:00 should be replaced with 23:59:59"""
         df = pl.scan_parquet(self.data_dir.joinpath(f"{table}.parquet"))
+        if subject_id_str is not None:
+            df = df.with_columns(
+                pl.col(subject_id_str).alias(self.config["subject_id"])
+            )
         if filter_expr is not None:
             df = df.filter(eval(filter_expr))
         if with_col_expr is not None:

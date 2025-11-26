@@ -56,11 +56,18 @@ new_data = (
     else pl.scan_csv(new_data_loc)
 )
 
+new_cols = new_data.collect_schema().names()
+new_data = (
+    new_data.with_columns(pl.col("subject_id").cast(pl.String).alias(sbj_id_str))
+    if "subject_id" in new_cols and sbj_id_str not in new_cols
+    else new_data.with_columns(pl.col(sbj_id_str).cast(pl.String))
+)
+
 splits = ("train", "val", "test") if not args.development_sample else ("dev",)
 for s in splits:
     sbj_ids = pl.scan_parquet(
         data_dir.joinpath(args.data_version, s, f"{ref_tbl_str}.parquet")
-    ).select(pl.col(sbj_id_str).cast(str))
+    ).select(pl.col(sbj_id_str).cast(pl.String))
     set_perms(
         new_data.join(sbj_ids, how="inner", on=sbj_id_str, validate="m:1").sink_parquet
     )(data_dir.joinpath(args.data_version, s, f"{new_data_loc.stem}.parquet"))
