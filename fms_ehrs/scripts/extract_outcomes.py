@@ -41,7 +41,7 @@ def main(
         vocab("expired") if "expired" in vocab.lookup else vocab("DSCG_expired")
     )
     icu_token = vocab("icu") if "icu" in vocab.lookup else vocab("ADT_icu")
-    imv_token = vocab("imv") if "imv" in vocab.lookup else vocab("RESP_devc_imv")
+    imv_token = vocab("imv") if "imv" in vocab.lookup else vocab("RESP_IMV")
 
     for s in splits:
         outcomes = (

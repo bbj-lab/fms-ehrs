@@ -5,13 +5,14 @@ load different versions of tokenized timelines and generate descriptive statisti
 """
 
 import argparse
+import functools
 import pathlib
+import re
 
 import pandas as pd
 import polars as pl
 
 from fms_ehrs.framework.logger import get_logger
-from fms_ehrs.framework.tokenizer import Tokenizer21
 from fms_ehrs.framework.vocabulary import Vocabulary
 
 logger = get_logger()
@@ -53,6 +54,19 @@ idx = pd.MultiIndex.from_product(
 )
 res = pd.DataFrame(index=idx, columns=["tot_tokens", "unq_tokens"])
 
+
+@functools.cache
+def token_type(word: str) -> str:
+    if word in ("TL_START", "TL_END", "PAD", "TRUNC", None, "nan"):
+        return "SPECIAL"
+    elif re.fullmatch(r"Q\d+", word) or re.fullmatch(r"Q[0-3][+-]", word):
+        return "Q"
+    elif word.startswith("T_"):
+        return "TIME-SPACER"
+    else:
+        return word.split("_")[0]
+
+
 for vers in args.data_versions:
     logger.info(vers.ljust(42, "="))
     for d in data_dirs:
@@ -60,7 +74,6 @@ for vers in args.data_versions:
         v = Vocabulary().load(
             vpath := d.joinpath(f"{vers}-tokenized", "train", "vocab.gzip")
         )
-        tkzr = Tokenizer21(data_dir=d, vocab_path=vpath, config_file=a)
         logger.info(f"Vocab size: {len(v)}")
         for s in args.splits:
             logger.info(f"{s} split")
@@ -81,6 +94,21 @@ for vers in args.data_versions:
                 .len()
                 .sort("len", descending=True)
                 .head(10)
+                .collect()
+            )
+            logger.info(
+                df.select(
+                    pl.col("tokens")
+                    .explode()
+                    .replace_strict(
+                        {k: token_type(v) for k, v in v.reverse.items()},
+                        return_dtype=pl.String,
+                    )
+                    .alias("token_type")
+                )
+                .group_by("token_type")
+                .len()
+                .sort("len", descending=True)
                 .collect()
             )
 
