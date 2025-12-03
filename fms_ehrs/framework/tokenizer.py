@@ -112,19 +112,32 @@ class Tokenizer21(BaseTokenizer):
         df = pl.scan_parquet(
             self.data_dir.joinpath(f"{self.config['reference']['table']}.parquet")
         )
+        if "filter_expr" in self.config["reference"]:
+            df = df.filter(eval(self.config["reference"]["filter_expr"]))
+        if "agg_expr" in self.config["reference"]:
+            if isinstance(ae := self.config["reference"]["agg_expr"], str):
+                df = df.group_by(self.config["subject_id"]).agg(eval(ae))
+            else:  # list
+                df = df.group_by(self.config["subject_id"]).agg([eval(c) for c in ae])
+        if "with_col_expr" in self.config["reference"]:
+            if isinstance(wce := self.config["reference"]["with_col_expr"], str):
+                df = df.with_columns(eval(wce))
+            else:  # list
+                df = df.with_columns([eval(c) for c in wce])
         for tkv in self.config["augmentation_tables"]:
             df_aug = pl.scan_parquet(
                 self.data_dir.joinpath(f"{tkv['table']}.parquet")
             ).filter(eval(tkv["filter_expr"]) if "filter_expr" in tkv else True)
             if "with_col_expr" in tkv:
-                if isinstance(tkv["with_col_expr"], str):
-                    df_aug = df_aug.with_columns(eval(tkv["with_col_expr"]))
+                if isinstance(wce := tkv["with_col_expr"], str):
+                    df_aug = df_aug.with_columns(eval(wce))
                 else:  # list
-                    df_aug = df_aug.with_columns(
-                        [eval(c) for c in tkv["with_col_expr"]]
-                    )
+                    df_aug = df_aug.with_columns([eval(c) for c in wce])
             if "agg_expr" in tkv:
-                df_aug = df_aug.group_by(tkv["key"]).agg(eval(tkv["agg_expr"]))
+                if isinstance(ae := tkv["agg_expr"], str):
+                    df_aug = df_aug.group_by(tkv["key"]).agg(eval(ae))
+                else:  # list
+                    df_aug = df_aug.group_by(tkv["key"]).agg([eval(c) for c in ae])
             df = df.join(
                 df_aug,
                 on=tkv["key"],
@@ -149,6 +162,7 @@ class Tokenizer21(BaseTokenizer):
                     )
                 )
         self.reference_frame = self.run_times_qc(df)
+
         return self.reference_frame
 
     def get_end(self, end_type: typing.Literal["prefix", "suffix"]) -> Frame:
@@ -341,8 +355,12 @@ class Tokenizer21(BaseTokenizer):
                 validate="1:1",
             )
             .with_columns(
-                tokens=pl.concat_list("prefix_tokens", "tokens", "suffix_tokens"),
-                times=pl.concat_list("prefix_times", "times", "suffix_times"),
+                tokens=pl.concat_list(
+                    "prefix_tokens", pl.col("tokens").fill_null([]), "suffix_tokens"
+                ),
+                times=pl.concat_list(
+                    "prefix_times", pl.col("times").fill_null([]), "suffix_times"
+                ),
             )
             .select(self.config["subject_id"], "tokens", "times")
             .sort(by=self.config["subject_id"])
@@ -361,7 +379,7 @@ class Tokenizer21(BaseTokenizer):
 
 
 if __name__ == "__main__":
-    import tempfile
+    # import tempfile
 
     dev_dir = (
         pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/development-sample-21")
@@ -371,26 +389,37 @@ if __name__ == "__main__":
         .resolve()  # change if developing locally
     )
 
-    tkzr21_pp = Tokenizer21(
-        config_file="../config/config-21++.yaml",
-        data_dir=dev_dir.joinpath("raw-mimic/dev"),
+    df = pl.read_parquet(dev_dir / "raw-meds" / "dev" / "meds.parquet")
+
+    tkzr_meds = Tokenizer21(
+        config_file="../config/config-mimic-meds.yaml",
+        data_dir=dev_dir / "raw-meds" / "dev",
     )
-    tt21_pp = tkzr21_pp.get_tokens_timelines()
-    summarize(tkzr21_pp, tt21_pp)
-    print(f"{len(tkzr21_pp.vocab)=}")
-    tkzr21_pp.vocab.print_aux()
-    print(list(tkzr21_pp.vocab.lookup.keys()))
 
-    with tempfile.NamedTemporaryFile() as fp:
-        tkzr21_pp.vocab.save(fp.name)
-        tkzr21_pp_ucmc = Tokenizer21(
-            vocab_path=fp.name,
-            config_file="../config/config-21++.yaml",
-            data_dir=dev_dir.joinpath("raw-ucmc/dev"),
-        )
-        tt21_pp_ucmc = tkzr21_pp_ucmc.get_tokens_timelines()
-        summarize(tkzr21_pp_ucmc, tt21_pp_ucmc)
+    x = tkzr_meds.get_reference_frame().collect()
+    print(x)
 
-    # with pl.Config(tbl_cols=-1):
-    #     x = pl.read_parquet(dev_dir.joinpath("clif_respiratory_support.parquet"))
-    #     print(x)
+    tt_meds = tkzr_meds.get_tokens_timelines()
+    summarize(tkzr_meds, tt_meds)
+    tkzr_meds.vocab.print_aux()
+    print(list(tkzr_meds.vocab.lookup.keys()))
+
+    # tkzr21_pp = Tokenizer21(
+    #     config_file="../config/config-21++.yaml",
+    #     data_dir=dev_dir.joinpath("raw-mimic/dev"),
+    # )
+    # tt21_pp = tkzr21_pp.get_tokens_timelines()
+    # summarize(tkzr21_pp, tt21_pp)
+    # print(f"{len(tkzr21_pp.vocab)=}")
+    # tkzr21_pp.vocab.print_aux()
+    # print(list(tkzr21_pp.vocab.lookup.keys()))
+
+    # with tempfile.NamedTemporaryFile() as fp:
+    #     tkzr21_pp.vocab.save(fp.name)
+    #     tkzr21_pp_ucmc = Tokenizer21(
+    #         vocab_path=fp.name,
+    #         config_file="../config/config-21++.yaml",
+    #         data_dir=dev_dir.joinpath("raw-ucmc/dev"),
+    #     )
+    #     tt21_pp_ucmc = tkzr21_pp_ucmc.get_tokens_timelines()
+    #     summarize(tkzr21_pp_ucmc, tt21_pp_ucmc)
