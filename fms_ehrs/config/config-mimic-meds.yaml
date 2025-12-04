@@ -1,4 +1,6 @@
 %YAML 1.2
+# Note this does not work for "generic" MEDS data because the standard leaves most concepts undefined
+# but only for the version of MEDS that comes out of the specific instantiation in the ethos-ares pipeline
 ---
 subject_id: hadm_id
 group_id: subject_id
@@ -17,20 +19,22 @@ reference:
     filter_expr: ~pl.col("hadm_id").is_null() & pl.col("code").str.starts_with("HOSPITAL_ADMISSION")
     with_col_expr:
         - pl.col("time").alias("admission_time")
-        - pl.col("code").str.split("//").list[1].str.to_lowercase().str.replace_all(" ", "_").alias("admission_type")
+        - pl.col("code").str.split("//").list[1].str.to_lowercase().str.replace_all(" ",
+          "_").alias("admission_type")
     start_time: admission_time
     end_time: discharge_time
 
 # other tables to join to the reference table
 augmentation_tables:
-
     - table: meds
       key: hadm_id
-      filter_expr: ~pl.col("hadm_id").is_null() & pl.col("code").str.starts_with("HOSPITAL_DISCHARGE")
+      filter_expr:
+          ~pl.col("hadm_id").is_null() & pl.col("code").str.starts_with("HOSPITAL_DISCHARGE")
       validation: "1:1"
       with_col_expr:
-        - pl.col("time").alias("discharge_time")
-        - pl.col("code").str.split("//").list[1].str.to_lowercase().str.replace_all(" ", "_").alias("discharge_type")
+          - pl.col("time").alias("discharge_time")
+          - pl.col("code").str.split("//").list[1].str.to_lowercase().str.replace_all(" ",
+            "_").alias("discharge_type")
 
     - table: meds
       key: subject_id
@@ -66,7 +70,6 @@ prefix:
     - column: admission_type
       prefix: ADMN
 
-
 events:
     - table: meds
       prefix: LAB
@@ -81,12 +84,13 @@ events:
       code: code
       time: time
 
-#    - table: meds
-#      prefix: BP
-#      filter_expr: pl.col("hadm_id").is_not_null() & pl.col("code").str.starts_with("Blood Pressure")
-#      code: code
-#      numeric_value: numeric_value
-#      time: time
+    # - table: meds
+    #   prefix: BP
+    #   filter_expr:
+    #       pl.col("hadm_id").is_not_null() & pl.col("code").str.starts_with("Blood Pressure")
+    #   code: code
+    #   numeric_value: numeric_value
+    #   time: time
 
     - table: meds
       prefix: XFER-TO
@@ -94,19 +98,20 @@ events:
       code: code
       time: time
 
-#    - table: meds
-#      prefix: WGT
-#      filter_expr: pl.col("hadm_id").is_not_null() & pl.col("code").str.starts_with("Weight (Lbs)")
-#      code: code
-#      numeric_value: numeric_value
-#      time: time
+    # - table: meds
+    #   prefix: WGT
+    #   filter_expr: pl.col("hadm_id").is_not_null() & pl.col("code").str.starts_with("Weight (Lbs)")
+    #   code: code
+    #   numeric_value: numeric_value
+    #   time: time
 
-#    - table: meds
-#      prefix: HGT
-#      filter_expr: pl.col("hadm_id").is_not_null() & pl.col("code").str.starts_with("Height (Inches)")
-#      code: code
-#      numeric_value: numeric_value
-#      time: time
+    # - table: meds
+    #   prefix: HGT
+    #   filter_expr:
+    #       pl.col("hadm_id").is_not_null() & pl.col("code").str.starts_with("Height (Inches)")
+    #   code: code
+    #   numeric_value: numeric_value
+    #   time: time
 
     - table: meds
       prefix: ICU-IN
@@ -121,6 +126,5 @@ events:
       time: time
 
 suffix:
-
     - column: discharge_type
       prefix: DSCG
