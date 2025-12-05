@@ -55,9 +55,8 @@ the
 function.
 
 We can include tokens for each of these measurements by adding the following
-snippet to our configuration file
-[config-21++.yaml](../fms_ehrs/config/config-21++.yaml) we use to run the
-tokenization process:
+snippet to our configuration file [clif-21.yaml](../fms_ehrs/config/clif-21.yaml)
+we use to run the tokenization process:
 
 ```yaml
 events:

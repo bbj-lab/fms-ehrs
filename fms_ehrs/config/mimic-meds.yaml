@@ -60,6 +60,18 @@ augmentation_tables:
           - pl.col("marital_status").drop_nulls().first().alias("recorded_marital_status")
           - pl.col("race").drop_nulls().first().alias("recorded_race")
 
+    - table: meds
+      key: hadm_id
+      filter_expr: pl.col("code").str.starts_with("PROCEDURE")
+      agg_expr: pl.col("code").alias("proc_list")
+      validation: "1:1"
+
+    - table: meds
+      key: hadm_id
+      filter_expr: pl.col("code").str.starts_with("DIAGNOSIS")
+      agg_expr: pl.col("code").alias("dx_list")
+      validation: "1:1"
+
 post_join_cols:
     - (pl.col("admission_time") - pl.col("dob_approx")).cast(float).alias("age_approx")
 
@@ -129,3 +141,11 @@ events:
 suffix:
     - column: discharge_type
       prefix: DSCG
+
+    - column: proc_list
+      prefix: PROC
+      is_list: !!bool true
+
+    - column: dx_list
+      prefix: DX
+      is_list: !!bool true

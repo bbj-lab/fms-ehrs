@@ -253,7 +253,9 @@ class Tokenizer21(BaseTokenizer):
             with_col_expr=with_col_expr,
             subject_id_str=subject_id_str,
         )
-        if fix_date_to_time:  # if a date was cast to a time, the default of 00:00:00 should be replaced with 23:59:59
+        if fix_date_to_time:
+            # if a date was cast to a time,
+            # the default of 00:00:00 should be replaced with 23:59:59
             df = df.with_columns(
                 pl.col(time)
                 .cast(pl.Datetime(time_unit="ms"))
@@ -325,7 +327,7 @@ class Tokenizer21(BaseTokenizer):
             .filter(pl.col("event_time").is_not_null())
             .sort("event_time", pl.col("tokens").list.first())
             .explode("tokens")
-            .filter(pl.col("tokens") != self.vocab(None))
+            .filter(~pl.col("tokens").is_in([self.vocab(None), self.vocab("nan")]))
             .group_by(self.config["subject_id"], maintain_order=True)
             .agg(tokens=pl.col("tokens"), times=pl.col("event_time").alias("times"))
         )
@@ -415,3 +417,7 @@ if __name__ == "__main__":
     summarize(tkzr, tt)
     tkzr.vocab.print_aux()
     print(list(tkzr.vocab.lookup.keys()))
+
+    # df = pl.read_parquet(dev_dir / "raw-meds-ed/dev/meds.parquet")
+    # with pl.Config(tbl_cols=-1, tbl_width_chars=140):
+    #     print(df.filter(pl.col("code").str.starts_with("PROCEDURE")))
