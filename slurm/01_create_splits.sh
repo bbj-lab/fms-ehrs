@@ -14,7 +14,7 @@ python3 ../fms_ehrs/scripts/partition_w_config.py \
     --data_version_out W21 \
     --train_frac 0.7 \
     --val_frac 0.1 \
-    --config_loc "../fms_ehrs/config/config-21.yaml"
+    --config_loc "../fms_ehrs/config/clif-21.yaml"
 
 python3 ../fms_ehrs/scripts/partition_w_config.py \
     --data_dir_in "${hm}/data-raw/ucmc-2.1.0/" \
@@ -22,6 +22,6 @@ python3 ../fms_ehrs/scripts/partition_w_config.py \
     --data_version_out W21 \
     --train_frac 0.05 \
     --val_frac 0.05 \
-    --config_loc "../fms_ehrs/config/config-21.yaml"
+    --config_loc "../fms_ehrs/config/clif-21.yaml"
 
 source postscript.sh
