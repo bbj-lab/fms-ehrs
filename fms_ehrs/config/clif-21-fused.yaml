@@ -8,7 +8,7 @@ options:
     max_padded_len: !!int 1024
     quantizer: ventiles # 20 bins
     include_time_spacing_tokens: !!bool true
-    fused_category_values: !!bool false
+    fused_category_values: !!bool true
 
 # primary reference table for static data
 # to which other tables will be joined
@@ -94,7 +94,7 @@ events:
       numeric_value: lab_value_numeric
       time: lab_result_dttm
 
-    # converted, administered continuous medications
+    # converted continuous medications
     - table: clif_medication_admin_continuous_converted
       prefix: MED-CTS
       filter_expr: pl.col("_convert_status") == "success"
@@ -102,7 +102,7 @@ events:
       numeric_value: med_dose_converted
       time: admin_dttm
 
-    # unconverted, administered continuous medications
+    # unconverted continuous medications
     - table: clif_medication_admin_continuous_converted
       prefix: MED-CTS
       filter_expr: ~(pl.col("_convert_status") == "success")
@@ -112,8 +112,9 @@ events:
     # converted, administered intermittent medications
     - table: clif_medication_admin_intermittent_converted
       prefix: MED-INT
-      filter_expr: >-
-          (pl.col("mar_action_category") == "given") & (pl.col("_convert_status") == "success")
+      filter_expr:
+          - pl.col("mar_action_category") == "given"
+          - pl.col("_convert_status") == "success"
       code: med_category
       numeric_value: med_dose_converted
       time: admin_dttm
@@ -121,8 +122,9 @@ events:
     # unconverted, administered intermittent medications
     - table: clif_medication_admin_intermittent_converted
       prefix: MED-INT
-      filter_expr: >-
-          (pl.col("mar_action_category") == "given") & ~(pl.col("_convert_status") == "success")
+      filter_expr:
+          - pl.col("mar_action_category") == "given"
+          - pl.col("_convert_status") != "success"
       code: med_category
       time: admin_dttm
 

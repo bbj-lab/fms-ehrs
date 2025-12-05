@@ -28,7 +28,7 @@ parser.add_argument("--train_frac", type=float, default=0.7)
 parser.add_argument("--val_frac", type=float, default=0.1)
 parser.add_argument("--valid_admission_window", nargs=2, type=str)
 parser.add_argument(
-    "--config_loc", type=pathlib.Path, default="../fms_ehrs/config/config-20.yaml"
+    "--config_loc", type=pathlib.Path, default="../fms_ehrs/config/clif-21.yaml"
 )
 parser.add_argument("--development_sample", action="store_true")
 parser.add_argument("--dev_frac", type=float, default=0.01)
