@@ -406,20 +406,20 @@ if __name__ == "__main__":
         .resolve()  # change if developing locally
     )
 
-    df = pl.read_parquet(dev_dir / "raw-meds" / "dev" / "meds.parquet")
+    df = pl.read_parquet(dev_dir / "raw-meds-ed" / "dev" / "meds.parquet")
 
-    tkzr_meds = Tokenizer21(
-        config_file="../config/config-mimic-meds.yaml",
-        data_dir=dev_dir / "raw-meds" / "dev",
+    tkzr_meds_ed = Tokenizer21(
+        config_file="../config/config-mimic-meds-ed.yaml",
+        data_dir=dev_dir / "raw-meds-ed" / "dev",
     )
 
-    x = tkzr_meds.get_reference_frame().collect()
+    x = tkzr_meds_ed.get_reference_frame().collect()
     print(x)
 
-    tt_meds = tkzr_meds.get_tokens_timelines()
-    summarize(tkzr_meds, tt_meds)
-    tkzr_meds.vocab.print_aux()
-    print(list(tkzr_meds.vocab.lookup.keys()))
+    tt_meds_ed = tkzr_meds_ed.get_tokens_timelines()
+    summarize(tkzr_meds_ed, tt_meds_ed)
+    tkzr_meds_ed.vocab.print_aux()
+    print(list(tkzr_meds_ed.vocab.lookup.keys()))
 
     # tkzr21_pp = Tokenizer21(
     #     config_file="../config/config-21++.yaml",
