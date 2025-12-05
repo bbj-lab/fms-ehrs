@@ -1,6 +1,6 @@
 To load data from a given split and extract prefix and suffix tokens:
 
-```
+```py
 import pathlib
 import polars as pl
 from fms_ehrs.framework.vocabulary import Vocabulary

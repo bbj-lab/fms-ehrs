@@ -205,6 +205,7 @@ class BaseTokenizer:
     def time_spacing_inserter(
         self, tokens: np.ndarray, times: np.ndarray
     ) -> dict[str, list]:
+        """insert tokens corresponding to the passage of time"""
         assert len(tokens) == len(times)
         binned = np.digitize(
             np.diff(times).astype("timedelta64[s]").astype(int), bins=self.t_breakpoints
@@ -284,6 +285,7 @@ class BaseTokenizer:
         self.vocab.print_aux()
 
     def get_token_type(self, tk: str | None) -> str:
+        """determine the type of a token, usually specified in the token's prefix"""
         if tk in self.special:
             return "SPECIAL"
         elif tk in self.q_tokens:
