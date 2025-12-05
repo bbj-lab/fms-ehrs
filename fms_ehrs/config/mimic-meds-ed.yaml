@@ -16,20 +16,24 @@ options:
 # to which other tables will be joined
 reference:
     table: meds
-    filter_expr: ~pl.col("hadm_id").is_null() & pl.col("code").str.starts_with("HOSPITAL_ADMISSION")
+    filter_expr:
+        - pl.col("hadm_id").is_not_null()
+        - pl.col("code").str.starts_with("HOSPITAL_ADMISSION")
     with_col_expr:
         - pl.col("time").alias("admission_time")
         - pl.col("code").str.split("//").list[1].str.to_lowercase().str.replace_all(" ",
           "_").alias("admission_type")
     start_time: admission_time
     end_time: discharge_time
+    age: age_approx
 
 # other tables to join to the reference table
 augmentation_tables:
     - table: meds
       key: hadm_id
       filter_expr:
-          ~pl.col("hadm_id").is_null() & pl.col("code").str.starts_with("HOSPITAL_DISCHARGE")
+          - pl.col("hadm_id").is_not_null()
+          - pl.col("code").str.starts_with("HOSPITAL_DISCHARGE")
       validation: "1:1"
       with_col_expr:
           - pl.col("time").alias("discharge_time")
@@ -40,7 +44,13 @@ augmentation_tables:
       key: subject_id
       filter_expr: pl.col("code").str.starts_with("GENDER")
       validation: "m:1"
-      agg_expr: pl.col("code").str.split("//").list[1].alias("sex").first()
+      agg_expr: pl.col("code").str.split("//").list[1].drop_nulls().first().alias("sex")
+
+    - table: meds
+      key: subject_id
+      filter_expr: pl.col("code") == "MEDS_BIRTH"
+      validation: "m:1"
+      agg_expr: pl.col("time").drop_nulls().first().alias("dob_approx")
 
     - table: meds
       key: subject_id
@@ -51,6 +61,9 @@ augmentation_tables:
           - pl.col("marital_status").drop_nulls().first().alias("recorded_marital_status")
           - pl.col("race").drop_nulls().first().alias("recorded_race")
 
+post_join_cols:
+    - (pl.col("admission_time") - pl.col("dob_approx")).cast(float).alias("age_approx")
+
 prefix:
     - column: recorded_race
       prefix: RACE
@@ -60,6 +73,8 @@ prefix:
 
     - column: sex
       prefix: SEX
+
+    - column: quantized_age
 
     - column: recorded_insurance
       prefix: INSR
@@ -73,70 +88,86 @@ prefix:
 events:
     - table: meds
       prefix: VTL
-      filter_expr: pl.col("hadm_id").is_not_null() & pl.col("code").str.starts_with("VITAL")
+      filter_expr:
+          - pl.col("hadm_id").is_not_null()
+          - pl.col("code").str.starts_with("VITAL")
       code: code
       numeric_value: numeric_value
       time: time
 
     - table: meds
       prefix: LAB
-      filter_expr: pl.col("hadm_id").is_not_null() & pl.col("code").str.starts_with("LAB")
+      filter_expr:
+          - pl.col("hadm_id").is_not_null()
+          - pl.col("code").str.starts_with("LAB")
       code: code
       numeric_value: numeric_value
       time: time
 
     - table: meds
       prefix: MED
-      filter_expr: pl.col("hadm_id").is_not_null() & pl.col("code").str.starts_with("MEDICATION")
+      filter_expr:
+          - pl.col("hadm_id").is_not_null()
+          - pl.col("code").str.starts_with("MEDICATION")
       code: code
       time: time
 
     - table: meds
       prefix: INFS-START
       filter_expr:
-          pl.col("hadm_id").is_not_null() & pl.col("code").str.starts_with("INFUSION_START")
+          - pl.col("hadm_id").is_not_null()
+          - pl.col("code").str.starts_with("INFUSION_START")
       code: code
       numeric_value: numeric_value
       time: time
 
     - table: meds
       prefix: INFS-WGT
-      filter_expr: >-
-          pl.col("hadm_id").is_not_null() &
-          pl.col("code").str.starts_with("SUBJECT_WEIGHT_AT_INFUSION")
+      filter_expr:
+          - pl.col("hadm_id").is_not_null()
+          - pl.col("code").str.starts_with("SUBJECT_WEIGHT_AT_INFUSION")
       code: code
       numeric_value: numeric_value
       time: time
 
     - table: meds
       prefix: INFS-END
-      filter_expr: pl.col("hadm_id").is_not_null() & pl.col("code").str.starts_with("INFUSION_END")
+      filter_expr:
+          - pl.col("hadm_id").is_not_null()
+          - pl.col("code").str.starts_with("INFUSION_END")
       code: code
       time: time
 
     - table: meds
       prefix: FLD
-      filter_expr: >-
-          pl.col("hadm_id").is_not_null() & pl.col("code").str.starts_with("FLUID_OUTPUT")
+      filter_expr:
+          - pl.col("hadm_id").is_not_null()
+          - pl.col("code").str.starts_with("FLUID_OUTPUT")
       code: code
       numeric_value: numeric_value
       time: time
 
     - table: meds
       prefix: XFER-TO
-      filter_expr: pl.col("hadm_id").is_not_null() & pl.col("code").str.starts_with("TRANSFER_TO")
+      filter_expr:
+          - pl.col("hadm_id").is_not_null()
+          - pl.col("code").str.starts_with("TRANSFER_TO")
       code: code
       time: time
 
     - table: meds
       prefix: ICU-IN
-      filter_expr: pl.col("hadm_id").is_not_null() & pl.col("code").str.starts_with("ICU_ADMISSION")
+      filter_expr:
+          - pl.col("hadm_id").is_not_null()
+          - pl.col("code").str.starts_with("ICU_ADMISSION")
       code: code
       time: time
 
     - table: meds
       prefix: ICU-OUT
-      filter_expr: pl.col("hadm_id").is_not_null() & pl.col("code").str.starts_with("ICU_DISCHARGE")
+      filter_expr:
+          - pl.col("hadm_id").is_not_null()
+          - pl.col("code").str.starts_with("ICU_DISCHARGE")
       code: code
       time: time
 

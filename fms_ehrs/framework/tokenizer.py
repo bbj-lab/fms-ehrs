@@ -81,8 +81,8 @@ class Tokenizer21(BaseTokenizer):
         tasks in the following order if specified:
         1. fix subject_id to `subject_id_str`
         2. perform a filter operation
-        3. perform an aggregation by `key` or self.config["subject_id"]
-        4. add columns
+        3. add columns
+        4. perform an aggregation by `key` or self.config["subject_id"]
         """
         df = pl.scan_parquet(self.data_dir / f"{table}.parquet")
         if subject_id_str is not None:
@@ -95,17 +95,17 @@ class Tokenizer21(BaseTokenizer):
                 if isinstance(filter_expr, str)
                 else [eval(c) for c in filter_expr]
             )
-        if agg_expr is not None:
-            df = df.group_by(key if key is not None else self.config["subject_id"]).agg(
-                eval(agg_expr)
-                if isinstance(agg_expr, str)
-                else [eval(c) for c in agg_expr]
-            )
         if with_col_expr is not None:
             df = df.with_columns(
                 eval(with_col_expr)
                 if isinstance(with_col_expr, str)
                 else [eval(c) for c in with_col_expr]
+            )
+        if agg_expr is not None:
+            df = df.group_by(key if key is not None else self.config["subject_id"]).agg(
+                eval(agg_expr)
+                if isinstance(agg_expr, str)
+                else [eval(c) for c in agg_expr]
             )
         return df
 
@@ -157,6 +157,12 @@ class Tokenizer21(BaseTokenizer):
                 validate=tkv["validation"],
                 how="left",
                 maintain_order="left",
+            )
+        if "post_join_cols" in self.config:
+            df = df.with_columns(
+                eval(pjc)
+                if isinstance(pjc := self.config["post_join_cols"], str)
+                else [eval(c) for c in pjc]
             )
         if "age" in self.config["reference"]:
             age = (
@@ -247,9 +253,7 @@ class Tokenizer21(BaseTokenizer):
             with_col_expr=with_col_expr,
             subject_id_str=subject_id_str,
         )
-        if (
-            fix_date_to_time is not None and bool(fix_date_to_time)
-        ):  # if a date was cast to a time, the default of 00:00:00 should be replaced with 23:59:59
+        if fix_date_to_time:  # if a date was cast to a time, the default of 00:00:00 should be replaced with 23:59:59
             df = df.with_columns(
                 pl.col(time)
                 .cast(pl.Datetime(time_unit="ms"))
@@ -396,8 +400,6 @@ class Tokenizer21(BaseTokenizer):
 
 
 if __name__ == "__main__":
-    # import tempfile
-
     dev_dir = (
         pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/development-sample-21")
         if os.uname().nodename.startswith("cri")
@@ -406,37 +408,10 @@ if __name__ == "__main__":
         .resolve()  # change if developing locally
     )
 
-    df = pl.read_parquet(dev_dir / "raw-meds-ed" / "dev" / "meds.parquet")
-
-    tkzr_meds_ed = Tokenizer21(
-        config_file="../config/config-mimic-meds-ed.yaml",
-        data_dir=dev_dir / "raw-meds-ed" / "dev",
+    tkzr = Tokenizer21(
+        config_file="../config/mimic-meds-ed.yaml", data_dir=dev_dir / "raw-meds-ed/dev"
     )
-
-    x = tkzr_meds_ed.get_reference_frame().collect()
-    print(x)
-
-    tt_meds_ed = tkzr_meds_ed.get_tokens_timelines()
-    summarize(tkzr_meds_ed, tt_meds_ed)
-    tkzr_meds_ed.vocab.print_aux()
-    print(list(tkzr_meds_ed.vocab.lookup.keys()))
-
-    # tkzr21_pp = Tokenizer21(
-    #     config_file="../config/config-21++.yaml",
-    #     data_dir=dev_dir.joinpath("raw-mimic/dev"),
-    # )
-    # tt21_pp = tkzr21_pp.get_tokens_timelines()
-    # summarize(tkzr21_pp, tt21_pp)
-    # print(f"{len(tkzr21_pp.vocab)=}")
-    # tkzr21_pp.vocab.print_aux()
-    # print(list(tkzr21_pp.vocab.lookup.keys()))
-
-    # with tempfile.NamedTemporaryFile() as fp:
-    #     tkzr21_pp.vocab.save(fp.name)
-    #     tkzr21_pp_ucmc = Tokenizer21(
-    #         vocab_path=fp.name,
-    #         config_file="../config/config-21++.yaml",
-    #         data_dir=dev_dir.joinpath("raw-ucmc/dev"),
-    #     )
-    #     tt21_pp_ucmc = tkzr21_pp_ucmc.get_tokens_timelines()
-    #     summarize(tkzr21_pp_ucmc, tt21_pp_ucmc)
+    tt = tkzr.get_tokens_timelines()
+    summarize(tkzr, tt)
+    tkzr.vocab.print_aux()
+    print(list(tkzr.vocab.lookup.keys()))
