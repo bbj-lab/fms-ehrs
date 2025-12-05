@@ -55,26 +55,65 @@ class Tokenizer21(BaseTokenizer):
             include_time_spacing_tokens=(
                 include_time_spacing_tokens
                 if include_time_spacing_tokens is not None
-                else self.config["options"]["include_time_spacing_tokens"]
+                else self.config["options"].get("include_time_spacing_tokens", False)
             ),
             fused_category_values=(
                 fused_category_values
                 if fused_category_values is not None
-                else self.config["options"]["fused_category_values"]
+                else self.config["options"].get("fused_category_values", False)
             ),
         )
         self.cut_at_24h: bool = cut_at_24h
         self.reference_frame = None
 
+    def lazy_load(
+        self,
+        *,
+        table: str = None,
+        filter_expr: str | list = None,
+        agg_expr: str | list = None,
+        with_col_expr: str | list = None,
+        key: str = None,
+        subject_id_str: str = None,
+        **kwargs,
+    ) -> pl.LazyFrame:
+        """lazy-load the table `table`.parquet and perform some standard ETL
+        tasks in the following order if specified:
+        1. fix subject_id to `subject_id_str`
+        2. perform a filter operation
+        3. perform an aggregation by `key` or self.config["subject_id"]
+        4. add columns
+        """
+        df = pl.scan_parquet(self.data_dir / f"{table}.parquet")
+        if subject_id_str is not None:
+            df = df.with_columns(
+                pl.col(subject_id_str).alias(self.config["subject_id"])
+            )
+        if filter_expr is not None:
+            df = df.filter(
+                eval(filter_expr)
+                if isinstance(filter_expr, str)
+                else [eval(c) for c in filter_expr]
+            )
+        if agg_expr is not None:
+            df = df.group_by(key if key is not None else self.config["subject_id"]).agg(
+                eval(agg_expr)
+                if isinstance(agg_expr, str)
+                else [eval(c) for c in agg_expr]
+            )
+        if with_col_expr is not None:
+            df = df.with_columns(
+                eval(with_col_expr)
+                if isinstance(with_col_expr, str)
+                else [eval(c) for c in with_col_expr]
+            )
+        return df
+
     def run_times_qc(self, reference_frame: Frame) -> Frame:
         return (
             (
                 reference_frame.join(
-                    pl.scan_parquet(
-                        self.data_dir.joinpath(
-                            f"{self.config['times_qc']['table']}.parquet"
-                        )
-                    )
+                    self.lazy_load(table=self.config["times_qc"]["table"])
                     .group_by(self.config["subject_id"])
                     .agg(
                         start_time_alt=pl.col(self.config["times_qc"]["time"]).min(),
@@ -107,26 +146,13 @@ class Tokenizer21(BaseTokenizer):
         )
 
     def get_reference_frame(self) -> Frame:
-        if self.reference_frame is not None:
+        """create the static reference frame as configured"""
+        if self.reference_frame is not None:  # pull from cache if available
             return self.reference_frame
-        df = pl.scan_parquet(
-            self.data_dir.joinpath(f"{self.config['reference']['table']}.parquet")
-        )
+        df = self.lazy_load(**self.config["reference"])
         for tkv in self.config["augmentation_tables"]:
-            df_aug = pl.scan_parquet(
-                self.data_dir.joinpath(f"{tkv['table']}.parquet")
-            ).filter(eval(tkv["filter_expr"]) if "filter_expr" in tkv else True)
-            if "with_col_expr" in tkv:
-                if isinstance(tkv["with_col_expr"], str):
-                    df_aug = df_aug.with_columns(eval(tkv["with_col_expr"]))
-                else:  # list
-                    df_aug = df_aug.with_columns(
-                        [eval(c) for c in tkv["with_col_expr"]]
-                    )
-            if "agg_expr" in tkv:
-                df_aug = df_aug.group_by(tkv["key"]).agg(eval(tkv["agg_expr"]))
             df = df.join(
-                df_aug,
+                self.lazy_load(**tkv),
                 on=tkv["key"],
                 validate=tkv["validation"],
                 how="left",
@@ -148,10 +174,11 @@ class Tokenizer21(BaseTokenizer):
                         skip_nulls=False,
                     )
                 )
-        self.reference_frame = self.run_times_qc(df)
+        self.reference_frame = self.run_times_qc(df)  # save to cache
         return self.reference_frame
 
     def get_end(self, end_type: typing.Literal["prefix", "suffix"]) -> Frame:
+        """create the prefix or suffix tokens"""
         time_col = (
             self.config["reference"]["start_time"]
             if end_type == "prefix"
@@ -212,21 +239,17 @@ class Tokenizer21(BaseTokenizer):
         reference_key: str = None,
         subject_id_str: str = None,
         fix_date_to_time: bool = None,
-    ) -> Frame:
-        """if a date was cast to a time, the default of 00:00:00 should be replaced with 23:59:59"""
-        df = pl.scan_parquet(self.data_dir.joinpath(f"{table}.parquet"))
-        if subject_id_str is not None:
-            df = df.with_columns(
-                pl.col(subject_id_str).alias(self.config["subject_id"])
-            )
-        if filter_expr is not None:
-            df = df.filter(eval(filter_expr))
-        if with_col_expr is not None:
-            if isinstance(with_col_expr, str):
-                df = df.with_columns(eval(with_col_expr))
-            else:  # list
-                df = df.with_columns([eval(c) for c in with_col_expr])
-        if fix_date_to_time is not None and bool(fix_date_to_time):
+    ) -> Frame | None:
+        """create tokens corresponding to a configured event"""
+        df = self.lazy_load(
+            table=table,
+            filter_expr=filter_expr,
+            with_col_expr=with_col_expr,
+            subject_id_str=subject_id_str,
+        )
+        if (
+            fix_date_to_time is not None and bool(fix_date_to_time)
+        ):  # if a date was cast to a time, the default of 00:00:00 should be replaced with 23:59:59
             df = df.with_columns(
                 pl.col(time)
                 .cast(pl.Datetime(time_unit="ms"))
@@ -242,21 +265,24 @@ class Tokenizer21(BaseTokenizer):
                 )
             )
         if numeric_value is not None:
-            # pass to category-value tokenizer
-            return self.process_cat_val_frame(
-                df.select(
-                    pl.col(self.config["subject_id"]),
-                    pl.col(time).cast(pl.Datetime(time_unit="ms")).alias("event_time"),
-                    pl.col(code)
-                    .cast(str)
-                    .str.to_lowercase()
-                    .str.replace_all(" ", "_")
-                    .str.strip_chars(".")
-                    .alias("category"),
-                    pl.col(numeric_value).alias("value"),
-                ).collect(),
-                label=prefix,
-            ).select(self.config["subject_id"], "event_time", "tokens")
+            df_cv = df.select(
+                pl.col(self.config["subject_id"]),
+                pl.col(time).cast(pl.Datetime(time_unit="ms")).alias("event_time"),
+                pl.col(code)
+                .cast(str)
+                .str.to_lowercase()
+                .str.replace_all(" ", "_")
+                .str.strip_chars(".")
+                .alias("category"),
+                pl.col(numeric_value).alias("value"),
+            ).collect()
+            return (
+                self.process_cat_val_frame(df_cv, label=prefix).select(
+                    self.config["subject_id"], "event_time", "tokens"
+                )
+                if len(df_cv) > 0
+                else None
+            )
         else:
             category_list = [code] if isinstance(code, str) else code
             if text_value is not None:
@@ -284,8 +310,13 @@ class Tokenizer21(BaseTokenizer):
             ).collect()
 
     def get_events(self) -> Frame:
+        """create all events as configured"""
         event_tokens = (
-            pl.concat(self.get_event(**evt) for evt in self.config["events"])
+            pl.concat(
+                e
+                for evt in self.config["events"]
+                if (e := self.get_event(**evt)) is not None
+            )
             .lazy()
             .filter(pl.col("event_time").is_not_null())
             .sort("event_time", pl.col("tokens").list.first())
@@ -322,7 +353,7 @@ class Tokenizer21(BaseTokenizer):
         return event_tokens
 
     def get_tokens_timelines(self) -> Frame:
-        # combine the prefix tokens, event tokens, and suffix tokens
+        """combine the prefix tokens, event tokens, and suffix tokens"""
         tt = (
             self.get_end("prefix")
             .rename({"tokens": "prefix_tokens", "times": "prefix_times"})
@@ -341,8 +372,12 @@ class Tokenizer21(BaseTokenizer):
                 validate="1:1",
             )
             .with_columns(
-                tokens=pl.concat_list("prefix_tokens", "tokens", "suffix_tokens"),
-                times=pl.concat_list("prefix_times", "times", "suffix_times"),
+                tokens=pl.concat_list(
+                    "prefix_tokens", pl.col("tokens").fill_null([]), "suffix_tokens"
+                ),
+                times=pl.concat_list(
+                    "prefix_times", pl.col("times").fill_null([]), "suffix_times"
+                ),
             )
             .select(self.config["subject_id"], "tokens", "times")
             .sort(by=self.config["subject_id"])
@@ -361,7 +396,7 @@ class Tokenizer21(BaseTokenizer):
 
 
 if __name__ == "__main__":
-    import tempfile
+    # import tempfile
 
     dev_dir = (
         pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/development-sample-21")
@@ -371,26 +406,37 @@ if __name__ == "__main__":
         .resolve()  # change if developing locally
     )
 
-    tkzr21_pp = Tokenizer21(
-        config_file="../config/config-21++.yaml",
-        data_dir=dev_dir.joinpath("raw-mimic/dev"),
+    df = pl.read_parquet(dev_dir / "raw-meds-ed" / "dev" / "meds.parquet")
+
+    tkzr_meds_ed = Tokenizer21(
+        config_file="../config/config-mimic-meds-ed.yaml",
+        data_dir=dev_dir / "raw-meds-ed" / "dev",
     )
-    tt21_pp = tkzr21_pp.get_tokens_timelines()
-    summarize(tkzr21_pp, tt21_pp)
-    print(f"{len(tkzr21_pp.vocab)=}")
-    tkzr21_pp.vocab.print_aux()
-    print(list(tkzr21_pp.vocab.lookup.keys()))
 
-    with tempfile.NamedTemporaryFile() as fp:
-        tkzr21_pp.vocab.save(fp.name)
-        tkzr21_pp_ucmc = Tokenizer21(
-            vocab_path=fp.name,
-            config_file="../config/config-21++.yaml",
-            data_dir=dev_dir.joinpath("raw-ucmc/dev"),
-        )
-        tt21_pp_ucmc = tkzr21_pp_ucmc.get_tokens_timelines()
-        summarize(tkzr21_pp_ucmc, tt21_pp_ucmc)
+    x = tkzr_meds_ed.get_reference_frame().collect()
+    print(x)
 
-    # with pl.Config(tbl_cols=-1):
-    #     x = pl.read_parquet(dev_dir.joinpath("clif_respiratory_support.parquet"))
-    #     print(x)
+    tt_meds_ed = tkzr_meds_ed.get_tokens_timelines()
+    summarize(tkzr_meds_ed, tt_meds_ed)
+    tkzr_meds_ed.vocab.print_aux()
+    print(list(tkzr_meds_ed.vocab.lookup.keys()))
+
+    # tkzr21_pp = Tokenizer21(
+    #     config_file="../config/config-21++.yaml",
+    #     data_dir=dev_dir.joinpath("raw-mimic/dev"),
+    # )
+    # tt21_pp = tkzr21_pp.get_tokens_timelines()
+    # summarize(tkzr21_pp, tt21_pp)
+    # print(f"{len(tkzr21_pp.vocab)=}")
+    # tkzr21_pp.vocab.print_aux()
+    # print(list(tkzr21_pp.vocab.lookup.keys()))
+
+    # with tempfile.NamedTemporaryFile() as fp:
+    #     tkzr21_pp.vocab.save(fp.name)
+    #     tkzr21_pp_ucmc = Tokenizer21(
+    #         vocab_path=fp.name,
+    #         config_file="../config/config-21++.yaml",
+    #         data_dir=dev_dir.joinpath("raw-ucmc/dev"),
+    #     )
+    #     tt21_pp_ucmc = tkzr21_pp_ucmc.get_tokens_timelines()
+    #     summarize(tkzr21_pp_ucmc, tt21_pp_ucmc)

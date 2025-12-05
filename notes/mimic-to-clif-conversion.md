@@ -3,7 +3,7 @@ To download and process MIMIC data into CLIF-2.1.0 (with
 
 Install `jq` if needed:
 
-```
+```sh
 "${SHELL}" <(curl -L micro.mamba.pm/install.sh)
 micromamba install jq
 ```

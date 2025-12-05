@@ -1,0 +1,145 @@
+%YAML 1.2
+# Note this does not work for "generic" MEDS data because the standard leaves most concepts undefined
+# but only for the version of MEDS that comes out of the specific instantiation in the ethos-ares pipeline
+---
+subject_id: hadm_id
+group_id: subject_id
+
+options:
+    day_stay_filter: !!bool true
+    max_padded_len: !!int 1024
+    quantizer: deciles
+    include_time_spacing_tokens: !!bool true
+    fused_category_values: !!bool false
+
+# primary reference table for static data
+# to which other tables will be joined
+reference:
+    table: meds
+    filter_expr: ~pl.col("hadm_id").is_null() & pl.col("code").str.starts_with("HOSPITAL_ADMISSION")
+    with_col_expr:
+        - pl.col("time").alias("admission_time")
+        - pl.col("code").str.split("//").list[1].str.to_lowercase().str.replace_all(" ",
+          "_").alias("admission_type")
+    start_time: admission_time
+    end_time: discharge_time
+
+# other tables to join to the reference table
+augmentation_tables:
+    - table: meds
+      key: hadm_id
+      filter_expr:
+          ~pl.col("hadm_id").is_null() & pl.col("code").str.starts_with("HOSPITAL_DISCHARGE")
+      validation: "1:1"
+      with_col_expr:
+          - pl.col("time").alias("discharge_time")
+          - pl.col("code").str.split("//").list[1].str.to_lowercase().str.replace_all(" ",
+            "_").alias("discharge_type")
+
+    - table: meds
+      key: subject_id
+      filter_expr: pl.col("code").str.starts_with("GENDER")
+      validation: "m:1"
+      agg_expr: pl.col("code").str.split("//").list[1].alias("sex").first()
+
+    - table: meds
+      key: subject_id
+      validation: "m:1"
+      agg_expr:
+          - pl.col("insurance").drop_nulls().first().alias("recorded_insurance")
+          - pl.col("language").drop_nulls().first().alias("recorded_language")
+          - pl.col("marital_status").drop_nulls().first().alias("recorded_marital_status")
+          - pl.col("race").drop_nulls().first().alias("recorded_race")
+
+prefix:
+    - column: recorded_race
+      prefix: RACE
+
+    - column: recorded_language
+      prefix: LANG
+
+    - column: sex
+      prefix: SEX
+
+    - column: recorded_insurance
+      prefix: INSR
+
+    - column: recorded_marital_status
+      prefix: MRRD
+
+    - column: admission_type
+      prefix: ADMN
+
+events:
+    - table: meds
+      prefix: VTL
+      filter_expr: pl.col("hadm_id").is_not_null() & pl.col("code").str.starts_with("VITAL")
+      code: code
+      numeric_value: numeric_value
+      time: time
+
+    - table: meds
+      prefix: LAB
+      filter_expr: pl.col("hadm_id").is_not_null() & pl.col("code").str.starts_with("LAB")
+      code: code
+      numeric_value: numeric_value
+      time: time
+
+    - table: meds
+      prefix: MED
+      filter_expr: pl.col("hadm_id").is_not_null() & pl.col("code").str.starts_with("MEDICATION")
+      code: code
+      time: time
+
+    - table: meds
+      prefix: INFS-START
+      filter_expr:
+          pl.col("hadm_id").is_not_null() & pl.col("code").str.starts_with("INFUSION_START")
+      code: code
+      numeric_value: numeric_value
+      time: time
+
+    - table: meds
+      prefix: INFS-WGT
+      filter_expr: >-
+          pl.col("hadm_id").is_not_null() &
+          pl.col("code").str.starts_with("SUBJECT_WEIGHT_AT_INFUSION")
+      code: code
+      numeric_value: numeric_value
+      time: time
+
+    - table: meds
+      prefix: INFS-END
+      filter_expr: pl.col("hadm_id").is_not_null() & pl.col("code").str.starts_with("INFUSION_END")
+      code: code
+      time: time
+
+    - table: meds
+      prefix: FLD
+      filter_expr: >-
+          pl.col("hadm_id").is_not_null() & pl.col("code").str.starts_with("FLUID_OUTPUT")
+      code: code
+      numeric_value: numeric_value
+      time: time
+
+    - table: meds
+      prefix: XFER-TO
+      filter_expr: pl.col("hadm_id").is_not_null() & pl.col("code").str.starts_with("TRANSFER_TO")
+      code: code
+      time: time
+
+    - table: meds
+      prefix: ICU-IN
+      filter_expr: pl.col("hadm_id").is_not_null() & pl.col("code").str.starts_with("ICU_ADMISSION")
+      code: code
+      time: time
+
+    - table: meds
+      prefix: ICU-OUT
+      filter_expr: pl.col("hadm_id").is_not_null() & pl.col("code").str.starts_with("ICU_DISCHARGE")
+      code: code
+      time: time
+
+suffix:
+    - column: discharge_type
+      prefix: DSCG

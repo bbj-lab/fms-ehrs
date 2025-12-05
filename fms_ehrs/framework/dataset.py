@@ -41,10 +41,9 @@ class Datasets:
         self.np_rng = np.random.default_rng(42)
         self.splits = ("train", "val")
         self.data_dirs = {
-            s: self.data_dir.joinpath(f"{self.data_version}-tokenized", s)
-            for s in self.splits
+            s: self.data_dir / f"{self.data_version}-tokenized" / s for s in self.splits
         }
-        self.vocab = Vocabulary().load(self.data_dirs["train"].joinpath("vocab.gzip"))
+        self.vocab = Vocabulary().load(self.data_dirs["train"] / "vocab.gzip")
         self.uint_dtype = (
             t.uint8 if len(self.vocab) <= t.iinfo(t.uint8).max else t.int64
         )
@@ -54,7 +53,7 @@ class Datasets:
             ds.load_dataset(
                 "parquet",
                 data_files={
-                    s: str(self.data_dirs[s].joinpath("tokens_timelines.parquet"))
+                    s: str(self.data_dirs[s] / "tokens_timelines.parquet")
                     for s in self.splits
                 },
             )
