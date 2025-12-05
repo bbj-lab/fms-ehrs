@@ -10,6 +10,6 @@ source preamble.sh
 
 python3 ../fms_ehrs/scripts/tokenize_meds.py \
     --data_dir "${hm}/data-raw/mimic-meds-ihlee" \
-    --config_loc "${hm}/fms-ehrs-reps/fms_ehrs/config/config-mimic-meds.yaml"
+    --config_loc "${hm}/fms-ehrs-reps/fms_ehrs/config/mimic-meds.yaml"
 
 source postscript.sh

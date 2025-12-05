@@ -26,7 +26,7 @@ parser.add_argument(
 parser.add_argument("--data_dir", type=pathlib.Path, default="../../data-mimic/")
 parser.add_argument("--data_version", type=str, default="W21")
 parser.add_argument(
-    "--config_loc", type=pathlib.Path, default="../fms_ehrs/config/config-21.yaml"
+    "--config_loc", type=pathlib.Path, default="../fms_ehrs/config/clif-21.yaml"
 )
 parser.add_argument("--development_sample", action="store_true")
 args, unknowns = parser.parse_known_args()

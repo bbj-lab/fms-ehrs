@@ -156,12 +156,6 @@ class BaseTokenizer:
                     token=pl.lit(self.vocab(f"{prefix}_{c}")).cast(pl.Int64),
                     token_quantile=self.get_quants(v=v, c=c, prefix=prefix),
                 )
-                .filter(~pl.col("token").is_in([self.vocab(None), self.vocab("nan")]))
-                .filter(
-                    ~pl.col("token_quantile").is_in(
-                        [self.vocab(None), self.vocab("nan")]
-                    )
-                )
                 .with_columns(
                     tokens=pl.concat_list("token", "token_quantile").cast(
                         pl.List(pl.Int64)
@@ -171,16 +165,7 @@ class BaseTokenizer:
             )
         else:
             return (
-                x.with_columns(
-                    quantile=self.get_quants(v=v, c=c, prefix=prefix),
-                    times=pl.concat_list("event_time").cast(
-                        pl.List(pl.Datetime(time_unit="ms"))
-                    ),
-                )
-                .filter(pl.col("quantile").is_finite())
-                .filter(
-                    ~pl.col("quantile").is_in([self.vocab(None), self.vocab("nan")])
-                )
+                x.with_columns(quantile=self.get_quants(v=v, c=c, prefix=prefix))
                 .with_columns(
                     tokens=pl.concat_list(
                         pl.col("quantile").map_elements(
