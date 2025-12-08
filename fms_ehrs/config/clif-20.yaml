@@ -17,11 +17,11 @@ reference:
     end_time: discharge_dttm
     age: age_at_admission
 
-# other tables to join to the reference table
-augmentation_tables:
-    - table: clif_patient
-      key: patient_id
-      validation: "m:1"
+    # other tables to join to the reference table
+    augmentation_tables:
+        - table: clif_patient
+          key: patient_id
+          validation: "m:1"
 
 # run QC for times if necessary
 times_qc:

@@ -18,25 +18,25 @@ reference:
     end_time: discharge_dttm
     age: age_at_admission
 
-# join other tables to the reference table
-augmentation_tables:
-    - table: clif_patient
-      key: patient_id
-      validation: "m:1"
+    # join other tables to the reference table
+    augmentation_tables:
+        - table: clif_patient
+          key: patient_id
+          validation: "m:1"
 
-    - table: clif_hospital_diagnosis
-      key: hospitalization_id
-      filter_expr: pl.col("diagnosis_primary") == 1
-      with_col_expr: pl.col("diagnosis_code").str.split(".").list.first().alias("primary_dx_type")
-      agg_expr: pl.col("primary_dx_type").sort().alias("primary_dx_types")
-      validation: "1:1"
+        - table: clif_hospital_diagnosis
+          key: hospitalization_id
+          filter_expr: pl.col("diagnosis_primary") == 1
+          with_col_expr: pl.col("diagnosis_code").str.split(".").list.first().alias("primary_dx_type")
+          agg_expr: pl.col("primary_dx_type").sort().alias("primary_dx_types")
+          validation: "1:1"
 
-    - table: clif_hospital_diagnosis
-      key: hospitalization_id
-      filter_expr: pl.col("diagnosis_primary") == 0
-      with_col_expr: pl.col("diagnosis_code").str.split(".").list.first().alias("dx_type")
-      agg_expr: pl.col("dx_type").sort().alias("non_primary_dx_types")
-      validation: "1:1"
+        - table: clif_hospital_diagnosis
+          key: hospitalization_id
+          filter_expr: pl.col("diagnosis_primary") == 0
+          with_col_expr: pl.col("diagnosis_code").str.split(".").list.first().alias("dx_type")
+          agg_expr: pl.col("dx_type").sort().alias("non_primary_dx_types")
+          validation: "1:1"
 
 # run QC for times if necessary
 times_qc:

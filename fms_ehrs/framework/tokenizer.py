@@ -147,10 +147,11 @@ class Tokenizer21(BaseTokenizer):
 
     def get_reference_frame(self) -> Frame:
         """create the static reference frame as configured"""
+        cfg = self.config["reference"]
         if self.reference_frame is not None:  # pull from cache if available
             return self.reference_frame
-        df = self.lazy_load(**self.config["reference"])
-        for tkv in self.config["augmentation_tables"]:
+        df = self.lazy_load(**cfg)
+        for tkv in cfg.get("augmentation_tables", []):
             df = df.join(
                 self.lazy_load(**tkv),
                 on=tkv["key"],
@@ -158,16 +159,14 @@ class Tokenizer21(BaseTokenizer):
                 how="left",
                 maintain_order="left",
             )
-        if "post_join_cols" in self.config:
+        if "post_join_cols" in cfg:
             df = df.with_columns(
                 eval(pjc)
-                if isinstance(pjc := self.config["post_join_cols"], str)
+                if isinstance(pjc := cfg["post_join_cols"], str)
                 else [eval(c) for c in pjc]
             )
-        if "age" in self.config["reference"]:
-            age = (
-                df.select(self.config["reference"]["age"]).collect().to_numpy().ravel()
-            )
+        if "age" in cfg:
+            age = df.select(cfg["age"]).collect().to_numpy().ravel()
             self.set_quants(
                 v=age, c="AGE"
             )  # note this is a no-op if quants are already set for AGE
@@ -329,7 +328,7 @@ class Tokenizer21(BaseTokenizer):
             .explode("tokens")
             .filter(~pl.col("tokens").is_in([self.vocab(None), self.vocab("nan")]))
             .group_by(self.config["subject_id"], maintain_order=True)
-            .agg(tokens=pl.col("tokens"), times=pl.col("event_time").alias("times"))
+            .agg("tokens", pl.col("event_time").alias("times"))
         )
 
         if self.include_time_spacing_tokens:
@@ -389,7 +388,10 @@ class Tokenizer21(BaseTokenizer):
             .sort(by=self.config["subject_id"])
         )
 
-        if self.config["options"]["day_stay_filter"]:
+        if (
+            "day_stay_filter" in self.config["options"]
+            and self.config["options"]["day_stay_filter"]
+        ):
             tt = tt.filter(
                 (pl.col("times").list.get(-1) - pl.col("times").list.get(0))
                 >= pl.duration(days=1)
