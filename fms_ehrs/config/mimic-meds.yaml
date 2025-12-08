@@ -25,55 +25,54 @@ reference:
     start_time: admission_time
     end_time: discharge_time
     age: age_approx
+    post_join_cols: # add columns using the augmentation tables
+        - (pl.col("admission_time") - pl.col("dob_approx")).cast(float).alias("age_approx")
 
-# other tables to join to the reference table
-augmentation_tables:
-    - table: meds
-      key: hadm_id
-      filter_expr:
-          - pl.col("hadm_id").is_not_null()
-          - pl.col("code").str.starts_with("HOSPITAL_DISCHARGE")
-      validation: "1:1"
-      with_col_expr:
-          - pl.col("time").alias("discharge_time")
-          - pl.col("code").str.split("//").list[1].str.to_lowercase().str.replace_all(" ",
-            "_").alias("discharge_type")
+    # other tables to join to the reference table
+    augmentation_tables:
+        - table: meds
+          key: hadm_id
+          filter_expr:
+              - pl.col("hadm_id").is_not_null()
+              - pl.col("code").str.starts_with("HOSPITAL_DISCHARGE")
+          validation: "1:1"
+          with_col_expr:
+              - pl.col("time").alias("discharge_time")
+              - pl.col("code").str.split("//").list[1].str.to_lowercase().str.replace_all(" ",
+                "_").alias("discharge_type")
 
-    - table: meds
-      key: subject_id
-      filter_expr: pl.col("code").str.starts_with("GENDER")
-      validation: "m:1"
-      agg_expr: pl.col("code").str.split("//").list[1].drop_nulls().first().alias("sex")
+        - table: meds
+          key: subject_id
+          filter_expr: pl.col("code").str.starts_with("GENDER")
+          validation: "m:1"
+          agg_expr: pl.col("code").str.split("//").list[1].drop_nulls().first().alias("sex")
 
-    - table: meds
-      key: subject_id
-      filter_expr: pl.col("code") == "MEDS_BIRTH"
-      validation: "m:1"
-      agg_expr: pl.col("time").drop_nulls().first().alias("dob_approx")
+        - table: meds
+          key: subject_id
+          filter_expr: pl.col("code") == "MEDS_BIRTH"
+          validation: "m:1"
+          agg_expr: pl.col("time").drop_nulls().first().alias("dob_approx")
 
-    - table: meds
-      key: subject_id
-      validation: "m:1"
-      agg_expr:
-          - pl.col("insurance").drop_nulls().first().alias("recorded_insurance")
-          - pl.col("language").drop_nulls().first().alias("recorded_language")
-          - pl.col("marital_status").drop_nulls().first().alias("recorded_marital_status")
-          - pl.col("race").drop_nulls().first().alias("recorded_race")
+        - table: meds
+          key: subject_id
+          validation: "m:1"
+          agg_expr:
+              - pl.col("insurance").drop_nulls().first().alias("recorded_insurance")
+              - pl.col("language").drop_nulls().first().alias("recorded_language")
+              - pl.col("marital_status").drop_nulls().first().alias("recorded_marital_status")
+              - pl.col("race").drop_nulls().first().alias("recorded_race")
 
-    - table: meds
-      key: hadm_id
-      filter_expr: pl.col("code").str.starts_with("PROCEDURE")
-      agg_expr: pl.col("code").alias("proc_list")
-      validation: "1:1"
+        - table: meds
+          key: hadm_id
+          filter_expr: pl.col("code").str.starts_with("PROCEDURE")
+          agg_expr: pl.col("code").alias("proc_list")
+          validation: "1:1"
 
-    - table: meds
-      key: hadm_id
-      filter_expr: pl.col("code").str.starts_with("DIAGNOSIS")
-      agg_expr: pl.col("code").alias("dx_list")
-      validation: "1:1"
-
-post_join_cols:
-    - (pl.col("admission_time") - pl.col("dob_approx")).cast(float).alias("age_approx")
+        - table: meds
+          key: hadm_id
+          filter_expr: pl.col("code").str.starts_with("DIAGNOSIS")
+          agg_expr: pl.col("code").alias("dx_list")
+          validation: "1:1"
 
 prefix:
     - column: recorded_race

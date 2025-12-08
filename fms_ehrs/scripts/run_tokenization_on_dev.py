@@ -24,6 +24,8 @@ dev_dir = (
 
 
 for name, conf in {
+    "raw-mimic": "clif-20"
+}.items() | {  # run a clif-20 config on CLIF-2.1 data
     "raw-mimic": "clif-21",
     "raw-ucmc": "clif-21",
     "raw-meds": "mimic-meds",

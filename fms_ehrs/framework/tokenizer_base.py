@@ -345,7 +345,7 @@ def summarize(
             tokens_timelines.select(
                 pl.col("tokens")
                 .explode()
-                .map_elements(tokenizer.get_token_type_from_int, return_dtype=str)
+                .map_elements(tokenizer.get_token_type_from_int, return_dtype=pl.String)
             )
             .to_series()
             .value_counts()
