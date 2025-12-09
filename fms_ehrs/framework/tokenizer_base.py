@@ -27,8 +27,11 @@ class BaseTokenizer:
         vocab_path: Pathlike = None,
         max_padded_len: int = None,
         quantizer: typing.Literal[
-            "centiles", "deciles", "sigmas", "ventiles"
+            "centiles", "deciles", "ventiles", "trentiles"
         ] = "deciles",
+        clinical_anchoring: typing.Literal[
+            "none", "5-10-5", "10-10-10"
+        ] = "none",
         include_time_spacing_tokens: bool = False,
         fused_category_values: bool = False,
         detect_discrete: bool = False,
@@ -38,27 +41,58 @@ class BaseTokenizer:
         """
         if no vocabulary is provided, we are in training mode; otherwise, the
         provided vocabulary is frozen
+
+        Parameters
+        ----------
+        quantizer : str
+            Binning strategy: "deciles" (10), "ventiles" (20), "trentiles" (30),
+            or "centiles" (100)
+        clinical_anchoring : str
+            Reference range-aware binning allocation. Only applicable when
+            include_ref_ranges=True. Options:
+            - "none": No clinical anchoring (population-based quantiles)
+            - "5-10-5": 5 bins below, 10 within, 5 above ref range (for ventiles)
+            - "10-10-10": 10 bins in each region (for trentiles)
+        include_ref_ranges : bool
+            If True, use reference ranges for clinically-anchored binning
         """
         self.data_dir = pathlib.Path(data_dir).expanduser().resolve()
         self.quantizer = quantizer
+        self.clinical_anchoring = clinical_anchoring
         if quantizer == "centiles":
             self.q_tokens = tuple(map(lambda i: f"Q{i}", range(100)))
         elif quantizer == "deciles":
             self.q_tokens = tuple(map(lambda i: f"Q{i}", range(10)))
         elif quantizer == "ventiles":
             self.q_tokens = tuple(map(lambda i: f"Q{i}", range(20)))
-        elif quantizer == "sigmas":
-            self.q_tokens = ("Q3-", "Q2-", "Q1-", "Q0-", "Q0+", "Q1+", "Q2+", "Q3+")
+        elif quantizer == "trentiles":
+            self.q_tokens = tuple(map(lambda i: f"Q{i}", range(30)))
         self.special: tuple = ("TL_START", "TL_END", "PAD", "TRUNC", None, "nan")
         self.max_padded_length = max_padded_len
         self.include_time_spacing_tokens = include_time_spacing_tokens
         self.fused_category_values = fused_category_values
         self.detect_discrete = detect_discrete
         self.include_ref_ranges = include_ref_ranges
-        if self.include_ref_ranges and self.quantizer != "ventiles":
-            raise NotImplementedError(
-                "Ref ranges option only works with ventiles quantizer."
-            )
+        # Validate clinical anchoring configuration
+        if self.include_ref_ranges:
+            if self.quantizer not in ("ventiles", "trentiles"):
+                raise NotImplementedError(
+                    "Ref ranges option only works with ventiles or trentiles quantizer."
+                )
+            if self.quantizer == "ventiles" and self.clinical_anchoring not in (
+                "none", "5-10-5"
+            ):
+                raise ValueError(
+                    f"Clinical anchoring '{clinical_anchoring}' not valid for ventiles. "
+                    "Use 'none' or '5-10-5'."
+                )
+            if self.quantizer == "trentiles" and self.clinical_anchoring not in (
+                "none", "10-10-10"
+            ):
+                raise ValueError(
+                    f"Clinical anchoring '{clinical_anchoring}' not valid for trentiles. "
+                    "Use 'none' or '10-10-10'."
+                )
         if self.include_time_spacing_tokens:
             self.t_tokens = (
                 "T_5m-15m",
@@ -123,39 +157,33 @@ class BaseTokenizer:
                     self.include_ref_ranges
                     and ref_range_lower is not None
                     and ref_range_upper is not None
+                    and self.clinical_anchoring != "none"
                 ):
-                    breaks = (
-                        (
-                            np.nanquantile(below, np.arange(0.2, 1.0, 0.2)).tolist()
-                            if len(below := v[v < ref_range_lower]) > 0
-                            else []
-                        )
-                        + [ref_range_lower]
-                        + (
-                            np.nanquantile(
-                                within,
-                                np.arange(0.1, 1.0, 0.1),
-                            ).tolist()
-                            if len(
-                                within := v[
-                                    (ref_range_lower <= v) & (v <= ref_range_upper)
-                                ]
-                            )
-                            > 0
-                            else []
-                        )
-                        + [ref_range_upper]
-                        + (
-                            np.nanquantile(above, np.arange(0.2, 1.0, 0.2)).tolist()
-                            if len(above := v[ref_range_upper < v]) > 0
-                            else []
-                        )
+                    breaks = self._compute_anchored_breaks(
+                        v, ref_range_lower, ref_range_upper, self.clinical_anchoring
                     )
                     self.vocab.set_aux(designator, np.unique(breaks))
                 else:
                     self.vocab.set_aux(
                         designator,
                         np.nanquantile(v, np.arange(0.05, 1.0, 0.05)).tolist(),
+                    )
+            elif self.quantizer == "trentiles":
+                if (
+                    self.include_ref_ranges
+                    and ref_range_lower is not None
+                    and ref_range_upper is not None
+                    and self.clinical_anchoring != "none"
+                ):
+                    breaks = self._compute_anchored_breaks(
+                        v, ref_range_lower, ref_range_upper, self.clinical_anchoring
+                    )
+                    self.vocab.set_aux(designator, np.unique(breaks))
+                else:
+                    # Standard trentile: 30 bins = 29 breakpoints
+                    self.vocab.set_aux(
+                        designator,
+                        np.nanquantile(v, np.arange(1/30, 1.0, 1/30)).tolist(),
                     )
             elif self.quantizer == "centiles":
                 self.vocab.set_aux(
@@ -165,10 +193,70 @@ class BaseTokenizer:
                 self.vocab.set_aux(
                     designator, np.nanquantile(v, np.arange(0.1, 1.0, 0.1)).tolist()
                 )
-            elif self.quantizer == "sigmas":
-                μ = np.nanmean(v)
-                σ = np.nanstd(v) + np.finfo(float).eps
-                self.vocab.set_aux(designator, (μ + σ * np.arange(-3, 4)).tolist())
+
+    def _compute_anchored_breaks(
+        self,
+        v: np.ndarray,
+        ref_range_lower: float,
+        ref_range_upper: float,
+        anchoring: str,
+    ) -> list:
+        """Compute clinically-anchored quantile breaks based on reference ranges.
+
+        Parameters
+        ----------
+        v : np.ndarray
+            Array of numeric values
+        ref_range_lower : float
+            Lower bound of reference range
+        ref_range_upper : float
+            Upper bound of reference range
+        anchoring : str
+            Anchoring strategy, e.g., "5-10-5" or "10-10-10"
+
+        Returns
+        -------
+        list
+            List of break points for np.digitize
+        """
+        # Parse anchoring pattern
+        parts = anchoring.split("-")
+        n_below = int(parts[0])
+        n_within = int(parts[1])
+        n_above = int(parts[2])
+
+        # Partition values by reference range
+        below = v[v < ref_range_lower]
+        within = v[(ref_range_lower <= v) & (v <= ref_range_upper)]
+        above = v[v > ref_range_upper]
+
+        breaks = []
+
+        # Below reference range: n_below bins = n_below-1 internal breaks + 1 boundary
+        if len(below) > 0 and n_below > 0:
+            below_quantiles = np.linspace(0, 1, n_below + 1)[1:-1]
+            if len(below_quantiles) > 0:
+                breaks.extend(np.nanquantile(below, below_quantiles).tolist())
+
+        # Reference lower bound is a break point
+        breaks.append(ref_range_lower)
+
+        # Within reference range: n_within bins = n_within-1 internal breaks
+        if len(within) > 0 and n_within > 1:
+            within_quantiles = np.linspace(0, 1, n_within + 1)[1:-1]
+            if len(within_quantiles) > 0:
+                breaks.extend(np.nanquantile(within, within_quantiles).tolist())
+
+        # Reference upper bound is a break point
+        breaks.append(ref_range_upper)
+
+        # Above reference range: n_above bins = n_above-1 internal breaks
+        if len(above) > 0 and n_above > 0:
+            above_quantiles = np.linspace(0, 1, n_above + 1)[1:-1]
+            if len(above_quantiles) > 0:
+                breaks.extend(np.nanquantile(above, above_quantiles).tolist())
+
+        return sorted(breaks)
 
     def get_quants(self, v: np.ndarray, c: str, prefix: str = None) -> pl.Expr:
         """obtain corresponding quantiles using self.vocab object"""

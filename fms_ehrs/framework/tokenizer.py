@@ -30,7 +30,8 @@ class Tokenizer21(BaseTokenizer):
         data_dir: Pathlike = pathlib.Path("../.."),
         vocab_path: Pathlike = None,
         max_padded_len: int = None,
-        quantizer: typing.Literal["centiles", "deciles", "sigmas", "ventiles"] = None,
+        quantizer: typing.Literal["centiles", "deciles", "ventiles", "trentiles"] = None,
+        clinical_anchoring: typing.Literal["none", "5-10-5", "10-10-10"] = None,
         cut_at_24h: bool = False,
         include_time_spacing_tokens: bool = None,
         fused_category_values: bool = None,
@@ -53,6 +54,11 @@ class Tokenizer21(BaseTokenizer):
                 quantizer
                 if quantizer is not None
                 else self.config["options"]["quantizer"]
+            ),
+            clinical_anchoring=(
+                clinical_anchoring
+                if clinical_anchoring is not None
+                else self.config["options"].get("clinical_anchoring", "none")
             ),
             include_time_spacing_tokens=(
                 include_time_spacing_tokens
