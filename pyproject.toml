@@ -35,6 +35,7 @@
         "trl==0.13.0",
         "tqdm>=4.67",
         "umap-learn==0.5.7",
+        "vllm",
         "wandb",
         "xgboost>=2.1",
     ]
