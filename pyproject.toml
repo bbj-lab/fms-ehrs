@@ -7,13 +7,13 @@
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
     ]
     dependencies = [
-        "captum~=0.8.0",
+        "captum",
         "clifpy==0.3.1",
         "datasets>=3.2",
         "fire>=0.7",
-        "jax[cuda12]<=0.4.29",
+        "jax<=0.4.29",
         "joblib>=1.4",
-        "kaleido>=0.2,<1",
+        "kaleido>=0.2,<1; sys_platform == 'linux'",
         "lightgbm>=4.5",
         "numba>=0.61",
         "numpy>=1.26,<2",
@@ -35,7 +35,7 @@
         "trl==0.13.0",
         "tqdm>=4.67",
         "umap-learn==0.5.7",
-        "vllm",
+        "vllm>=0.11.0",
         "wandb",
         "xgboost>=2.1",
     ]
@@ -70,4 +70,4 @@
 
 [tool.uv]
     exclude-newer = "2025-11-11T00:00:00Z"
-    no-cache      = true
+    no-cache = true
