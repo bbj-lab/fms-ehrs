@@ -18,7 +18,7 @@ jname=$(scontrol show job "$SLURM_JOBID" \
 export hm name parent_dir
 
 source ~/.bashrc 2> /dev/null
-source "${parent_dir}/venv/bin/activate" 2> /dev/null
+source "${parent_dir}/.venv/bin/activate" 2> /dev/null
 
 HF_HOME=/gpfs/data/bbj-lab/cache/huggingface/
 WANDB_CACHE_DIR="/scratch/$(whoami)/"

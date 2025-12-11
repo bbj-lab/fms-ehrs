@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 
 """
-generate timeline completions (from just under 24h) from each test sequence;
-N.B.: we move the padding from the right (for training) to the left (so that
-the most recent context is the timeline and the padding comes beforehand)
+generate timeline completions (from just under 24h) from each test sequence
 """
 
 import argparse
@@ -12,9 +10,7 @@ import pathlib
 import typing
 
 import polars as pl
-import torch as t
 from vllm import LLM, SamplingParams, TokensPrompt
-from vocabulary import Vocabulary
 
 from fms_ehrs.framework.logger import get_logger
 from fms_ehrs.framework.vocabulary import Vocabulary

@@ -2,6 +2,7 @@
 # idiosyncratic
 */requirements.txt linguist-generated=true
 misc/* linguist-generated=true
+*.lock linguist-generated=true
 
 * text=auto eol=lf
 
