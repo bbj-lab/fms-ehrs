@@ -422,12 +422,14 @@ class Tokenizer21(BaseTokenizer):
 
 if __name__ == "__main__":
     dev_dir = (
-        pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/development-sample-21")
+        pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt")
         if os.uname().nodename.startswith("cri")
-        else pathlib.Path("~/Downloads/development-sample-21")
+        else pathlib.Path("/mnt/bbj-lab/users/burkh4rt")
+        if os.uname().nodename.startswith("bbj-lab")
+        else pathlib.Path("~/Downloads")
         .expanduser()
         .resolve()  # change if developing locally
-    )
+    ) / "development-sample-21"
 
     tkzr = Tokenizer21(
         config_file="../config/mimic-meds-ed.yaml",

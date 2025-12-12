@@ -7,7 +7,22 @@ if [ -v SLURM_ARRAY_JOB_ID ]; then
     echo "SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
 fi
 
-hm="/gpfs/data/bbj-lab/users/$(whoami)"
+case "$(uname -n)" in
+    cri*)
+        hm="/gpfs/data/bbj-lab/users/$(whoami)"
+        HF_HOME=/gpfs/data/bbj-lab/cache/huggingface/
+        WANDB_CACHE_DIR="/scratch/$(whoami)/"
+        WANDB_DIR="/scratch/$(whoami)/"
+        ;;
+    bbj-lab*)
+        hm="/mnt/bbj-lab/users/$(whoami)"
+        HF_HOME=/mnt/bbj-lab/cache/huggingface/
+        ;;
+    *)
+        hm=$HOME
+        ;;
+esac
+
 name=$(scontrol show job "$SLURM_JOBID" \
     | grep -m 1 "Command=" \
     | cut -d "=" -f2 \
@@ -20,8 +35,5 @@ export hm name parent_dir
 source ~/.bashrc 2> /dev/null
 source "${parent_dir}/.venv/bin/activate" 2> /dev/null
 
-HF_HOME=/gpfs/data/bbj-lab/cache/huggingface/
-WANDB_CACHE_DIR="/scratch/$(whoami)/"
-WANDB_DIR="/scratch/$(whoami)/"
 PYTHONPATH="${parent_dir}:$PYTHONPATH"
 export HF_HOME WANDB_CACHE_DIR WANDB_DIR PYTHONPATH
