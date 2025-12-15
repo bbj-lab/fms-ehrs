@@ -5,12 +5,14 @@ generate timeline completions (from just under 24h) from each test sequence
 """
 
 import argparse
+import itertools
 import os
 import pathlib
 import typing
 
 import numpy as np
 import polars as pl
+import tqdm
 from vllm import LLM, SamplingParams, TokensPrompt
 
 from fms_ehrs.framework.logger import get_logger, log_classification_metrics
@@ -47,6 +49,7 @@ parser.add_argument(
 parser.add_argument("--max_len", type=int, default=100_000)
 parser.add_argument("--n_samp", type=int, default=20)
 parser.add_argument("--test_size", type=int, default=1_000)
+parser.add_argument("--batch_size", type=int, default=32)
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -67,7 +70,89 @@ df_test = (
     .lazy()
 )
 
-df_res = (
+vocab = Vocabulary().load(
+    data_dir / f"{args.data_version}-tokenized" / "train" / "vocab.gzip"
+)
+
+# load and prep model
+model = LLM(model=str(model_loc), skip_tokenizer_init=True, max_logprobs=len(vocab))
+
+test_token_list = df_test.select("tokens").collect().to_series().to_list()
+
+check_01 = list()
+m0_raw = list()
+m1_logprobs = list()
+
+for batch in tqdm.tqdm(itertools.batched(test_token_list, args.batch_size)):
+    for op in model.generate(
+        prompts=[TokensPrompt(prompt_token_ids=x) for x in batch],
+        sampling_params=SamplingParams(
+            max_tokens=args.max_len,
+            n=args.n_samp,
+            stop_token_ids=[vocab("TL_END"), vocab("PAD"), vocab("TRUNC")],
+            detokenize=False,
+            seed=0,
+            logprobs=-1,
+        ),
+    ):
+        check_01.append([vocab("TL_END") in out.token_ids for out in op.outputs])
+        m0_raw.append([vocab("DSCG_expired") in out.token_ids for out in op.outputs])
+        m1_logprobs.append(
+            [
+                [lp[vocab("DSCG_expired")].logprob for lp in out.logprobs]
+                for out in op.outputs
+            ]
+        )
+
+if not np.array(check_01).all():
+    logger.warning(
+        "Completion rate for first run: {:.2f}".format(np.array(check_01).mean())
+    )
+M0 = np.array(m0_raw).mean(axis=-1)
+M1 = np.array(
+    [np.mean([np.sum(np.exp(rep)) for rep in samps]) for samps in m1_logprobs]
+)
+
+check_2 = list()
+check_2_avoid = list()
+m2_logprobs = list()
+for batch in tqdm.tqdm(itertools.batched(test_token_list, args.batch_size)):
+    for op in model.generate(
+        prompts=[TokensPrompt(prompt_token_ids=x) for x in batch],
+        sampling_params=SamplingParams(
+            allowed_token_ids=[
+                v for k, v in vocab.lookup.items() if k != "DSCG_expired"
+            ],
+            max_tokens=args.max_len,
+            n=args.n_samp,
+            stop_token_ids=[vocab("TL_END"), vocab("PAD"), vocab("TRUNC")],
+            detokenize=False,
+            seed=0,
+            logprobs=-1,
+        ),
+        use_tqdm=True,
+    ):
+        check_2.append([vocab("TL_END") in out.token_ids for out in op.outputs])
+        m2_logprobs.append(
+            [
+                [lp[vocab("DSCG_expired")].logprob for lp in out.logprobs]
+                for out in op.outputs
+            ]
+        )
+
+if not np.array(check_2).all():
+    logger.warning(
+        "Completion rate for first run: {:.2f}".format(np.array(check_2).mean())
+    )
+
+M2 = np.array(
+    [
+        np.mean([1.0 - np.prod(1.0 - np.exp(rep)) for rep in samps])
+        for samps in m2_logprobs
+    ]
+)
+
+outcome = (
     df_test.join(
         pl.scan_parquet(
             data_dir
@@ -79,92 +164,14 @@ df_res = (
         on="hospitalization_id",
         validate="1:1",
     )
-    .select("hospitalization_id", "same_admission_death")
+    .select("same_admission_death")
     .collect()
-)
-outcome = df_res.select("same_admission_death").to_numpy().ravel()
-
-vocab = Vocabulary().load(
-    data_dir / f"{args.data_version}-tokenized" / "train" / "vocab.gzip"
-)
-
-# load and prep model
-model = LLM(model=str(model_loc), skip_tokenizer_init=True, max_logprobs=len(vocab))
-
-test_token_list = df_test.select("tokens").collect().to_series().to_list()
-
-outp_01 = model.generate(
-    prompts=[TokensPrompt(prompt_token_ids=x) for x in test_token_list],
-    sampling_params=SamplingParams(
-        max_tokens=args.max_len,
-        n=args.n_samp,
-        stop_token_ids=[vocab("TL_END"), vocab("PAD"), vocab("TRUNC")],
-        detokenize=False,
-        seed=0,
-        logprobs=-1,
-    ),
-    use_tqdm=True,
-)
-
-check_01 = [[vocab("TL_END") in out.token_ids for out in op.outputs] for op in outp_01]
-if not np.array(check_01).all():
-    logger.warning(
-        "Completion rate for first run: {:.2f}".format(np.array(check_01).mean())
-    )
-assert len(outp_01[0].outputs[0].logprobs) == len(outp_01[0].outputs[0].token_ids)
-
-m0_raw = [
-    [vocab("DSCG_expired") in out.token_ids for out in op.outputs] for op in outp_01
-]
-M0 = np.array(m0_raw).mean(axis=-1)
-
-
-m1_logprobs = [
-    [[lp[vocab("DSCG_expired")].logprob for lp in out.logprobs] for out in op.outputs]
-    for op in outp_01
-]
-M1 = np.array(
-    [np.mean([np.sum(np.exp(rep)) for rep in samps]) for samps in m1_logprobs]
-)
-
-outp_2 = model.generate(
-    prompts=[TokensPrompt(prompt_token_ids=x) for x in test_token_list],
-    sampling_params=SamplingParams(
-        allowed_token_ids=[v for k, v in vocab.lookup.items() if k != "DSCG_expired"],
-        max_tokens=args.max_len,
-        n=args.n_samp,
-        stop_token_ids=[vocab("TL_END"), vocab("PAD"), vocab("TRUNC")],
-        detokenize=False,
-        seed=0,
-        logprobs=-1,
-    ),
-    use_tqdm=True,
-)
-
-check_2 = [[vocab("TL_END") in out.token_ids for out in op.outputs] for op in outp_2]
-if not np.array(check_2).all():
-    logger.warning(
-        "Completion rate for second run: {:.2f}".format(np.array(check_2).mean())
-    )
-check_2_avoid = [
-    [vocab("DSCG_expired") not in out.token_ids for out in op.outputs] for op in outp_2
-]
-assert np.array(check_2_avoid).all()
-assert len(outp_2[0].outputs[0].logprobs) == len(outp_2[0].outputs[0].token_ids)
-
-m2_logprobs = [
-    [[lp[vocab("DSCG_expired")].logprob for lp in out.logprobs] for out in op.outputs]
-    for op in outp_2
-]
-M2 = np.array(
-    [
-        np.mean([1.0 - np.prod(1.0 - np.exp(rep)) for rep in samps])
-        for samps in m2_logprobs
-    ]
+    .to_numpy()
+    .ravel()
 )
 
 for name, estm in {"M0": M0, "M1": M1, "M2": M2}.items():
-    logger.info(f"{name=}".upper().ljust("=", 42))
+    logger.info(f"{name=}".upper().ljust(42, "="))
     log_classification_metrics(y_true=outcome, y_score=estm, logger=logger)
     logger.info(bootstrap_ci(y_true=outcome, y_score=estm))
 

@@ -280,4 +280,15 @@ Fix permissions:
 ```sh
 chgrp -R cri-bbj_lab . && chmod -R +770 .
 ```
+
+Send to bbj-lab:
+```
+rsync -avht \
+  --delete \
+  --exclude "slurm/output/" \
+  --exclude ".venv/" \
+  --exclude ".idea/" \
+  ~/Documents/chicago/fms-ehrs-reps \
+  bbj-lab2:~
+```
 -->
