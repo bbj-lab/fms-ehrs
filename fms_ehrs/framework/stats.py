@@ -4,6 +4,7 @@
 statistical & bootstrapping-related functions
 """
 
+import logging
 import typing
 import warnings
 
@@ -56,8 +57,12 @@ def bootstrap_ci(
     with jl.Parallel(n_jobs=n_jobs) as par:
         scores = par(jl.delayed(get_scores_i)(rng_i) for rng_i in rng.spawn(n_samples))
 
+    for ob in objs:
+        if (sm := np.sum(~np.isfinite([s[ob] for s in scores]))) > 0:
+            logging.warning(f"Encountered {sm} non-finite values in list of {ob}.")
+
     return {
-        ob: np.quantile([s[ob] for s in scores], q=[alpha / 2, 1 - (alpha / 2)])
+        ob: np.nanquantile([s[ob] for s in scores], q=[alpha / 2, 1 - (alpha / 2)])
         for ob in objs
     }
 
