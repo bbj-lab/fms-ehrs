@@ -31,6 +31,9 @@ class BaseTokenizer:
         ] = "deciles",
         include_time_spacing_tokens: bool = False,
         fused_category_values: bool = False,
+        detect_discrete: bool = False,
+        include_ref_ranges: bool = False,
+        **kwargs,
     ):
         """
         if no vocabulary is provided, we are in training mode; otherwise, the
@@ -50,6 +53,12 @@ class BaseTokenizer:
         self.max_padded_length = max_padded_len
         self.include_time_spacing_tokens = include_time_spacing_tokens
         self.fused_category_values = fused_category_values
+        self.detect_discrete = detect_discrete
+        self.include_ref_ranges = include_ref_ranges
+        if self.include_ref_ranges and self.quantizer != "ventiles":
+            raise NotImplementedError(
+                "Ref ranges option only works with ventiles quantizer."
+            )
         if self.include_time_spacing_tokens:
             self.t_tokens = (
                 "T_5m-15m",
@@ -94,21 +103,67 @@ class BaseTokenizer:
             self.vocab = Vocabulary().load(self.vocab_path)
             self.vocab.is_training = False
 
-    def set_quants(self, v: np.ndarray, c: str, prefix: str = None) -> None:
+    def set_quants(
+        self,
+        v: np.ndarray,
+        c: str,
+        prefix: str = None,
+        ref_range_lower=None,
+        ref_range_upper=None,
+    ) -> None:
         """store training quantile information in the self.vocab object"""
         designator = f"{prefix}_{c}" if prefix is not None else c
         if not self.vocab.has_aux(designator) and self.vocab.is_training:
-            if self.quantizer == "centiles":
+            if self.detect_discrete and len(unq := np.unique(v[np.isfinite(v)])) < len(
+                self.q_tokens
+            ):
+                self.vocab.set_aux(designator, unq.tolist())
+            elif self.quantizer == "ventiles":
+                if (
+                    self.include_ref_ranges
+                    and ref_range_lower is not None
+                    and ref_range_upper is not None
+                ):
+                    breaks = (
+                        (
+                            np.nanquantile(below, np.arange(0.2, 1.0, 0.2)).tolist()
+                            if len(below := v[v < ref_range_lower]) > 0
+                            else []
+                        )
+                        + [ref_range_lower]
+                        + (
+                            np.nanquantile(
+                                within,
+                                np.arange(0.1, 1.0, 0.1),
+                            ).tolist()
+                            if len(
+                                within := v[
+                                    (ref_range_lower <= v) & (v <= ref_range_upper)
+                                ]
+                            )
+                            > 0
+                            else []
+                        )
+                        + [ref_range_upper]
+                        + (
+                            np.nanquantile(above, np.arange(0.2, 1.0, 0.2)).tolist()
+                            if len(above := v[ref_range_upper < v]) > 0
+                            else []
+                        )
+                    )
+                    self.vocab.set_aux(designator, np.unique(breaks))
+                else:
+                    self.vocab.set_aux(
+                        designator,
+                        np.nanquantile(v, np.arange(0.05, 1.0, 0.05)).tolist(),
+                    )
+            elif self.quantizer == "centiles":
                 self.vocab.set_aux(
                     designator, np.nanquantile(v, np.arange(0.01, 1.0, 0.01)).tolist()
                 )
             elif self.quantizer == "deciles":
                 self.vocab.set_aux(
                     designator, np.nanquantile(v, np.arange(0.1, 1.0, 0.1)).tolist()
-                )
-            elif self.quantizer == "ventiles":
-                self.vocab.set_aux(
-                    designator, np.nanquantile(v, np.arange(0.05, 1.0, 0.05)).tolist()
                 )
             elif self.quantizer == "sigmas":
                 μ = np.nanmean(v)
@@ -149,7 +204,29 @@ class BaseTokenizer:
         """
         v = x.select("value").to_numpy().ravel()
         c = x.select("category").row(0)[0]
-        self.set_quants(v=v, c=c, prefix=prefix)
+        if self.include_ref_ranges and {
+            "ref_range_lower",
+            "ref_range_upper",
+        }.issubset(set(x.collect_schema().keys())):
+            ref_range_lower = (
+                y.row(0)[0]
+                if len(y := x.select(pl.col("ref_range_lower").drop_nulls().mode())) > 0
+                else None
+            )
+            ref_range_upper = (
+                y.row(0)[0]
+                if len(y := x.select(pl.col("ref_range_upper").drop_nulls().mode())) > 0
+                else None
+            )
+            self.set_quants(
+                v=v,
+                c=c,
+                prefix=prefix,
+                ref_range_lower=ref_range_lower,
+                ref_range_upper=ref_range_upper,
+            )
+        else:
+            self.set_quants(v=v, c=c, prefix=prefix)
         if not self.fused_category_values:
             return (
                 x.with_columns(

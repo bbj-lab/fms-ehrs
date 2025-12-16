@@ -12,11 +12,12 @@ with the specified resource requirements. (We used compute nodes with 8×A100
 GPU-based work.) Each bash script calls one or more python scripts that depend on
 an environment as described in the `requirements.txt` file. You can set up an
 environment with [pytorch](https://pytorch.org/get-started/locally/) configured
-for CUDA 12.8 with [uv](https://docs.astral.sh/uv/pip/) as follows:
+for CUDA 12.8 with [uv](https://docs.astral.sh/uv/pip/) as follows (be on a gpu
+node when you run this):
 
 ```sh
-uv venv --python=$(which python3) venv
-. venv/bin/activate
+uv venv --python=$(which python3)
+. .venv/bin/activate
 uv pip install --torch-backend=cu128 --link-mode=copy -e .
 ```
 
@@ -207,7 +208,7 @@ Send to randi:
 rsync -avht \
   --delete \
   --exclude "slurm/output/" \
-  --exclude "venv/" \
+  --exclude ".venv/" \
   --exclude ".idea/" \
   ~/Documents/chicago/fms-ehrs-reps \
   randi:/gpfs/data/bbj-lab/users/burkh4rt
@@ -221,7 +222,7 @@ srun -p tier3q \
   --time=8:00:00 \
   --job-name=adhoc \
   --pty bash -i
-source venv/bin/activate
+source .venv/bin/activate
 ```
 
 Troubleshoot:
@@ -232,7 +233,7 @@ srun -p gpudev \
   --time=8:00:00 \
   --job-name=adhoc \
   --pty bash -i
-. venv/bin/activate
+. .venv/bin/activate
 jupyter notebook --no-browser --ip=0.0.0.0 --port=8088
 ssh -L 8088:localhost:8088 cri22cn401
 ```
@@ -278,5 +279,16 @@ Fix permissions:
 
 ```sh
 chgrp -R cri-bbj_lab . && chmod -R +770 .
+```
+
+Send to bbj-lab:
+```
+rsync -avht \
+  --delete \
+  --exclude "slurm/output/" \
+  --exclude ".venv/" \
+  --exclude ".idea/" \
+  ~/Documents/chicago/fms-ehrs-reps \
+  bbj-lab2:~
 ```
 -->

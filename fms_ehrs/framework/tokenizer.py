@@ -35,6 +35,8 @@ class Tokenizer21(BaseTokenizer):
         include_time_spacing_tokens: bool = None,
         fused_category_values: bool = None,
         config_file: Pathlike = None,
+        detect_discrete: bool = None,
+        include_ref_ranges: bool = None,
     ):
         self.config = yaml.YAML(typ="safe").load(
             pathlib.Path(config_file).expanduser().resolve()
@@ -61,6 +63,16 @@ class Tokenizer21(BaseTokenizer):
                 fused_category_values
                 if fused_category_values is not None
                 else self.config["options"].get("fused_category_values", False)
+            ),
+            detect_discrete=(
+                detect_discrete
+                if detect_discrete is not None
+                else self.config["options"].get("detect_discrete", False)
+            ),
+            include_ref_ranges=(
+                include_ref_ranges
+                if include_ref_ranges is not None
+                else self.config["options"].get("include_ref_ranges", False)
             ),
         )
         self.cut_at_24h: bool = cut_at_24h
@@ -270,7 +282,7 @@ class Tokenizer21(BaseTokenizer):
                 )
             )
         if numeric_value is not None:
-            df_cv = df.select(
+            cols = [
                 pl.col(self.config["subject_id"]),
                 pl.col(time).cast(pl.Datetime(time_unit="ms")).alias("event_time"),
                 pl.col(code)
@@ -280,12 +292,17 @@ class Tokenizer21(BaseTokenizer):
                 .str.strip_chars(".")
                 .alias("category"),
                 pl.col(numeric_value).alias("value"),
-            ).collect()
+            ]
+            if self.include_ref_ranges and {
+                "ref_range_lower",
+                "ref_range_upper",
+            }.issubset(set(df.collect_schema().keys())):
+                cols += ["ref_range_lower", "ref_range_upper"]
             return (
                 self.process_cat_val_frame(df_cv, label=prefix).select(
                     self.config["subject_id"], "event_time", "tokens"
                 )
-                if len(df_cv) > 0
+                if len(df_cv := df.select(*cols).collect()) > 0
                 else None
             )
         else:
@@ -405,15 +422,21 @@ class Tokenizer21(BaseTokenizer):
 
 if __name__ == "__main__":
     dev_dir = (
-        pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/development-sample-21")
+        pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt")
         if os.uname().nodename.startswith("cri")
-        else pathlib.Path("~/Downloads/development-sample-21")
+        else pathlib.Path("/mnt/bbj-lab/users/burkh4rt")
+        if os.uname().nodename.startswith("bbj-lab")
+        else pathlib.Path("~/Downloads")
         .expanduser()
         .resolve()  # change if developing locally
-    )
+    ) / "development-sample-21"
 
     tkzr = Tokenizer21(
-        config_file="../config/mimic-meds-ed.yaml", data_dir=dev_dir / "raw-meds-ed/dev"
+        config_file="../config/mimic-meds-ed.yaml",
+        data_dir=dev_dir / "raw-meds-ed/dev",
+        detect_discrete=True,
+        include_ref_ranges=True,
+        quantizer="ventiles",
     )
     tt = tkzr.get_tokens_timelines()
     summarize(tkzr, tt)
