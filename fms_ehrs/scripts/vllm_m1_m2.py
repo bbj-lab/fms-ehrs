@@ -69,6 +69,7 @@ df_test = (
     .sample(n=args.test_size)
     .lazy()
 )
+test_token_list = df_test.select("tokens").collect().to_series().to_list()
 
 vocab = Vocabulary().load(
     data_dir / f"{args.data_version}-tokenized" / "train" / "vocab.gzip"
@@ -77,11 +78,11 @@ vocab = Vocabulary().load(
 # load and prep model
 model = LLM(model=str(model_loc), skip_tokenizer_init=True, max_logprobs=len(vocab))
 
-test_token_list = df_test.select("tokens").collect().to_series().to_list()
-
 check_01 = list()
 m0_raw = list()
 m1_logprobs = list()
+M0_direct = list()
+M1_direct = list()
 
 for batch in tqdm.tqdm(itertools.batched(test_token_list, args.batch_size)):
     for op in model.generate(
@@ -103,6 +104,21 @@ for batch in tqdm.tqdm(itertools.batched(test_token_list, args.batch_size)):
                 for out in op.outputs
             ]
         )
+        M0_direct.append(
+            np.mean([vocab("DSCG_expired") in out.token_ids for out in op.outputs])
+        )
+        M1_direct.append(
+            np.mean(
+                [
+                    np.sum(
+                        np.exp(
+                            [lp[vocab("DSCG_expired")].logprob for lp in out.logprobs]
+                        )
+                    )
+                    for out in op.outputs
+                ]
+            )
+        )
 
 if not np.array(check_01).all():
     logger.warning(
@@ -116,6 +132,8 @@ M1 = np.array(
 check_2 = list()
 check_2_avoid = list()
 m2_logprobs = list()
+M2_direct = list()
+
 for batch in tqdm.tqdm(itertools.batched(test_token_list, args.batch_size)):
     for op in model.generate(
         prompts=[TokensPrompt(prompt_token_ids=x) for x in batch],
@@ -138,6 +156,20 @@ for batch in tqdm.tqdm(itertools.batched(test_token_list, args.batch_size)):
                 [lp[vocab("DSCG_expired")].logprob for lp in out.logprobs]
                 for out in op.outputs
             ]
+        )
+        M2_direct.append(
+            np.mean(
+                [
+                    1.0
+                    - np.prod(
+                        1.0
+                        - np.exp(
+                            [lp[vocab("DSCG_expired")].logprob for lp in out.logprobs]
+                        )
+                    )
+                    for out in op.outputs
+                ]
+            )
         )
 
 if not np.array(check_2).all():
