@@ -79,10 +79,8 @@ vocab = Vocabulary().load(
 model = LLM(model=str(model_loc), skip_tokenizer_init=True, max_logprobs=len(vocab))
 
 check_01 = list()
-m0_raw = list()
-m1_logprobs = list()
-M0_direct = list()
-M1_direct = list()
+M0 = list()
+M1 = list()
 
 for batch in tqdm.tqdm(itertools.batched(test_token_list, args.batch_size)):
     for op in model.generate(
@@ -97,17 +95,10 @@ for batch in tqdm.tqdm(itertools.batched(test_token_list, args.batch_size)):
         ),
     ):
         check_01.append([vocab("TL_END") in out.token_ids for out in op.outputs])
-        m0_raw.append([vocab("DSCG_expired") in out.token_ids for out in op.outputs])
-        m1_logprobs.append(
-            [
-                [lp[vocab("DSCG_expired")].logprob for lp in out.logprobs]
-                for out in op.outputs
-            ]
-        )
-        M0_direct.append(
+        M0.append(
             np.mean([vocab("DSCG_expired") in out.token_ids for out in op.outputs])
         )
-        M1_direct.append(
+        M1.append(
             np.mean(
                 [
                     np.sum(
@@ -124,15 +115,10 @@ if not np.array(check_01).all():
     logger.warning(
         "Completion rate for first run: {:.2f}".format(np.array(check_01).mean())
     )
-M0 = np.array(m0_raw).mean(axis=-1)
-M1 = np.array(
-    [np.mean([np.sum(np.exp(rep)) for rep in samps]) for samps in m1_logprobs]
-)
 
 check_2 = list()
 check_2_avoid = list()
-m2_logprobs = list()
-M2_direct = list()
+M2 = list()
 
 for batch in tqdm.tqdm(itertools.batched(test_token_list, args.batch_size)):
     for op in model.generate(
@@ -148,16 +134,9 @@ for batch in tqdm.tqdm(itertools.batched(test_token_list, args.batch_size)):
             seed=0,
             logprobs=-1,
         ),
-        use_tqdm=True,
     ):
         check_2.append([vocab("TL_END") in out.token_ids for out in op.outputs])
-        m2_logprobs.append(
-            [
-                [lp[vocab("DSCG_expired")].logprob for lp in out.logprobs]
-                for out in op.outputs
-            ]
-        )
-        M2_direct.append(
+        M2.append(
             np.mean(
                 [
                     1.0
@@ -174,15 +153,8 @@ for batch in tqdm.tqdm(itertools.batched(test_token_list, args.batch_size)):
 
 if not np.array(check_2).all():
     logger.warning(
-        "Completion rate for first run: {:.2f}".format(np.array(check_2).mean())
+        "Completion rate for second run: {:.2f}".format(np.array(check_2).mean())
     )
-
-M2 = np.array(
-    [
-        np.mean([1.0 - np.prod(1.0 - np.exp(rep)) for rep in samps])
-        for samps in m2_logprobs
-    ]
-)
 
 outcome = (
     df_test.join(
@@ -201,6 +173,8 @@ outcome = (
     .to_numpy()
     .ravel()
 )
+
+M0, M1, M2 = map(np.array, (M0, M1, M2))
 
 for name, estm in {"M0": M0, "M1": M1, "M2": M2}.items():
     logger.info(f"{name=}".upper().ljust(42, "="))
