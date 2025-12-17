@@ -11,6 +11,7 @@ import logging
 import os
 import subprocess
 import sys
+import typing
 
 import numpy as np
 from sklearn import metrics as skl_mets
@@ -23,7 +24,7 @@ class SlurmLogger(logging.Logger):
         self.handlers.clear()
 
         formatter = logging.Formatter(
-            "[%(asctime)s] %(message)s", "%Y-%m-%dT%H:%M:%S%z"
+            "[%(asctime)s] %(message)s", "%Y-%m-%dT%H:%M:%S%Z"
         )
         ch = logging.StreamHandler()
         ch.setLevel(logging.INFO)
@@ -68,7 +69,7 @@ class SlurmLogger(logging.Logger):
         if get_branch.returncode == 0:
             self.info("branch: {}".format(get_branch.stdout.decode().strip()))
 
-    def log_calls(self, func: callable) -> callable:
+    def log_calls(self, func: typing.Callable) -> typing.Callable:
         @functools.wraps(func)
         def log_io(*args, **kwargs):
             func_args = inspect.signature(func).bind_partial(*args, **kwargs)
