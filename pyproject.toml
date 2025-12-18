@@ -13,7 +13,7 @@
         "fire>=0.7",
         "jax<=0.4.29",
         "joblib>=1.4",
-        "kaleido>=0.2,<1; sys_platform == 'linux' and platform_machine == 'x86_64'",
+        "kaleido==0.2.1",
         "lightgbm>=4.5",
         "numba>=0.61",
         "numpy>=1.26,<2",
@@ -30,7 +30,7 @@
         "scipy>=1.15",
         "seaborn>=0.13.2",
         "statsmodels>=0.14",
-        "torch",
+        "torch>=2.8,<2.10",
         "transformers>=4.48",
         "trl==0.13.0",
         "tqdm>=4.67",
@@ -69,4 +69,5 @@
     requires      = [ "setuptools>=75.0", "wheel", "ninja" ]
 
 [tool.uv]
-    no-cache = true
+    exclude-newer = "2025-11-11T00:00:00Z"
+    no-cache      = true

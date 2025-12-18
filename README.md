@@ -18,8 +18,10 @@ node when you run this):
 ```sh
 uv venv --python=$(which python3)
 . .venv/bin/activate
-uv pip install --torch-backend=cu128 --link-mode=copy -e .
+uv sync
 ```
+
+<!-- pip install --torch-backend=cu128 --link-mode=copy -e . -->
 
 For plots to render correctly, you may need to install a working version of
 [tex](https://www.tug.org/texlive/) on your system.
@@ -27,8 +29,9 @@ For plots to render correctly, you may need to install a working version of
 ## How our tokenizer works
 
 To run tokenization, place all data tables (in parquet format) into some
-directory `data_dir`, define a yaml configuration file `config.yaml`, and then
-run:
+directory `data_dir`, define a yaml configuration file `config.yaml` (see
+[clif-21.yaml](fms_ehrs/config/clif-21.yaml) for an example on the CLIF-2.1
+standard), and then run:
 
 ```py
 from fms_ehrs.framework.tokenizer import Tokenizer21
@@ -79,7 +82,8 @@ summarize(tkzr, tt)
 
 ### Defining the config file
 
-We use a yaml config file. It's organized as follows.
+We use a yaml file to configure the tokenization process. It's organized as
+follows.
 
 -   We first define the `subject_id` (required) and `group_id` (optional):
     ```yaml
@@ -352,13 +356,16 @@ the concatenation of prefixes, events, and suffixes.
     You can can also create your own version of this container with:
 
     ```sh
-    conda activate apptainer
+    micromamba activate apptainer
     export TMPDIR="/scratch/$(whoami)/cache"
     export APPTAINER_TMPDIR="/scratch/$(whoami)/cache"
     export APPTAINER_CACHEDIR="/scratch/$(whoami)/cache"
 
     apptainer build env.sif env.def
     ```
+
+-   The number of model parameters depends on the size of the vocabulary (because
+    we're learning a token embedding).
 
 [^1]:
     M. Burkhart, B. Ramadan, Z. Liao, K. Chhikara, J. Rojas, W. Parker, & B.
@@ -375,14 +382,13 @@ the concatenation of prefixes, events, and suffixes.
 
 Format:
 ````
-
-ruff format . ruff check . shfmt -w slurm/
-
+ruff format .
+ruff check .
+shfmt -w slurm/
 ```
 
 Send to randi:
 ```
-
 rsync -avht \
  --delete \
  --exclude "slurm/output/" \
@@ -390,66 +396,59 @@ rsync -avht \
  --exclude ".idea/" \
  ~/Documents/chicago/fms-ehrs-reps \
  randi:/gpfs/data/bbj-lab/users/burkh4rt
-
 ```
 
 Run on randi:
 ```
-
-systemd-run --scope --user tmux new -s t3q || tmux a -t t3q srun -p tier3q \
+systemd-run --scope --user tmux new -s t3q || tmux a -t t3q
+srun -p tier3q \
  --mem=100GB \
  --time=8:00:00 \
  --job-name=adhoc \
- --pty bash -i source .venv/bin/activate
-
+ --pty bash -i
+source .venv/bin/activate
 ```
 
 Troubleshoot:
 ```
-
-systemd-run --scope --user tmux new -s gpuq || tmux a -t gpuq srun -p gpudev \
+systemd-run --scope --user tmux new -s gpuq || tmux a -t gpuq
+srun -p gpudev \
  --gres=gpu:1 \
  --time=8:00:00 \
  --job-name=adhoc \
- --pty bash -i . .venv/bin/activate jupyter notebook --no-browser --ip=0.0.0.0
---port=8088 ssh -L 8088:localhost:8088 cri22cn401
-
+ --pty bash -i
+source .venv/bin/activate
+jupyter notebook --no-browser --ip=0.0.0.0 --port=8088 ssh -L 8088:localhost:8088 cri22cn401
 ```
 
 Grab generated plots:
 ```
-
 rsync -avht \
  randi:/gpfs/data/bbj-lab/users/burkh4rt/figs \
  ~/Downloads
-
 ```
 
 Grab dev sample:
 ```
-
 rsync -avht \
  --delete \
  randi:/gpfs/data/bbj-lab/users/burkh4rt/development-sample-21 \
  ~/Downloads
-
 ```
 
 Save environment:
 ```
-
 uv pip compile --torch-backend=cu128 pyproject.toml -o requirements.txt
-
 ```
 
 Get fonts on randi:
 ```
-
-mkdir -p ~/.local/share/fonts/CMU cd ~/.local/share/fonts/CMU wget
-https://mirrors.ctan.org/fonts/cm-unicode.zip unzip cm-unicode.zip find . -type f
-\( -iname "_.ttf" -o -iname "_.otf" \) -exec mv {} ~/.local/share/fonts/CMU/ \;
+mkdir -p ~/.local/share/fonts/CMU
+cd ~/.local/share/fonts/CMU
+wget https://mirrors.ctan.org/fonts/cm-unicode.zip
+unzip cm-unicode.zip
+find . -type f \( -iname "_.ttf" -o -iname "_.otf" \) -exec mv {} ~/.local/share/fonts/CMU/ \;
 fc-cache -f -v fc-list | grep -i cmu
-
 ````
 
 Install directly from github:
