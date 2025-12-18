@@ -145,9 +145,9 @@ follows.
 
     ```yaml
     reference:
-    table: clif_hospitalization
-    start_time: admission_dttm
-    end_time: discharge_dttm
+        table: clif_hospitalization
+        start_time: admission_dttm
+        end_time: discharge_dttm
     ```
 
     Sometimes there are additional tables at different levels of granularity that
@@ -296,6 +296,16 @@ the concatenation of prefixes, events, and suffixes.
     ```
 
     The `is_list: !!bool true` processes `primary_dx_types` as a list.
+
+## Post-tokenization
+
+Once tokenization has completed, the next step is typically to train a model on
+the training portion of the data.
+
+3. [tune_model.py](fms_ehrs/scripts/tune_model.py) is a model tuning script. (We
+   typically run hyperparameter tuning with
+   [optuna](https://optuna.readthedocs.io) as part of the training process.) See
+   [03_tune_model.sh](slurm/03_tune_model.sh) for example usage.
 
 ## Usage notes
 

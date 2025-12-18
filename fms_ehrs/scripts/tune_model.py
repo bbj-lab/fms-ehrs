@@ -4,6 +4,7 @@
 tune a model with a packing strategy
 """
 
+import gc
 import os
 import pathlib
 import typing
@@ -47,7 +48,7 @@ class NanStoppingCallback(TrainerCallback):
 def main(
     *,
     n_epochs: int = 5,
-    max_seq_length: int = 1024,
+    max_seq_length: int = 2048,
     data_version: str = "day_stays",
     model_version: str = "llama1b",
     model_name: str = "meta-llama/Llama-3.2-1B",
@@ -55,8 +56,6 @@ def main(
     # max_grad_norm: float = 1.0,
     lr_min: float = 5e-5,
     lr_max: float = 5e-4,
-    gr_acc_min: int = 1,
-    gr_acc_max: int = 3,
     data_dir: os.PathLike = None,
     model_dir: os.PathLike = None,
     collation: typing.Literal["padded", "packed"] = "packed",
@@ -86,6 +85,11 @@ def main(
     )
 
     def model_init(trial=None):
+        if trial is not None:
+            t.manual_seed(trial.number)
+            np.random.seed(trial.number)
+            gc.collect()
+            t.cuda.empty_cache()
         config = AutoConfig.from_pretrained(
             model_name,
             vocab_size=len(dataset.vocab),
@@ -103,22 +107,8 @@ def main(
         return {
             "learning_rate": trial.suggest_float(
                 "learning_rate", lr_min, lr_max, log=True
-            ),
-            "gradient_accumulation_steps": trial.suggest_int(
-                "gradient_accumulation_steps", gr_acc_min, gr_acc_max
-            ),
+            )
         }
-
-    max_steps = (
-        (
-            dataset.n_train
-            * n_epochs
-            // per_device_train_batch_size
-            // t.cuda.device_count()
-        )
-        if iterable_dataset
-        else -1
-    )
 
     # train model
     training_args = SFTConfig(
@@ -136,17 +126,14 @@ def main(
         greater_is_better=False,
         eval_strategy="steps",
         save_strategy="best",
-        max_steps=max_steps,
         ddp_find_unused_parameters=False,
     )
 
     trainer = SFTTrainer(
         model=model_init(),
         model_init=model_init,
-        train_dataset=dataset.get_train_dataset(
-            n_epochs=n_epochs, iterable=iterable_dataset
-        ),
-        eval_dataset=dataset.get_val_dataset(iterable=iterable_dataset),
+        train_dataset=dataset.get_train_dataset(n_epochs=n_epochs),
+        eval_dataset=dataset.get_val_dataset(),
         args=training_args,
         callbacks=[
             EarlyStoppingCallback(early_stopping_patience=3),

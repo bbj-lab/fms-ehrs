@@ -19,12 +19,10 @@ torchrun --nproc_per_node=8 \
     --rdzv-id "${SLURM_ARRAY_TASK_ID:-0}" \
     --rdzv-endpoint=localhost:0 \
     ../fms_ehrs/scripts/tune_model.py \
-    --n_epochs 40 \
-    --n_trials 5 \
+    --n_epochs 50 \
+    --n_trials 30 \
     --lr_min 2e-4 \
     --lr_max 3e-4 \
-    --gr_acc_min 1 \
-    --gr_acc_max 1 \
     --data_dir "${hm}/data-mimic" \
     --data_version "${data_version}" \
     --model_dir "${hm}/mdls" \
