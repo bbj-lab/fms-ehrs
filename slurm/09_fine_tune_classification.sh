@@ -1,15 +1,34 @@
 #!/bin/bash
 
-#SBATCH --job-name=sft-w++
+#SBATCH --job-name=sft
 #SBATCH --output=./output/%A_%a-%x.stdout
 #SBATCH --partition=gpuq
-#SBATCH --gres=gpu:4
+#SBATCH --gres=gpu:8
 #SBATCH --time=1-00:00:00
-#SBATCH --array=0-3
+#SBATCH --array=0-39
 
 source preamble.sh
 
-case ${SLURM_ARRAY_TASK_ID} in
+div=4
+quo=$((SLURM_ARRAY_TASK_ID / div))
+rem=$((SLURM_ARRAY_TASK_ID % div))
+
+source preamble.sh
+
+models=(
+    llama-orig-58789721
+    llama-large-58788825
+    llama-med-58788824
+    llama-small-58741567
+    llama-smol-58761427
+    llama-tiny-58761428
+    llama-teensy-58741565
+    llama-wee-58996725
+    llama-bitsy-58996726
+    llama-micro-58996720
+)
+
+case ${rem} in
     0)
         outcome=same_admission_death
         wandb_project=mimic-sft-clsfr-mort
@@ -32,22 +51,18 @@ case ${SLURM_ARRAY_TASK_ID} in
 esac
 
 res=$(
-    torchrun --nproc_per_node=4 \
-        --rdzv_backend c10d \
-        --rdzv-id "${SLURM_ARRAY_TASK_ID:-0}" \
-        --rdzv-endpoint=localhost:0 \
+    torchrun --nproc_per_node=8 \
         ../fms_ehrs/scripts/fine_tune_classification.py \
-        --model_loc "${hm}/mdls-archive/llama-med-60358922_1-hp-W++" \
+        --model_loc "${hm}/mdls-archive/${models[$quo]}" \
         --data_dir "${hm}/data-mimic" \
-        --data_version W++_first_24h \
+        --data_version QC_day_stays_first_24h \
         --out_dir "${hm}/mdls" \
         --n_epochs 10 \
-        --learning_rate 0.00005 \
-        --per_device_train_batch_size 8 \
-        --per_device_eval_batch_size 8 \
+        --learning_rate 0.00002 \
+        --per_device_train_batch_size 4 \
+        --per_device_eval_batch_size 4 \
         --gradient_accumulation_steps 2 \
         --outcome "$outcome" \
-        --tune True \
         --wandb_project "$wandb_project" \
         --jid "'${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}'"
 )

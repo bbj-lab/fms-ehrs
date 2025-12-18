@@ -27,7 +27,7 @@ splits=(train val test)
 
 torchrun --nproc_per_node=1 \
     --rdzv_backend c10d \
-    --rdzv-id "${SLURM_ARRAY_TASK_ID:-0}" \
+    --rdzv-id "$SLURM_ARRAY_TASK_ID" \
     --rdzv-endpoint=localhost:0 \
     ../fms_ehrs/scripts/extract_log_probs.py \
     --data_dir "${data_dirs[$rem]}" \

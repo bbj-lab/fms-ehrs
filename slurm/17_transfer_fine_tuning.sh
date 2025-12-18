@@ -40,9 +40,6 @@ training_fraction=${training_fractions[$((SLURM_ARRAY_TASK_ID % 3))]}
 
 res=$(
     torchrun --nproc_per_node=8 \
-        --rdzv_backend c10d \
-        --rdzv-id "${SLURM_ARRAY_TASK_ID:-0}" \
-        --rdzv-endpoint=localhost:0 \
         ../fms_ehrs/scripts/fine_tune_classification.py \
         --model_loc "${hm}/mdls-archive/${model}" \
         --data_dir "${hm}/data-ucmc" \
