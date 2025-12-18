@@ -4,11 +4,11 @@
 #SBATCH --output=./output/%j-%x.stdout
 #SBATCH --partition=tier3q
 #SBATCH --mem=100GB
-#SBATCH --time=1-00:00:00
+#SBATCH --time=8:00:00
 
 source preamble.sh
 
-export data_version=W21++_test_orig
+export data_version=V21
 
 echo "Processing MIMIC data..."
 python3 ../fms_ehrs/scripts/tokenize_w_config.py \

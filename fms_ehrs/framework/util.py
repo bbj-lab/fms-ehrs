@@ -56,7 +56,9 @@ def rt_padding_to_left(
     )
 
 
-def ragged_lists_to_array(ls_arr: typing.List[np.ndarray]) -> np.ndarray:
+def ragged_lists_to_array(
+    ls_arr: typing.List[np.ndarray] | typing.List[typing.List],
+) -> np.ndarray:
     """
     form an 2d-array from a collection of variably-sized 1d-arrays
     """
