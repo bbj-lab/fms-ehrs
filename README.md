@@ -17,23 +17,8 @@ uv sync
 
 <!-- pip install --torch-backend=cu128 --link-mode=copy -e . -->
 
-<details>
-
-<summary>For plots to render correctly, you may need to place Computer Modern fonts on your system.</summary>
-
-These fonts appear in most PMLR-styled publications and can be installed as
-follows:
-
-```sh
-mkdir -p ~/.local/share/fonts/CMU
-cd ~/.local/share/fonts/CMU
-wget https://mirrors.ctan.org/fonts/cm-unicode.zip
-unzip cm-unicode.zip
-find . -type f \( -iname "*.ttf" -o -iname "*.otf" \) -exec mv {} ~/.local/share/fonts/CMU/ \;
-fc-cache -f -v
-```
-
-</details>
+For plots to render correctly, you may need to install a working version of
+[tex](https://www.tug.org/texlive/) on your system.
 
 ## Typical tokenization workflow
 
@@ -113,8 +98,6 @@ summarize(tkzr, tt)
 We use a yaml file to configure the tokenization process. It's organized as
 follows.
 
-### Global options
-
 -   We first define the `subject_id` (required) and `group_id` (optional):
     ```yaml
     subject_id: hospitalization_id # designator for what timelines represent
@@ -133,8 +116,6 @@ follows.
         detect_discrete: !!bool true # simple strategy for categories that take fewer values than no. Q tokens
         max_event_days: !!int 7 # truncate events at 7 days with an ellipsis token
     ```
-
-### Reference table
 
 -   Next we define a reference table that contains static data at the
     `subject_id` level. Columns from this table will be used to create the
@@ -184,8 +165,6 @@ follows.
               validation: "1:1"
     ```
 
-### Prefix
-
 Now, we are prepared to configure the actual token columns. We form timelines as
 the concatenation of prefixes, events, and suffixes.
 
@@ -204,8 +183,6 @@ the concatenation of prefixes, events, and suffixes.
     table. The `prefix` designation causes "SEX\_" to be inserted as a prefix for
     the tokens and helps us to recognize the type of these tokens. The prefix
     columns are inserted in the order in which they appear in this list.
-
-### Events
 
 -   We next specify events that are inserted into respective timelines according
     to the `time` designation for each event listed. For example:
@@ -279,8 +256,6 @@ the concatenation of prefixes, events, and suffixes.
           text_value: categorical_value
           time: recorded_dttm
     ```
-
-### Suffix
 
 -   Finally we specify suffix tokens. These work in the same way as the prefix
     tokens. For example:
@@ -402,6 +377,16 @@ Save environment:
 ```
 uv pip compile --torch-backend=cu128 pyproject.toml -o requirements.txt
 ```
+
+Get fonts on randi:
+```
+mkdir -p ~/.local/share/fonts/CMU
+cd ~/.local/share/fonts/CMU
+wget https://mirrors.ctan.org/fonts/cm-unicode.zip
+unzip cm-unicode.zip
+find . -type f \( -iname "_.ttf" -o -iname "_.otf" \) -exec mv {} ~/.local/share/fonts/CMU/ \;
+fc-cache -f -v fc-list | grep -i cmu
+````
 
 Install directly from github:
 
