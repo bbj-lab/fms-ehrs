@@ -1,19 +1,13 @@
 # FMs-EHRs
 
-> This repo contains code to tokenize electronic health records, train foundation
-> models on those tokenized records, and then perform various downstream
+> This repo contains code to tokenize electronic health records, train generative
+> event models on those tokenized records, and then perform various downstream
 > analyses. [^1] [^2]
 
 ## Requirements
 
-The bash scripts can be run in a [slurm](https://slurm.schedmd.com) environment
-with the specified resource requirements. (We used compute nodes with 8×A100
-40GB-PCIe GPUs, connected with 2×16-core 3.0-GHz AMD Milan processors for model
-tuning.) Each bash script calls one or more python scripts that depend on an
-environment as described in the `requirements.txt` file. You can set up an
-environment with [pytorch](https://pytorch.org/get-started/locally/) configured
-for CUDA 12.8 with [uv](https://docs.astral.sh/uv/pip/) as follows (be on a gpu
-node when you run this):
+You can use [uv](https://docs.astral.sh/uv/pip/) to create an environment for
+running this code (with Python >= 3.12) as follows:
 
 ```sh
 uv venv --python=$(which python3)
@@ -26,7 +20,26 @@ uv sync
 For plots to render correctly, you may need to install a working version of
 [tex](https://www.tug.org/texlive/) on your system.
 
-## How our tokenizer works
+## Typical tokenization workflow
+
+In a typical workflow, we first split our data into training, validation, and
+test portions and then learn the bins and vocabulary on the training portion of
+the data.
+
+1.  [partition_w_config.py](fms_ehrs/scripts/partition_w_config.py) is our
+    partitioning script; see [01_create_splits.sh](slurm/01_create_splits.sh) for
+    example usage.
+
+2.  [tokenize_w_config.py](fms_ehrs/scripts/tokenize_w_config.py) is our
+    tokenization script; see [02_tokenize_splits.sh](slurm/02_tokenize_splits.sh)
+    for example usage.
+
+This means that deciles are training-set deciles, and tokens must appear in the
+training set in order to be registered in the vocabulary (and have a learned
+embedding in the model). This prevents tokens from appearing for the first time
+in the test set (because a model is trained on a specific, fixed vocabulary).
+
+## tl;dr
 
 To run tokenization, place all data tables (in parquet format) into some
 directory `data_dir`, define a yaml configuration file `config.yaml` (see
@@ -80,7 +93,7 @@ from fms_ehrs.framework.tokenizer_base import summarize
 summarize(tkzr, tt)
 ```
 
-### Defining the config file
+## Configuring tokenization
 
 We use a yaml file to configure the tokenization process. It's organized as
 follows.
@@ -90,7 +103,8 @@ follows.
     subject_id: hospitalization_id # designator for what timelines represent
     group_id: patient_id # multiple subjects can belong to a group
     ```
--   We then define global options for tokenization:
+-   We then define global options for tokenization, with descriptions as in the
+    comments:
 
     ```yaml
     options:
@@ -260,85 +274,8 @@ the concatenation of prefixes, events, and suffixes.
 
 ## Usage notes
 
--   Credentialed users may obtain the
-    [MIMIC-IV-3.1 dataset](https://physionet.org/content/mimiciv/3.1/) from
-    Physionet. [This repo](https://github.com/bbj-lab/CLIF-MIMIC) contains
-    instructions and code for converting it to the
-    [CLIF-2.0.0 format](https://web.archive.org/web/20250711203935/https://clif-consortium.github.io/website/data-dictionary/data-dictionary-2.0.0.html).
-    (Use the [v0.1.0](https://github.com/bbj-lab/CLIF-MIMIC/releases/tag/v0.1.0)
-    release.) The `rclif-2.0` folder location is then passed as `--data_dir_in`
-    to the [first slurm script](./slurm/01_create_data_splits.sh).
-
--   Many of the slurm scripts assume a folder structure as follows, where
-    `tree ${hm}` (_cf_
-    [tree](https://manpages.ubuntu.com/manpages/noble/man1/tree.1.html)) looks
-    something like this:
-
-    ```sh
-    .
-    ├── data-mimic # MIMIC datasets
-    │   ├── raw
-    │   │   ├── test
-    │   │   │   ├── clif_adt.parquet
-    │   │   │   ├── ...
-    │   │   │   └── clif_vitals.parquet
-    │   │   ├── train
-    │   │   │   ├── clif_adt.parquet
-    │   │   │   ├── ...
-    │   │   │   └── clif_vitals.parquet
-    │   │   └── val
-    │   │       ├── clif_adt.parquet
-    │   │       ├── ...
-    │   │       └── clif_vitals.parquet
-    │   ├── ...
-    │   └── W++_first_24h-tokenized
-    │       ├── test
-    │       │   └── tokens_timelines.parquet
-    │       ├── train
-    │       │   ├── tokens_timelines.parquet
-    │       │   └── vocab.gzip
-    │       └── val
-    │           └── tokens_timelines.parquet
-    ├── data-ucmc  # UCMC datasets
-    │   └── ...
-    ├── mdls  # to hold all models generated
-    │   └── ...
-    ├── mdls-archive  # models for long-term storage
-    │   └── llama-med-60358922_1-hp-W++
-    │       ├── config.json
-    │       ├── generation_config.json
-    │       └── model.safetensors
-    ├── Quantifying-Surprise-EHRs  # THIS REPO
-    │   └── ...
-    └── figs  # for generated figures
-    ```
-
-    Tokenized datasets are deposited into the `data-mimic` or `data-ucmc` folder,
-    depending on data provenance. Trained models are stored in `mdls`. Many
-    models are generated and these take up significant amounts of space. Models
-    to be kept are copied into `mdls-archive`. Generated figures are placed in
-    the `figs` folder.
-
--   Slurm jobs can be queued in sequence as follows:
-
-    ```sh
-    j01=$(sbatch --parsable 01_create_train_val_test_split.sh)
-    j02=$(sbatch --parsable --depend=afterok:${j01} 02_tokenize_train_val_test_split.sh)
-    j03=$(sbatch --parsable --depend=afterok:${j02} 03_extract_outcomes.sh)
-    ...
-    ```
-
--   If you find yourself manually running python scripts from an interactive
-    slurm job afer running `preamble.sh`, you can append:
-
-    ```sh
-    2>&1 | tee -a output/$SLURM_JOBID-$jname.stdout
-    ```
-
-    to keep logs.
-
--   _Note_: We've started experimenting with
-    [apptainer](https://apptainer.org)-based containerization, a successor to
+-   We've started experimenting with [apptainer](https://apptainer.org)-based
+    containerization, a successor to
     [singularity](https://singularityware.github.io/index.html). In an
     environment with apptainer available (e.g.
     `/gpfs/data/bbj-lab/.envs/apptainer`), you can define something like
@@ -376,7 +313,7 @@ the concatenation of prefixes, events, and suffixes.
 [^2]:
     M. Burkhart, B. Ramadan, L. Solo, W. Parker, & B. Beaulieu-Jones,
     [Quantifying surprise in clinical care: Detecting highly informative events in electronic health records with foundation models](https://doi.org/10.1142/9789819824755_0013),
-    Pacific Symposium on Biocomputing 31 (2026), 173—188.
+    Pacific Symposium on Biocomputing 31 (2026), 173–188.
 
 <!--
 
