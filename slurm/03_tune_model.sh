@@ -2,16 +2,16 @@
 
 #SBATCH --job-name=tune-mdl
 #SBATCH --output=./output/%j-%x.stdout
-##SBATCH --partition=gpuq
-#SBATCH --partition=sxmq
-#SBATCH --reservation=sxmtest
+#SBATCH --partition=gpuq
+##SBATCH --partition=sxmq
+##SBATCH --reservation=sxmtest
 #SBATCH --gres=gpu:8
-#SBATCH --time=10-00:00:00
-#SBATCH --depend=afterok:2002051
+#SBATCH --time=1-00:00:00
+##SBATCH --depend=afterok:3093746
 
 source preamble.sh
 
-export data_version=W21++
+export data_version=V21
 
 echo "Training an FM on MIMIC data..."
 torchrun --nproc_per_node=8 \

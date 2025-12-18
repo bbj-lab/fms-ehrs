@@ -49,7 +49,7 @@ class BaseTokenizer:
             self.q_tokens = tuple(map(lambda i: f"Q{i}", range(20)))
         elif quantizer == "sigmas":
             self.q_tokens = ("Q3-", "Q2-", "Q1-", "Q0-", "Q0+", "Q1+", "Q2+", "Q3+")
-        self.special: tuple = ("TL_START", "TL_END", "PAD", "TRUNC", None, "nan")
+        self.special: tuple = ("TL_START", "TL_END", "PAD", "TRUNC", None, "nan", "ELLIPSIS")
         self.max_padded_length = max_padded_len
         self.include_time_spacing_tokens = include_time_spacing_tokens
         self.fused_category_values = fused_category_values
@@ -114,10 +114,10 @@ class BaseTokenizer:
         """store training quantile information in the self.vocab object"""
         designator = f"{prefix}_{c}" if prefix is not None else c
         if not self.vocab.has_aux(designator) and self.vocab.is_training:
-            if self.detect_discrete and len(unq := np.unique(v[np.isfinite(v)])) < len(
+            if self.detect_discrete and len(unq := np.unique(v[np.isfinite(v)])) <= len(
                 self.q_tokens
             ):
-                self.vocab.set_aux(designator, unq.tolist())
+                self.vocab.set_aux(designator, unq[1:].tolist())
             elif self.quantizer == "ventiles":
                 if (
                     self.include_ref_ranges

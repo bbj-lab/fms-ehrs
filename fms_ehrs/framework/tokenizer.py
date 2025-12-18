@@ -37,6 +37,7 @@ class Tokenizer21(BaseTokenizer):
         config_file: Pathlike = None,
         detect_discrete: bool = None,
         include_ref_ranges: bool = None,
+        max_event_days: int = None,
     ):
         self.config = yaml.YAML(typ="safe").load(
             pathlib.Path(config_file).expanduser().resolve()
@@ -77,6 +78,11 @@ class Tokenizer21(BaseTokenizer):
         )
         self.cut_at_24h: bool = cut_at_24h
         self.reference_frame = None
+        self.max_event_days = (
+            max_event_days
+            if max_event_days is not None
+            else self.config["options"].get("max_event_days", None)
+        )
 
     def lazy_load(
         self,
@@ -348,6 +354,38 @@ class Tokenizer21(BaseTokenizer):
             .agg("tokens", pl.col("event_time").alias("times"))
         )
 
+        if (
+            self.max_event_days is not None
+        ):  # if first_fail_or_0 > 0, truncate and append an ELLIPSIS
+            # token at max(event_time)
+            event_tokens = event_tokens.with_columns(
+                first_fail_or_0=(
+                    pl.col("times").list.eval(
+                        pl.element() - pl.col("").min()
+                        <= pl.duration(days=self.max_event_days)
+                    )
+                ).list.arg_min(),
+                final_event_time=pl.col("times").list.max(),
+            ).select(
+                self.config["subject_id"],
+                pl.when(pl.col("first_fail_or_0") == 0)
+                .then(pl.col("tokens"))
+                .otherwise(
+                    pl.concat_list(
+                        pl.col("tokens").list.head(pl.col("first_fail_or_0")),
+                        pl.lit(self.vocab("ELLIPSIS")),
+                    )
+                ),
+                pl.when(pl.col("first_fail_or_0") == 0)
+                .then(pl.col("times"))
+                .otherwise(
+                    pl.concat_list(
+                        pl.col("times").list.head(pl.col("first_fail_or_0")),
+                        pl.col("final_event_time"),
+                    )
+                ),
+            )
+
         if self.include_time_spacing_tokens:
             event_tokens = (
                 event_tokens.with_columns(
@@ -421,6 +459,8 @@ class Tokenizer21(BaseTokenizer):
 
 
 if __name__ == "__main__":
+    import tempfile
+
     dev_dir = (
         pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt")
         if os.uname().nodename.startswith("cri")
@@ -431,18 +471,26 @@ if __name__ == "__main__":
         .resolve()  # change if developing locally
     ) / "development-sample-21"
 
-    tkzr = Tokenizer21(
-        config_file="../config/mimic-meds-ed.yaml",
-        data_dir=dev_dir / "raw-meds-ed/dev",
-        detect_discrete=True,
-        include_ref_ranges=True,
-        quantizer="ventiles",
+    tkzr21_pp = Tokenizer21(
+        config_file="../config/clif-21.yaml", data_dir=dev_dir.joinpath("raw-mimic/dev")
     )
-    tt = tkzr.get_tokens_timelines()
-    summarize(tkzr, tt)
-    tkzr.vocab.print_aux()
-    print(list(tkzr.vocab.lookup.keys()))
+    tt21_pp = tkzr21_pp.get_tokens_timelines()
+    summarize(tkzr21_pp, tt21_pp)
+    print(f"{len(tkzr21_pp.vocab)=}")
+    tkzr21_pp.vocab.print_aux()
+    print(list(tkzr21_pp.vocab.lookup.keys()))
+
+    with tempfile.NamedTemporaryFile() as fp:
+        tkzr21_pp.vocab.save(fp.name)
+        tkzr21_pp_ucmc = Tokenizer21(
+            vocab_path=fp.name,
+            config_file="../config/clif-21.yaml",
+            data_dir=dev_dir.joinpath("raw-ucmc/dev"),
+        )
+        tt21_pp_ucmc = tkzr21_pp_ucmc.get_tokens_timelines()
+        summarize(tkzr21_pp_ucmc, tt21_pp_ucmc)
 
     # df = pl.read_parquet(dev_dir / "raw-meds-ed/dev/meds.parquet")
     # with pl.Config(tbl_cols=-1, tbl_width_chars=140):
     #     print(df.filter(pl.col("code").str.starts_with("PROCEDURE")))
+
