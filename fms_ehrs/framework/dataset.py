@@ -120,7 +120,7 @@ class Datasets:
                 lambda: self.chunk_iterable(
                     ds.IterableDataset.from_generator(
                         lambda: itertools.chain.from_iterable(
-                            itertools.repeat(iter(self.dataset["train"]), n_epochs)
+                            iter(self.dataset["train"]) for _ in range(n_epochs)
                         )
                     ).shuffle(
                         generator=self.np_rng, buffer_size=self.shuffle_buffer_size
