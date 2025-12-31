@@ -77,7 +77,7 @@ vocab = Vocabulary().load(data_dirs["orig"]["train"].joinpath("vocab.gzip"))
 
 infm = {
     v: np.load(
-        data_dirs[v]["test"].joinpath("log_probs-{m}.npy".format(m=model_loc.stem))
+        data_dirs[v]["test"].joinpath("log_probs-alt-{m}.npy".format(m=model_loc.stem))
     )
     / -np.log(2)
     for v in versions
@@ -91,7 +91,7 @@ ent = {v: np.nanmean(infm[v], axis=1) for v in versions}
 inf_sum = {v: np.nansum(infm[v], axis=1) for v in versions}
 
 tl = {
-    v: np.ndarray(
+    v: np.array(
         pl.scan_parquet(data_dirs[v]["test"].joinpath("tokens_timelines.parquet"))
         .select("padded")
         .collect()
@@ -113,7 +113,7 @@ tm = {
 samp = {"orig": args.samp_orig, "new": args.samp_new}
 
 ids = {
-    v: np.ndarray(
+    v: np.array(
         pl.scan_parquet(data_dirs[v]["test"].joinpath("tokens_timelines.parquet"))
         .select("hospitalization_id")
         .collect()
@@ -178,7 +178,6 @@ for v in versions:
             ),
             autosize=False,
             zmin=0,
-            zmax=30,
             height=height,
             width=1000,
             margin=dict(l=0, r=0, t=0, b=0),
