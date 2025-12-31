@@ -4,7 +4,7 @@
 #SBATCH --output=./output/%j-%x.stdout
 #SBATCH --partition=tier3q
 #SBATCH --time=1:00:00
-##SBATCH --depend=afterok:61620751
+##SBATCH --depend=afterok:3175396_1
 
 source preamble.sh
 
@@ -39,7 +39,7 @@ for m in "${models[@]}"; do
         python3 ../fms_ehrs/scripts/process_log_probs.py \
             --data_dir_orig "${hm}/data-mimic" \
             --data_dir_new "${hm}/data-ucmc" \
-            --data_version "${m##*-}_first_24h" \
+            --data_version "${m##*-}" \
             --model_loc "${hm}/mdls-archive/$m" \
             --out_dir "${hm}/figs" \
             --aggregation "${agg}" \
