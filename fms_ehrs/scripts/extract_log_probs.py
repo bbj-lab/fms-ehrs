@@ -83,9 +83,7 @@ stop_tokens = t.tensor([vocab("PAD"), vocab("TRUNC"), vocab("TL_END")]).to(devic
 for s in args.splits:
     n = dataset[s].num_rows
     tl_len = len(dataset[s].select(range(1))["input_ids"][0])
-    log_probs = np.full(
-        shape=(n, tl_len), fill_value=np.nan
-    )  # could use `np.empty` here, but perhaps safer this way
+    log_probs = np.full(shape=(n, tl_len), fill_value=0.0)
 
     for batch_idx in tqdm(t.split(t.arange(n), args.batch_sz)):
         batch = dataset[s]["input_ids"][batch_idx].to(device)
@@ -94,11 +92,12 @@ for s in args.splits:
         log_probs_realized = (
             t.gather(
                 t.nn.functional.log_softmax(
-                    x.logits, dim=-1
-                ),  # n_obs × tl_len × n_vocab
+                    x.logits[:, :-1, :],
+                    dim=-1,  # n_obs × tl_len × n_vocab
+                ),
                 -1,
-                batch.unsqueeze(-1),
-            )  # gather log prob for realized token
+                batch[:, 1:].unsqueeze(-1),
+            )  # fixed indexing
             .squeeze(-1)  # batch_idx may be a singleton
             .cpu()
             .numpy()
@@ -111,11 +110,12 @@ for s in args.splits:
         )
         for i, j in enumerate(first_stop_idx):
             if j > 0:
-                log_probs_realized[i, j + 1 :] = np.nan
-        log_probs[batch_idx] = log_probs_realized
+                log_probs_realized[i, j:] = np.nan
+        log_probs[batch_idx, 1:] = log_probs_realized
 
     set_perms(np.save)(
-        data_dirs[s].joinpath("log_probs-{m}.npy".format(m=model_loc.stem)), log_probs
+        data_dirs[s].joinpath("log_probs-alt-{m}.npy".format(m=model_loc.stem)),
+        log_probs,
     )  # save out result
 
 logger.info("---fin")
