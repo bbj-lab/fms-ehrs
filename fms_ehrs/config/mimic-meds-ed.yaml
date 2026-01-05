@@ -65,12 +65,6 @@ reference:
 
         - table: meds
           key: hadm_id
-          filter_expr: pl.col("code").str.starts_with("PROCEDURE")
-          agg_expr: pl.col("code").alias("proc_list")
-          validation: "1:1"
-
-        - table: meds
-          key: hadm_id
           filter_expr: pl.col("code").str.starts_with("DIAGNOSIS")
           agg_expr: pl.col("code").alias("dx_list")
           validation: "1:1"
@@ -182,13 +176,19 @@ events:
       code: code
       time: time
 
+    # Procedures must be time-stamped events (NOT suffix tokens) so that procedure timing
+    # (e.g., IMV within 24h) is not destroyed by suffix-at-discharge aggregation.
+    - table: meds
+      prefix: PROC
+      filter_expr:
+          - pl.col("hadm_id").is_not_null()
+          - pl.col("code").str.starts_with("PROCEDURE")
+      code: code
+      time: time
+
 suffix:
     - column: discharge_type
       prefix: DSCG
-
-    - column: proc_list
-      prefix: PROC
-      is_list: !!bool true
 
     - column: dx_list
       prefix: DX
