@@ -9,9 +9,7 @@ import logging
 import os
 import pathlib
 import typing
-
 import numpy as np
-import pandas as pd
 import polars as pl
 
 from fms_ehrs.framework.vocabulary import Vocabulary
@@ -76,7 +74,7 @@ class BaseTokenizer:
         # Validate clinical anchoring configuration
         if self.include_ref_ranges:
             if self.quantizer not in ("ventiles", "trentiles"):
-                raise NotImplementedError(
+            raise NotImplementedError(
                     "Ref ranges option only works with ventiles or trentiles quantizer."
                 )
             if self.quantizer == "ventiles" and self.clinical_anchoring not in (
@@ -92,7 +90,7 @@ class BaseTokenizer:
                 raise ValueError(
                     f"Clinical anchoring '{clinical_anchoring}' not valid for trentiles. "
                     "Use 'none' or '10-10-10'."
-                )
+            )
         if self.include_time_spacing_tokens:
             self.t_tokens = (
                 "T_5m-15m",
@@ -109,20 +107,22 @@ class BaseTokenizer:
                 "T_3mt-6mt",
                 "T_6mt+",
             )
+            year_seconds = 365.25 * 24 * 60 * 60
+            month_seconds = year_seconds / 12
             self.t_breakpoints = (
-                pd.Timedelta("5 minutes").total_seconds(),
-                pd.Timedelta("15 minutes").total_seconds(),
-                pd.Timedelta("1 hour").total_seconds(),
-                pd.Timedelta("2 hours").total_seconds(),
-                pd.Timedelta("6 hours").total_seconds(),
-                pd.Timedelta("12 hours").total_seconds(),
-                pd.Timedelta("1 day").total_seconds(),
-                pd.Timedelta("3 days").total_seconds(),
-                pd.Timedelta("7 days").total_seconds(),
-                pd.Timedelta("14 days").total_seconds(),
-                pd.Timedelta("365.25 days").total_seconds() / 12,
-                3 * pd.Timedelta("365.25 days").total_seconds() / 12,
-                6 * pd.Timedelta("365.25 days").total_seconds() / 12,
+                datetime.timedelta(minutes=5).total_seconds(),
+                datetime.timedelta(minutes=15).total_seconds(),
+                datetime.timedelta(hours=1).total_seconds(),
+                datetime.timedelta(hours=2).total_seconds(),
+                datetime.timedelta(hours=6).total_seconds(),
+                datetime.timedelta(hours=12).total_seconds(),
+                datetime.timedelta(days=1).total_seconds(),
+                datetime.timedelta(days=3).total_seconds(),
+                datetime.timedelta(days=7).total_seconds(),
+                datetime.timedelta(days=14).total_seconds(),
+                month_seconds,
+                3 * month_seconds,
+                6 * month_seconds,
             )
         if vocab_path is None:
             self.vocab_path = None
@@ -326,6 +326,13 @@ class BaseTokenizer:
                         pl.List(pl.Int64)
                     )
                 )
+                .with_columns(
+                    # Align raw numeric values to token positions:
+                    #   [code_token, quantile_token] -> [null, value]
+                    numeric_values=pl.concat_list(
+                        pl.lit(None).cast(pl.Float32), pl.col("value").cast(pl.Float32)
+                    )
+                )
                 .drop("token", "token_quantile")
             )
         else:
@@ -342,6 +349,10 @@ class BaseTokenizer:
                         )
                     )
                 )
+                .with_columns(
+                    # Fused token represents a numeric event in a single position.
+                    numeric_values=pl.concat_list(pl.col("value").cast(pl.Float32))
+                )
                 .drop("quantile")
             )
 
@@ -353,9 +364,16 @@ class BaseTokenizer:
         )
 
     def time_spacing_inserter(
-        self, tokens: np.ndarray, times: np.ndarray
+        self,
+        tokens: np.ndarray,
+        times: np.ndarray,
+        numeric_values: np.ndarray | None = None,
     ) -> dict[str, list]:
-        """insert tokens corresponding to the passage of time"""
+        """insert tokens corresponding to the passage of time
+
+        If numeric_values is provided, inserts null numeric values for the inserted
+        time-spacing tokens so alignment with tokens/times is preserved.
+        """
         assert len(tokens) == len(times)
         binned = np.digitize(
             np.diff(times).astype("timedelta64[s]").astype(int), bins=self.t_breakpoints
@@ -369,38 +387,53 @@ class BaseTokenizer:
                 np.array(td) - 1
             ],  # when td is 0, it lies before our first breakpoint (<5min)
         )
+        if numeric_values is not None:
+            assert len(numeric_values) == len(tokens)
+            # Insert nulls for time-spacing tokens. We force object dtype so None is preserved
+            # (NaN would incorrectly appear as a "present" numeric value).
+            numeric_values_obj = np.array(numeric_values, dtype=object)
+            insert_vals = np.array([None] * len(ix), dtype=object)
+            new_numeric_values = np.insert(
+                numeric_values_obj, np.array(ix) + 1, insert_vals
+        )
         new_times = (
             np.insert(times, np.array(ix) + 1, np.array(times)[np.array(ix) + 1])
             .astype("datetime64[ms]")
             .astype(datetime.datetime)
         )  # spacing tokens assigned to the time at the end of the space
-        return {"tokens": list(new_tokens), "times": list(new_times)}
+        ret = {"tokens": list(new_tokens), "times": list(new_times)}
+        if numeric_values is not None:
+            ret["numeric_values"] = list(new_numeric_values)
+        return ret
 
     @staticmethod
     def cut_at_time(
         tokens_timelines: Frame, duration: pl.Duration = pl.duration(days=1)
     ) -> Frame:
         """allows us to select the first 24h of someone's timeline for predictive purposes"""
-        tt = (
-            tokens_timelines.with_columns(
+        schema_names = tokens_timelines.collect_schema().names()
+
+        tt = tokens_timelines.with_columns(
                 first_fail_or_0=(
-                    pl.col("times").list.eval(
-                        pl.element() - pl.col("").min() <= duration
-                    )
+                pl.col("times").list.eval(pl.element() - pl.col("").min() <= duration)
                 ).list.arg_min()
-            )
-            .with_columns(
+        ).with_columns(
                 valid_length=pl.when(pl.col("first_fail_or_0") == 0)
                 .then(pl.col("times").list.len())
                 .otherwise(pl.col("first_fail_or_0"))
+        ).with_columns(
+            pl.col("times").list.head(pl.col("valid_length")).alias("times"),
+            pl.col("tokens").list.head(pl.col("valid_length")).alias("tokens"),
             )
-            .with_columns(
-                pl.col("times").list.head(pl.col("valid_length")),
-                pl.col("tokens").list.head(pl.col("valid_length")),
+
+        if "numeric_values" in schema_names:
+            tt = tt.with_columns(
+                pl.col("numeric_values")
+                .list.head(pl.col("valid_length"))
+                .alias("numeric_values")
             )
-            .filter(pl.col("times").list.max() - pl.col("times").list.min() <= duration)
-        )
-        return tt
+
+        return tt.filter(pl.col("times").list.max() - pl.col("times").list.min() <= duration)
 
     def pad_and_truncate(self, tokens_timelines: Frame) -> Frame:
         if self.max_padded_length is not None:
@@ -417,6 +450,25 @@ class BaseTokenizer:
                     ),
                 )
             )
+            # Optional aligned padding for times / numeric values (used by Exp2 time2vec/encoders)
+            if "times" in tokens_timelines.collect_schema().names():
+                tt_under = tt_under.with_columns(
+                    padded_times=pl.concat_list(
+                        "times",
+                        pl.lit(None)
+                        .cast(pl.Datetime(time_unit="ms"))
+                        .repeat_by(self.max_padded_length - pl.col("seq_len")),
+                    )
+                )
+            if "numeric_values" in tokens_timelines.collect_schema().names():
+                tt_under = tt_under.with_columns(
+                    padded_numeric_values=pl.concat_list(
+                        "numeric_values",
+                        pl.lit(None)
+                        .cast(pl.Float32)
+                        .repeat_by(self.max_padded_length - pl.col("seq_len")),
+                )
+            )
             tt_over = tt.filter(
                 pl.col("seq_len") > self.max_padded_length
             ).with_columns(
@@ -425,6 +477,24 @@ class BaseTokenizer:
                         offset=0, length=self.max_padded_length - 1
                     ),
                     pl.lit(self.vocab("TRUNC")),
+                )
+            )
+            if "times" in tokens_timelines.collect_schema().names():
+                tt_over = tt_over.with_columns(
+                    padded_times=pl.concat_list(
+                        pl.col("times").list.slice(
+                            offset=0, length=self.max_padded_length - 1
+                        ),
+                        pl.lit(None).cast(pl.Datetime(time_unit="ms")),
+                    )
+                )
+            if "numeric_values" in tokens_timelines.collect_schema().names():
+                tt_over = tt_over.with_columns(
+                    padded_numeric_values=pl.concat_list(
+                        pl.col("numeric_values").list.slice(
+                            offset=0, length=self.max_padded_length - 1
+                        ),
+                        pl.lit(None).cast(pl.Float32),
                 )
             )
             return pl.concat([tt_under, tt_over]).collect()

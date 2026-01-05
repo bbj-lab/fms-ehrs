@@ -102,7 +102,20 @@ class Tokenizer21(BaseTokenizer):
         3. add columns
         4. perform an aggregation by `key` or self.config["subject_id"]
         """
-        df = pl.scan_parquet(self.data_dir / f"{table}.parquet")
+        table_path = self.data_dir / f"{table}.parquet"
+        if table_path.exists():
+            df = pl.scan_parquet(table_path)
+        else:
+            # MEDS extraction pipelines may shard the `meds` table into multiple parquet files
+            # (e.g., `0.parquet`, `1.parquet`, ...) instead of a single `meds.parquet`.
+            # Support this layout to avoid an expensive concat step.
+            if table == "meds":
+                df = pl.scan_parquet(str(self.data_dir / "*.parquet"))
+            else:
+                raise FileNotFoundError(
+                    f"Missing expected table file: {table_path}. "
+                    f"If this is a sharded dataset, provide `{table}.parquet` or update the config/table name."
+                )
         if subject_id_str is not None:
             df = df.with_columns(
                 pl.col(subject_id_str).alias(self.config["subject_id"])
@@ -306,7 +319,7 @@ class Tokenizer21(BaseTokenizer):
                 cols += ["ref_range_lower", "ref_range_upper"]
             return (
                 self.process_cat_val_frame(df_cv, label=prefix).select(
-                    self.config["subject_id"], "event_time", "tokens"
+                    self.config["subject_id"], "event_time", "tokens", "numeric_values"
                 )
                 if len(df_cv := df.select(*cols).collect()) > 0
                 else None
@@ -318,7 +331,8 @@ class Tokenizer21(BaseTokenizer):
                     [text_value] if isinstance(text_value, str) else text_value
                 )
             # tokenize provided categories directly
-            return df.select(
+            return (
+                df.select(
                 pl.col(self.config["subject_id"]),
                 pl.col(time).cast(pl.Datetime(time_unit="ms")).alias("event_time"),
                 pl.concat_list(
@@ -335,7 +349,14 @@ class Tokenizer21(BaseTokenizer):
                         for cat in category_list
                     ]
                 ).alias("tokens"),
-            ).collect()
+            )
+                .with_columns(
+                    numeric_values=pl.lit(None)
+                    .cast(pl.Float32)
+                    .repeat_by(pl.col("tokens").list.len())
+                )
+                .collect()
+            )
 
     def get_events(self) -> Frame:
         """create all events as configured"""
@@ -348,22 +369,29 @@ class Tokenizer21(BaseTokenizer):
             .lazy()
             .filter(pl.col("event_time").is_not_null())
             .sort("event_time", pl.col("tokens").list.first())
-            .explode("tokens")
+            .explode(["tokens", "numeric_values"])
             .filter(~pl.col("tokens").is_in([self.vocab(None), self.vocab("nan")]))
             .group_by(self.config["subject_id"], maintain_order=True)
-            .agg("tokens", pl.col("event_time").alias("times"))
+            .agg(
+                "tokens",
+                pl.col("event_time").alias("times"),
+                pl.col("numeric_values").alias("numeric_values"),
+            )
         )
 
         if self.include_time_spacing_tokens:
             event_tokens = (
                 event_tokens.with_columns(
-                    pl.struct(["tokens", "times"])
+                    pl.struct(["tokens", "times", "numeric_values"])
                     .map_elements(
-                        lambda x: self.time_spacing_inserter(x["tokens"], x["times"]),
+                        lambda x: self.time_spacing_inserter(
+                            x["tokens"], x["times"], x["numeric_values"]
+                        ),
                         return_dtype=pl.Struct(
                             [
                                 pl.Field("tokens", pl.List(pl.Int64)),
                                 pl.Field("times", pl.List(pl.Datetime())),
+                                pl.Field("numeric_values", pl.List(pl.Float64)),
                             ]
                         ),
                     )
@@ -375,6 +403,10 @@ class Tokenizer21(BaseTokenizer):
                     .struct.field("times")
                     .cast(pl.List(pl.Datetime(time_unit="ms")))
                     .alias("times"),
+                    pl.col("inserted")
+                    .struct.field("numeric_values")
+                    .cast(pl.List(pl.Float32))
+                    .alias("numeric_values"),
                 )
                 .drop("inserted")
             )
@@ -384,7 +416,18 @@ class Tokenizer21(BaseTokenizer):
         """combine the prefix tokens, event tokens, and suffix tokens"""
         tt = (
             self.get_end("prefix")
-            .rename({"tokens": "prefix_tokens", "times": "prefix_times"})
+            .with_columns(
+                numeric_values=pl.lit(None)
+                .cast(pl.Float32)
+                .repeat_by(pl.col("tokens").list.len())
+            )
+            .rename(
+                {
+                    "tokens": "prefix_tokens",
+                    "times": "prefix_times",
+                    "numeric_values": "prefix_numeric_values",
+                }
+            )
             .join(
                 self.get_events(),
                 on=self.config["subject_id"],
@@ -406,8 +449,13 @@ class Tokenizer21(BaseTokenizer):
                 times=pl.concat_list(
                     "prefix_times", pl.col("times").fill_null([]), "suffix_times"
                 ),
+                numeric_values=pl.concat_list(
+                    "prefix_numeric_values",
+                    pl.col("numeric_values").fill_null([]),
+                    pl.lit(None).cast(pl.Float32).repeat_by(pl.col("suffix_tokens").list.len()),
+                ),
             )
-            .select(self.config["subject_id"], "tokens", "times")
+            .select(self.config["subject_id"], "tokens", "times", "numeric_values")
             .sort(by=self.config["subject_id"])
         )
 
