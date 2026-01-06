@@ -88,7 +88,7 @@ for s in args.splits:
     for batch_idx in tqdm(t.split(t.arange(n), args.batch_sz)):
         batch = dataset[s]["input_ids"][batch_idx].to(device)
         with t.inference_mode():
-            x = model.forward(input_ids=batch, output_hidden_states=True)
+            x = model.forward(input_ids=batch)
         log_probs_realized = (
             t.gather(
                 t.nn.functional.log_softmax(
@@ -114,8 +114,8 @@ for s in args.splits:
         log_probs[batch_idx, 1:] = log_probs_realized
 
     set_perms(np.save)(
-        data_dirs[s].joinpath("log_probs-alt-{m}.npy".format(m=model_loc.stem)),
-        log_probs,
+        data_dirs[s].joinpath("information-{m}.npy".format(m=model_loc.stem)),
+        log_probs / -np.log(2),
     )  # save out result
 
 logger.info("---fin")

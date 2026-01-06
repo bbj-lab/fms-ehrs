@@ -11,17 +11,19 @@ source preamble.sh
 python3 ../fms_ehrs/scripts/run_clifpy.py \
     --data_dir "${hm}/data-raw/ucmc-2.1.0" \
     --out_dir "${hm}/figs" \
-    --tz "UTC"# --waterfall \
-    \
-    --convert_doses_intermittent
-# --convert_doses_continuous #    --validate \
+    --tz "UTC" \
+    --waterfall \
+    --convert_doses_intermittent \
+    --convert_doses_continuous \
+    --validate
 
 python3 ../fms_ehrs/scripts/run_clifpy.py \
     --data_dir "${hm}/data-raw/mimic-2.1.0" \
     --out_dir "${hm}/figs" \
-    --tz "UTC"# --waterfall \
-    \
-    --convert_doses_intermittent
-# --convert_doses_continuous #    --validate \
+    --tz "UTC" \
+    --waterfall \
+    --convert_doses_intermittent \
+    --convert_doses_continuous \
+    --validate
 
 source postscript.sh
