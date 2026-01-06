@@ -70,6 +70,26 @@ class ContinuousValueEncoder(nn.Module):
         self._means: dict[str, float] = {}
         self._stds: dict[str, float] = {}
 
+        # Optional fast path: stats indexed by code token-id.
+        # These are derived from a (code string -> token id) lookup and registered
+        # as buffers for device placement. They are not persisted in checkpoints
+        # (they can be reconstructed from vocab.aux at load time).
+        self.register_buffer(
+            "means_by_id",
+            torch.empty(0, dtype=torch.float32),
+            persistent=False,
+        )
+        self.register_buffer(
+            "stds_by_id",
+            torch.empty(0, dtype=torch.float32),
+            persistent=False,
+        )
+        self.register_buffer(
+            "has_stats_by_id",
+            torch.empty(0, dtype=torch.bool),
+            persistent=False,
+        )
+
     def set_statistics(self, code: str, mean: float, std: float) -> None:
         """Set normalization statistics for a specific code.
 
@@ -86,7 +106,11 @@ class ContinuousValueEncoder(nn.Module):
         self._stds[code] = max(std, 1e-8)  # Avoid division by zero
 
     def set_statistics_from_vocab_aux(
-        self, vocab_aux: dict[str, list[float]]
+        self,
+        vocab_aux: dict[str, list[float]],
+        *,
+        token_id_lookup: dict[str, int] | None = None,
+        vocab_size: int | None = None,
     ) -> None:
         """Estimate statistics from vocabulary auxiliary data (quantile breaks).
 
@@ -96,7 +120,21 @@ class ContinuousValueEncoder(nn.Module):
         ----------
         vocab_aux : dict
             Dictionary mapping code names to list of quantile boundaries
+        token_id_lookup : dict[str, int], optional
+            Mapping from code string to its vocabulary token id. If provided,
+            a fast vectorized path will be enabled via `code_ids` in `forward()`.
+        vocab_size : int, optional
+            Vocabulary size used to size the stats tensors. Required if
+            `token_id_lookup` is provided.
         """
+        if token_id_lookup is not None and vocab_size is None:
+            raise ValueError("vocab_size must be provided when token_id_lookup is used")
+
+        if token_id_lookup is not None:
+            means_by_id = torch.zeros((vocab_size,), dtype=torch.float32)
+            stds_by_id = torch.ones((vocab_size,), dtype=torch.float32)
+            has_by_id = torch.zeros((vocab_size,), dtype=torch.bool)
+
         for code, breaks in vocab_aux.items():
             if len(breaks) == 0:
                 continue
@@ -112,6 +150,18 @@ class ContinuousValueEncoder(nn.Module):
             else:
                 std = float(np.std(breaks_arr))
             self.set_statistics(code, mean, std)
+
+            if token_id_lookup is not None:
+                tok_id = token_id_lookup.get(code)
+                if tok_id is not None:
+                    means_by_id[tok_id] = mean
+                    stds_by_id[tok_id] = max(std, 1e-8)
+                    has_by_id[tok_id] = True
+
+        if token_id_lookup is not None:
+            self.means_by_id = means_by_id
+            self.stds_by_id = stds_by_id
+            self.has_stats_by_id = has_by_id
 
     def normalize(self, values: torch.Tensor, codes: list[str]) -> torch.Tensor:
         """Z-score normalize values using per-code statistics.
@@ -146,7 +196,9 @@ class ContinuousValueEncoder(nn.Module):
     def forward(
         self,
         values: torch.Tensor,
-        codes: list[str],
+        codes: list[str] | None = None,
+        *,
+        code_ids: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Encode continuous values to embeddings.
 
@@ -154,8 +206,10 @@ class ContinuousValueEncoder(nn.Module):
         ----------
         values : torch.Tensor
             Numeric values of shape (batch_size,) or (batch_size, 1)
-        codes : list[str]
-            Code identifiers for each value, length batch_size
+        codes : list[str], optional
+            Code identifiers for each value, length batch_size (string-keyed mode)
+        code_ids : torch.Tensor, optional
+            Code token ids for each value, shape (batch_size,) (fast mode)
 
         Returns
         -------
@@ -165,14 +219,43 @@ class ContinuousValueEncoder(nn.Module):
         if values.dim() == 2:
             values = values.squeeze(-1)
 
-        # Normalize values
-        normalized = self.normalize(values, codes)
+        if code_ids is not None and self.means_by_id.numel() > 0:
+            normalized = self._normalize_code_ids(values, code_ids)
+        else:
+            if codes is None:
+                raise ValueError("Must provide either `codes` or `code_ids`.")
+            normalized = self.normalize(values, codes)
 
         # Project through MLP
         # Shape: (batch_size, 1) -> (batch_size, embed_dim)
         embeddings = self.mlp(normalized.unsqueeze(-1))
 
         return embeddings
+
+    def _normalize_code_ids(self, values: torch.Tensor, code_ids: torch.Tensor) -> torch.Tensor:
+        """Vectorized normalization for code token ids."""
+        if code_ids.dim() != 1:
+            raise ValueError("code_ids must be a 1D tensor of token ids")
+        if values.shape[0] != code_ids.shape[0]:
+            raise ValueError("values and code_ids must have matching length")
+
+        device = values.device
+        code_ids = code_ids.to(device=device, dtype=torch.long)
+
+        if self.means_by_id.device != device:
+            # Lazily move buffers if needed.
+            self.means_by_id = self.means_by_id.to(device)
+            self.stds_by_id = self.stds_by_id.to(device)
+            self.has_stats_by_id = self.has_stats_by_id.to(device)
+
+        means = self.means_by_id[code_ids]
+        stds = self.stds_by_id[code_ids]
+        has = self.has_stats_by_id[code_ids]
+
+        # Match legacy behavior: if stats missing, use value as-is (no clipping).
+        z = (values - means) / stds
+        z = torch.clamp(z, -self.clip_sigma, self.clip_sigma)
+        return torch.where(has, z, values)
 
 
 class ContinuousValueLayer(nn.Module):
