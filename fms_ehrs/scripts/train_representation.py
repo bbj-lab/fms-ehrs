@@ -58,6 +58,7 @@ from transformers import (
 from fms_ehrs.framework.dataset import Datasets
 from fms_ehrs.framework.logger import get_logger
 from fms_ehrs.framework.model_wrapper import create_representation_model
+from fms_ehrs.framework.model_wrapper import RepresentationModelWrapper
 from fms_ehrs.framework.storage import set_perms
 
 logger = get_logger()
@@ -316,7 +317,36 @@ def main(
     # Save best model
     if os.getenv("RANK", "0") == "0":
         final_model_path = output_dir / f"model-{representation}-{temporal}"
-        set_perms(trainer.save_model)(str(final_model_path))
+        final_model_path.mkdir(exist_ok=True, parents=True)
+
+        # IMPORTANT: for wrapper models (soft/continuous/time2vec), we must save:
+        # 1) the underlying HF model in standard `save_pretrained` format (config + weights)
+        # 2) the representation-mechanics parameters (value encoder / time2vec) separately
+        #
+        # This allows downstream scripts (e.g., sequence classification) to reload the same
+        # representation mechanics and apply them using numeric_values / relative_times.
+        if isinstance(model, RepresentationModelWrapper):
+            # Save the wrapped HF model (config + weights)
+            set_perms(model.base_model.save_pretrained)(str(final_model_path))
+
+            # Save representation-mechanics parameters
+            rep_state = {
+                "representation": representation,
+                "temporal": temporal,
+                "num_bins": num_bins,
+                "time2vec_dim": time2vec_dim,
+                "value_encoder_state": (
+                    model.value_encoder.state_dict() if model.value_encoder is not None else None
+                ),
+                "time2vec_state": (
+                    model.time2vec_layer.state_dict() if model.time2vec_layer is not None else None
+                ),
+            }
+            set_perms(t.save)(rep_state, str(final_model_path / "representation_mechanics.pt"))
+        else:
+            # Discrete + time_tokens returns a standard HF model; Trainer can save normally.
+            set_perms(trainer.save_model)(str(final_model_path))
+
         logger.info(f"Saved model to {final_model_path}")
 
         # Also save vocabulary

@@ -25,6 +25,51 @@ parser.add_argument("--include_24h_cut", action="store_true")
 parser.add_argument(
     "--config_loc", type=pathlib.Path, default="../fms_ehrs/config/clif-21.yaml"
 )
+parser.add_argument(
+    "--quantizer",
+    type=str,
+    choices=["deciles", "ventiles", "trentiles", "centiles"],
+    default=None,
+    help="Override quantizer (bins) used by tokenizer",
+)
+parser.add_argument(
+    "--clinical_anchoring",
+    type=str,
+    choices=["none", "5-10-5", "10-10-10"],
+    default=None,
+    help="Override clinically anchored bin allocation (requires include_ref_ranges)",
+)
+parser.add_argument(
+    "--include_ref_ranges",
+    action=argparse.BooleanOptionalAction,
+    default=None,
+    help="Override whether reference ranges are used for anchored binning",
+)
+parser.add_argument(
+    "--include_time_spacing_tokens",
+    action=argparse.BooleanOptionalAction,
+    default=None,
+    help="Override whether ETHOS-style time spacing tokens are inserted",
+)
+parser.add_argument(
+    "--fused_category_values",
+    action=argparse.BooleanOptionalAction,
+    default=None,
+    help="Override whether numeric events are fused (code+quantile) into one token",
+)
+parser.add_argument(
+    "--detect_discrete",
+    action=argparse.BooleanOptionalAction,
+    default=None,
+    help="Override discrete-value detection for small-support numeric codes",
+)
+parser.add_argument(
+    "--max_padded_len",
+    type=int,
+    default=None,
+    help="Override maximum padded sequence length",
+)
+
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -37,7 +82,23 @@ splits = ("train", "val", "test")
 dirs_in = dict()
 dirs_out = dict()
 for s in splits:
-    dirs_in[s] = data_dir.joinpath(args.data_version_in, s)
+    # Input layout:
+    # - CLIF typically uses versioned dirs: <data_dir>/<data_version_in>/<split>/
+    # - MEDS extraction pipelines often place shards directly under: <data_dir>/<split>/
+    #   (no "raw/" version directory). For convenience and backwards compatibility,
+    #   if data_version_in=="raw" and <data_dir>/raw does not exist, we fall back
+    #   to the no-version layout.
+    base_in = data_dir.joinpath(args.data_version_in)
+    if args.data_version_in == "raw" and not base_in.exists():
+        base_in = data_dir
+
+    # MEDS pipelines sometimes name validation split `tuning` instead of `val`.
+    split_in = s
+    if s == "val":
+        cand = base_in.joinpath(s)
+        if not cand.exists():
+            split_in = "tuning"
+    dirs_in[s] = base_in.joinpath(split_in)
     dirs_out[s] = data_dir.joinpath(args.data_version_out + "-tokenized", s)
     dirs_out[s].mkdir(exist_ok=True, parents=True)
     fix_perms(data_dir.joinpath(args.data_version_out + "-tokenized"))
@@ -63,6 +124,13 @@ tkzr = Tokenizer21(
     ),
     cut_at_24h=False,
     config_file=args.config_loc,
+    max_padded_len=args.max_padded_len,
+    quantizer=args.quantizer,
+    clinical_anchoring=args.clinical_anchoring,
+    include_ref_ranges=args.include_ref_ranges,
+    include_time_spacing_tokens=args.include_time_spacing_tokens,
+    fused_category_values=args.fused_category_values,
+    detect_discrete=args.detect_discrete,
 )
 tokens_timelines = tkzr.get_tokens_timelines()
 logger.info("train...")
@@ -78,7 +146,7 @@ if args.include_24h_cut:
     logger.info("24h cut...")
     summarize(tkzr, tokens_timelines_24h, logger=logger)
     tokens_timelines_24h = tkzr.pad_and_truncate(tokens_timelines_24h)
-    set_perms(tokens_timelines.write_parquet)(
+    set_perms(tokens_timelines_24h.write_parquet)(
         dirs_out_24h["train"].joinpath("tokens_timelines.parquet")
     )
     tkzr.vocab.save(dirs_out_24h["train"].joinpath("vocab.gzip"))
@@ -96,6 +164,13 @@ for s in ("val", "test"):
         ),
         cut_at_24h=False,
         config_file=args.config_loc,
+        max_padded_len=args.max_padded_len,
+        quantizer=args.quantizer,
+        clinical_anchoring=args.clinical_anchoring,
+        include_ref_ranges=args.include_ref_ranges,
+        include_time_spacing_tokens=args.include_time_spacing_tokens,
+        fused_category_values=args.fused_category_values,
+        detect_discrete=args.detect_discrete,
     )
     tokens_timelines = tkzr.get_tokens_timelines()
     logger.info(f"{s}...")
@@ -109,7 +184,7 @@ for s in ("val", "test"):
         logger.info("24h cut...")
         summarize(tkzr, tokens_timelines_24h, logger=logger)
         tokens_timelines_24h = tkzr.pad_and_truncate(tokens_timelines_24h)
-        set_perms(tokens_timelines.write_parquet)(
+        set_perms(tokens_timelines_24h.write_parquet)(
             dirs_out_24h[s].joinpath("tokens_timelines.parquet")
         )
 

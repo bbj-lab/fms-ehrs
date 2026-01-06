@@ -74,7 +74,7 @@ class BaseTokenizer:
         # Validate clinical anchoring configuration
         if self.include_ref_ranges:
             if self.quantizer not in ("ventiles", "trentiles"):
-            raise NotImplementedError(
+                raise NotImplementedError(
                     "Ref ranges option only works with ventiles or trentiles quantizer."
                 )
             if self.quantizer == "ventiles" and self.clinical_anchoring not in (

@@ -84,10 +84,16 @@ class RepresentationModelWrapper(nn.Module):
         # Get model hidden size
         self.hidden_size = base_model.config.hidden_size
 
-        # Build reverse lookup for quantile tokens (Q0, Q1, ..., Qn-1)
+        # Build fast lookup for quantile tokens (Q0, Q1, ..., Qn-1)
         self.q_token_ids: set[int] = set()
-        self.token_to_code: dict[int, str] = {}
         self._build_quantile_token_lookup()
+
+        # Fast boolean lookup for "is this token a Q token?"
+        is_q = torch.zeros(len(self.vocab), dtype=torch.bool)
+        for tid in self.q_token_ids:
+            if 0 <= tid < is_q.numel():
+                is_q[tid] = True
+        self.register_buffer("is_q_token", is_q, persistent=False)
 
         # Initialize value encoder if needed
         self.value_encoder: nn.Module | None = None
@@ -95,12 +101,20 @@ class RepresentationModelWrapper(nn.Module):
             self.value_encoder = SoftDiscretizationEncoder(
                 num_bins=num_bins, embed_dim=self.hidden_size
             )
-            self.value_encoder.set_boundaries_from_vocab_aux(vocab.aux)
+            self.value_encoder.set_boundaries_from_vocab_aux(
+                vocab.aux,
+                token_id_lookup=vocab.lookup,
+                vocab_size=len(vocab),
+            )
         elif representation == "continuous":
             self.value_encoder = ContinuousValueEncoder(
                 embed_dim=self.hidden_size, hidden_dim=self.hidden_size
             )
-            self.value_encoder.set_statistics_from_vocab_aux(vocab.aux)
+            self.value_encoder.set_statistics_from_vocab_aux(
+                vocab.aux,
+                token_id_lookup=vocab.lookup,
+                vocab_size=len(vocab),
+            )
 
         # Initialize Time2Vec if needed
         self.time2vec_layer: nn.Module | None = None
@@ -122,40 +136,6 @@ class RepresentationModelWrapper(nn.Module):
             if word is not None and isinstance(word, str):
                 if word.startswith("Q") and word[1:].isdigit():
                     self.q_token_ids.add(token_id)
-
-        # Build token_id -> code string mapping for all codes with aux data
-        for code in self.vocab.aux.keys():
-            if code in self.vocab.lookup:
-                token_id = self.vocab.lookup[code]
-                self.token_to_code[token_id] = code
-
-    def get_code_for_position(
-        self, input_ids: torch.Tensor, position: int, batch_idx: int
-    ) -> str | None:
-        """Find the code identifier for a numeric token at given position.
-
-        In unfused tokenization, the pattern is (code_token, quantile_token).
-        So for a quantile token at position i, the code is at position i-1.
-
-        Parameters
-        ----------
-        input_ids : torch.Tensor
-            Input token IDs of shape (batch_size, seq_len)
-        position : int
-            Position of the quantile token
-        batch_idx : int
-            Batch index
-
-        Returns
-        -------
-        str | None
-            Code identifier or None if not found
-        """
-        if position == 0:
-            return None
-
-        prev_token_id = input_ids[batch_idx, position - 1].item()
-        return self.token_to_code.get(prev_token_id)
 
     def forward(
         self,
@@ -245,37 +225,30 @@ class RepresentationModelWrapper(nn.Module):
         torch.Tensor
             Modified embeddings with value encoding applied
         """
-        batch_size, seq_len, hidden_size = embeddings.shape
         modified = embeddings.clone()
 
         # Create mask for numeric positions (non-NaN values)
         numeric_mask = ~torch.isnan(numeric_values)
 
-        for b in range(batch_size):
-            for s in range(seq_len):
-                if not numeric_mask[b, s]:
-                    continue
+        # Only modify quantile token positions (Q0..Qn-1) and skip position 0
+        q_mask = self.is_q_token[input_ids]
+        mask = numeric_mask & q_mask
+        if mask.size(1) > 0:
+            mask[:, 0] = False
 
-                # Get the code for this position
-                token_id = input_ids[b, s].item()
+        if not torch.any(mask):
+            return modified
 
-                # Only modify quantile token positions
-                if token_id not in self.q_token_ids:
-                    continue
+        # For a quantile token at position s, the code token is at position s-1.
+        prev_ids = torch.roll(input_ids, shifts=1, dims=1)
+        code_ids = prev_ids[mask]
+        values = numeric_values[mask]
 
-                code = self.get_code_for_position(input_ids, s, b)
-                if code is None:
-                    continue
+        # Compute new embeddings in one vectorized call.
+        new_embeds = self.value_encoder(values, code_ids=code_ids)
 
-                value = numeric_values[b, s]
-
-                # Compute new embedding using value encoder
-                new_embed = self.value_encoder(
-                    value.unsqueeze(0), codes=[code]
-                ).squeeze(0)
-
-                modified[b, s] = new_embed
-
+        # Write back
+        modified[mask] = new_embeds.to(dtype=modified.dtype)
         return modified
 
     def get_input_embeddings(self):
