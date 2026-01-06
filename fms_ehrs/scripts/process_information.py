@@ -6,6 +6,7 @@ grab the sequence of logits from the test set
 
 import argparse
 import collections
+import json
 import pathlib
 
 import numpy as np
@@ -49,6 +50,7 @@ parser.add_argument(
 )
 parser.add_argument("--n_egs", type=int, default=10)
 parser.add_argument("--max_len", type=int, default=102)
+parser.add_argument("--emit_json", action="store_true")
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -63,7 +65,6 @@ rng = np.random.default_rng(42)
 names = {"orig": args.name_orig, "new": args.name_new}
 splits = ("train", "val", "test")
 versions = ("orig", "new")
-outcomes = ("same_admission_death", "long_length_of_stay", "icu_admission", "imv_event")
 
 data_dirs = collections.defaultdict(dict)
 data_dirs["orig"] = {
@@ -77,14 +78,12 @@ vocab = Vocabulary().load(data_dirs["orig"]["train"].joinpath("vocab.gzip"))
 
 infm = {
     v: np.load(
-        data_dirs[v]["test"].joinpath("log_probs-alt-{m}.npy".format(m=model_loc.stem))
+        data_dirs[v]["test"].joinpath("information-{m}.npy".format(m=model_loc.stem))
     )
-    / -np.log(2)
     for v in versions
 }
 
 for v in versions:
-    infm[v][:, 0] = 0  # first token deterministic
     logger.info(f"{v=},{np.nanmean(infm[v][:,1:])=}")
 
 ent = {v: np.nanmean(infm[v], axis=1) for v in versions}
@@ -130,7 +129,7 @@ plot_histograms(
     title="Histogram of tokenwise information",
     xaxis_title="bits",
     yaxis_title="frequency",
-    savepath=out_dir.joinpath("log_probs-{m}-hist.pdf".format(m=model_loc.stem)),
+    savepath=out_dir.joinpath("information-{m}-hist.pdf".format(m=model_loc.stem)),
 )
 for v in versions:
     logger.info(f"{names[v]}:")
@@ -148,6 +147,8 @@ n_cols = 6
 n_rows = args.max_len // n_cols
 max_len = n_rows * n_cols
 height = (700 * n_rows) // 42
+
+listing = []
 
 for v in versions:
     for s in samp[v]:
@@ -196,6 +197,16 @@ for v in versions:
             width=1000,
             margin=dict(l=0, r=0, t=0, b=0),
         )
+        listing.append(
+            {
+                "id": s,
+                "information": np.nan_to_num(infm[v][i])[:max_len].to_list(),
+                "tokens": list(tl[v][i])[:max_len],
+            }
+        )
+
+if args.emit_json:
+    json.dumps(listing)
 
 
 logger.info("---fin")
