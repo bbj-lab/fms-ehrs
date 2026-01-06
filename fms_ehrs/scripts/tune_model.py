@@ -17,6 +17,7 @@ from transformers import (
     TrainerCallback,
 )
 from trl import SFTConfig, SFTTrainer
+import torch as t
 
 from fms_ehrs.framework.dataset import Datasets
 from fms_ehrs.framework.logger import get_logger
@@ -90,7 +91,7 @@ def main(
     )
 
     def model_init(trial=None):
-        # t.cuda.empty_cache()
+        t.cuda.empty_cache()
         config = AutoConfig.from_pretrained(model_name, **conf_param, **kwargs)
         mdl = AutoModelForCausalLM.from_config(config)
         mdl_params = sum(p.numel() for p in mdl.parameters())
