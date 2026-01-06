@@ -3,6 +3,7 @@
 #SBATCH --job-name=xtract-all
 #SBATCH --output=./output/%A_%a-%x.stdout
 #SBATCH --partition=gpuq
+#SBATCH --gres=gpu:1
 #SBATCH --time=24:00:00
 #SBATCH --array=0-1
 #SBATCH --mem=160G

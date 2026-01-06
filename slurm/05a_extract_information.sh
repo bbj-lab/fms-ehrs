@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=extract-log-probs
+#SBATCH --job-name=extract-info
 #SBATCH --output=./output/%A_%a-%x.stdout
 #SBATCH --partition=gpudev
 #SBATCH --gres=gpu:1
@@ -21,3 +21,5 @@ python3 ../fms_ehrs/scripts/extract_information.py \
     --model_loc "${hm}/mdls-archive/llama-med-4476655-hp-V21" \
     --batch_sz $((2 ** 5)) \
     --splits "${splits[@]}"
+
+source postscript.sh
