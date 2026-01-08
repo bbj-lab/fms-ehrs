@@ -137,7 +137,7 @@ for outcome in args.outcomes:
         )
         for k, v in cis.items():
             results_tbl.loc[name, f"CI-{k}"] = tuple(v.round(3).tolist())
-            results_alt.loc[name, k] = "${m} \pm {d}$".format(
+            results_alt.loc[name, k] = "${m} \\pm {d}$".format(
                 m=(m := v.mean().round(3)), d=np.max(np.abs(v - m)).round(3)
             )
 

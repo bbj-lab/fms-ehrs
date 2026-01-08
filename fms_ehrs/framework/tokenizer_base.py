@@ -529,8 +529,16 @@ def summarize(
 
     post = logger.info if logger is not None else print
 
-    post("Timelines generated: {}".format(tokens_timelines.shape[0]))
+    n = tokens_timelines.shape[0]
+    post("Timelines generated: {}".format(n))
     post("Vocabulary size: {}".format(len(tokenizer.vocab)))
+
+    if n == 0:
+        raise ValueError(
+            "No timelines were generated. This usually means the reference cohort "
+            "is empty after filtering (e.g., missing required code families such as "
+            "HOSPITAL_ADMISSION/HOSPITAL_DISCHARGE) or a config/data mismatch."
+        )
 
     post(
         "Summary stats of timeline lengths: \n {}".format(
