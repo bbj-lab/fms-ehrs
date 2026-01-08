@@ -240,10 +240,14 @@ class Tokenizer21(BaseTokenizer):
                         )
                         if "is_list" not in col or not col["is_list"]
                         else pl.col(col["column"]).map_elements(
-                            lambda x, prefix=col["prefix"]: [
-                                self.vocab(f"{prefix}_{y}") for y in x
-                            ],
+                            # If the source list is null (e.g., the upstream dataset
+                            # does not include that code family), treat it as empty
+                            # rather than nulling-out the entire concat_list result.
+                            lambda x, prefix=col["prefix"]: []
+                            if x is None
+                            else [self.vocab(f"{prefix}_{y}") for y in x],
                             return_dtype=pl.List(pl.Int64),
+                            skip_nulls=False,
                         )
                     )
                     for col in self.config[end_type]
