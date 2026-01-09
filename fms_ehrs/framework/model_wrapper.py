@@ -194,6 +194,21 @@ class RepresentationModelWrapper(nn.Module):
         if self.temporal == "time2vec" and relative_times is not None:
             embeddings = self.time2vec_layer(embeddings, relative_times)
 
+        # Ensure dtype matches the base model parameters.
+        #
+        # Rationale: Time2Vec (and some value encoders) operate in float32 by default.
+        # When token embeddings are bf16/fp16, adding float32 temporal embeddings will
+        # upcast `embeddings` to float32. Passing float32 `inputs_embeds` into a bf16
+        # transformer triggers a hard dtype mismatch in torch.nn.Linear:
+        #   RuntimeError: expected mat1 and mat2 to have the same dtype, but got: float != BFloat16
+        #
+        # We standardize by casting to the base model's parameter dtype at the boundary.
+        base_dtype = getattr(self.base_model, "dtype", None)
+        if base_dtype is None:
+            base_dtype = next(self.base_model.parameters()).dtype
+        if embeddings.dtype != base_dtype:
+            embeddings = embeddings.to(dtype=base_dtype)
+
         # Pass modified embeddings through the model
         # We bypass the embedding layer by passing inputs_embeds
         return self.base_model(
