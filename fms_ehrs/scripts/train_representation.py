@@ -292,6 +292,11 @@ def main(
         greater_is_better=False,
         eval_strategy="epoch",
         save_strategy="epoch",
+        # HF Trainer defaults to safetensors. With tied embeddings (common for causal LMs),
+        # safetensors errors because multiple state_dict entries share the same storage:
+        #   RuntimeError: Some tensors share memory ... {'model.embed_tokens.weight', 'lm_head.weight'}
+        # Use standard torch serialization for checkpoints instead.
+        save_safetensors=False,
         ddp_find_unused_parameters=False,
         seed=seed,
         data_seed=seed,
