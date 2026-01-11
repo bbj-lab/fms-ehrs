@@ -326,7 +326,12 @@ def main(
                     model.time2vec_layer.state_dict() if model.time2vec_layer is not None else None
                 ),
             }
-            set_perms(t.save)(rep_state, str(best_mdl_loc / "representation_mechanics.pt"))
+            # NOTE: `set_perms` expects a saver with signature saver(file, *args),
+            # but torch.save is torch.save(obj, file). Wrap to avoid arg order bugs.
+            set_perms(lambda f, obj: t.save(obj, f))(
+                str(best_mdl_loc / "representation_mechanics.pt"),
+                rep_state,
+            )
         else:
             set_perms(trainer.save_model)(str(best_mdl_loc))
 
