@@ -5,7 +5,7 @@
 #SBATCH --partition=gpuq
 #SBATCH --time=1-00:00:00
 #SBATCH --gres=gpu:1
-#SBATCH --array=0-11
+#SBATCH --array=0-108
 
 source preamble.sh
 
@@ -32,8 +32,8 @@ python3 ../fms_ehrs/scripts/extract_all_importances.py \
     --batch_size 8 \
     --metrics "${metrics[@]}" \
     --splits "${splits[@]}" \
-    --batch_num_start $((1000 * SLURM_ARRAY_TASK_ID)) \
-    --batch_num_end $((1000 * (SLURM_ARRAY_TASK_ID + 1))) \
+    --batch_num_start $((100 * SLURM_ARRAY_TASK_ID)) \
+    --batch_num_end $((100 * (SLURM_ARRAY_TASK_ID + 1))) \
     --use_jax
 
 source postscript.sh
