@@ -75,11 +75,11 @@ for s in args.splits:
         )
     )  # shape n_obs × tl_len or n_obs × tl_len × (num_hidden_layers + 1) if args.all_layers
 
-    set_perms(np.save)(
+    set_perms(np.save, compress=True)(
         out_dir.joinpath(
             f"{args.data_version}-tokenized",
             s,
-            "all-jumps{x}-{m}.npy".format(
+            "all-jumps{x}-{m}.npy.gz".format(
                 x="-all-layers" if args.all_layers else "", m=model_loc.stem
             ),
         ),
