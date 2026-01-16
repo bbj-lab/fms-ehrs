@@ -49,7 +49,15 @@ class BaseTokenizer:
             self.q_tokens = tuple(map(lambda i: f"Q{i}", range(20)))
         elif quantizer == "sigmas":
             self.q_tokens = ("Q3-", "Q2-", "Q1-", "Q0-", "Q0+", "Q1+", "Q2+", "Q3+")
-        self.special: tuple = ("TL_START", "TL_END", "PAD", "TRUNC", None, "nan", "ELLIPSIS")
+        self.special: tuple = (
+            "TL_START",
+            "TL_END",
+            "PAD",
+            "TRUNC",
+            None,
+            "nan",
+            "ELLIPSIS",
+        )
         self.max_padded_length = max_padded_len
         self.include_time_spacing_tokens = include_time_spacing_tokens
         self.fused_category_values = fused_category_values
@@ -132,10 +140,7 @@ class BaseTokenizer:
                         )
                         + [ref_range_lower]
                         + (
-                            np.nanquantile(
-                                within,
-                                np.arange(0.1, 1.0, 0.1),
-                            ).tolist()
+                            np.nanquantile(within, np.arange(0.1, 1.0, 0.1)).tolist()
                             if len(
                                 within := v[
                                     (ref_range_lower <= v) & (v <= ref_range_upper)
@@ -204,10 +209,9 @@ class BaseTokenizer:
         """
         v = x.select("value").to_numpy().ravel()
         c = x.select("category").row(0)[0]
-        if self.include_ref_ranges and {
-            "ref_range_lower",
-            "ref_range_upper",
-        }.issubset(set(x.collect_schema().keys())):
+        if self.include_ref_ranges and {"ref_range_lower", "ref_range_upper"}.issubset(
+            set(x.collect_schema().keys())
+        ):
             ref_range_lower = (
                 y.row(0)[0]
                 if len(y := x.select(pl.col("ref_range_lower").drop_nulls().mode())) > 0
@@ -401,7 +405,7 @@ def summarize(
         )
     )
 
-    with pl.Config(tbl_rows=len(tokenizer.vocab)):
+    with pl.Config(tbl_rows=k + 1, set_float_precision=3):
         post(
             "Top {k} tokens by usage: \n {out}".format(
                 k=k,
@@ -411,13 +415,13 @@ def summarize(
                 .join(tokenizer.vocab.get_frame(), on="token")
                 .select("word")
                 .to_series()
-                .value_counts()
-                .sort("count", descending=True)
+                .value_counts(normalize=True)
+                .sort("proportion", descending=True)
                 .head(k),
             )
         )
 
-    with pl.Config(tbl_rows=len(tokenizer.vocab)):
+    with pl.Config(tbl_rows=len(tokenizer.vocab), set_float_precision=3):
         post(
             tokens_timelines.select(
                 pl.col("tokens")
@@ -425,8 +429,8 @@ def summarize(
                 .map_elements(tokenizer.get_token_type_from_int, return_dtype=pl.String)
             )
             .to_series()
-            .value_counts()
-            .sort(by="count", descending=True)
+            .value_counts(normalize=True)
+            .sort(by="proportion", descending=True)
         )
 
 

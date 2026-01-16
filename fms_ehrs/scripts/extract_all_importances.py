@@ -190,7 +190,7 @@ for s in args.splits:
     for met in args.metrics:
         set_perms(np.save, compress=True)(
             data_dirs[s].joinpath(
-                "importance-{met}-{mdl}{sn}{en}.npy".format(
+                "importance-{met}-{mdl}{sn}{en}.npy.gz".format(
                     met=met,
                     mdl=model_loc.stem,
                     sn=(
