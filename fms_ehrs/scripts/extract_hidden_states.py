@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-grab the final hidden state (at just under 24h) from each provided sequence
+grab the final hidden state from each provided sequence
 """
 
 import os
