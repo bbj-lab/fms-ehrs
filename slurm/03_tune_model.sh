@@ -8,6 +8,8 @@
 
 source preamble.sh
 
+export data_version=V21
+
 echo "Training an FM on MIMIC data..."
 python3 ../fms_ehrs/scripts/tune_model.py \
     --n_epochs 5 \
@@ -19,7 +21,7 @@ python3 ../fms_ehrs/scripts/tune_model.py \
     --per_device_train_batch_size 8 \
     --max_seq_length 4096 \
     --data_dir "${hm}/data-mimic" \
-    --data_version V21 \
+    --data_version ${data_version} \
     --model_dir "${hm}/mdls" \
     --model_version llama-med \
     --model_name "meta-llama/Llama-3.2-1B" \

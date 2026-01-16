@@ -32,3 +32,5 @@ for ddir in "${data_dirs[@]}"; do
         --metrics "${metrics[@]}" \
         --splits "${splits[@]}"
 done
+
+source postscript.sh

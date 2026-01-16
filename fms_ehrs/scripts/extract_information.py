@@ -113,8 +113,8 @@ for s in args.splits:
                 log_probs_realized[i, j:] = np.nan
         log_probs[batch_idx, 1:] = log_probs_realized
 
-    set_perms(np.save)(
-        data_dirs[s].joinpath("information-{m}.npy".format(m=model_loc.stem)),
+    set_perms(np.save, compress=True)(
+        data_dirs[s].joinpath("information-{m}.npy.gz".format(m=model_loc.stem)),
         log_probs / -np.log(2),
     )  # save out result
 

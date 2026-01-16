@@ -18,7 +18,7 @@ logger.log_env()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data_dir", type=pathlib.Path, default="../../data-mimic")
-parser.add_argument("--data_version", type=str, default="W++_first_24h")
+parser.add_argument("--data_version", type=str, default="V21")
 parser.add_argument("--out_dir", type=pathlib.Path, default="../../figs")
 parser.add_argument(
     "--outcomes",

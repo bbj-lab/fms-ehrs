@@ -7,6 +7,7 @@
 #SBATCH --mem=250GB
 #SBATCH --time=2:00:00
 #SBATCH --array=0-5
+##SBATCH --dependency=afterok:4887053,4887863
 
 source preamble.sh
 
@@ -23,6 +24,10 @@ data_dirs=(
     /scratch/burkh4rt/data-mimic
     /scratch/burkh4rt/data-ucmc
 )
+out_dirs=(
+    "${hm}/data-mimic"
+    "${hm}/data-ucmc"
+)
 splits=(
     train
     val
@@ -31,6 +36,9 @@ splits=(
 
 python3 ../fms_ehrs/scripts/process_all_trajectories.py \
     --data_dir "${data_dirs[$i]}" \
-    --data_version QC_day_stays_first_24h \
-    --model_loc "${hm}/mdls-archive/llama1b-57928921-run1" \
+    --out_dir "${out_dirs[$i]}" \
+    --data_version V21 \
+    --model_loc "${hm}/mdls-archive/llama-med-4476655-hp-V21" \
     --splits "${splits[$j]}"
+
+source postscript.sh
