@@ -7,7 +7,6 @@ utility functions
 import collections
 import copy
 import functools
-import logging
 import os
 import pathlib
 import typing
@@ -16,9 +15,6 @@ import numba as nb
 import numpy as np
 import pandas as pd
 import torch as t
-
-from fms_ehrs.framework.logger import get_logger
-from fms_ehrs.framework.vocabulary import Vocabulary
 
 Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
 Dictlike: typing.TypeAlias = collections.OrderedDict | dict
@@ -67,62 +63,6 @@ def ragged_lists_to_array(
     for i, x in enumerate(ls_arr):
         arr[i, : len(x)] = x
     return arr
-
-
-def extract_examples(
-    timelines: np.ndarray,
-    criteria: np.ndarray,
-    vocab: Vocabulary,
-    flags: list = None,
-    k: int = 10,
-    w_sz: int = 3,
-    lag: int = 0,
-    logger: logging.Logger = get_logger(),
-    top_k: bool = True,
-    ids: np.ndarray = None,
-) -> None:
-    """
-    produce `k` decoded snippets of `timelines` with tokens decoded from `vocab`
-    that maximize the provided `criteria`; the snippets range +/- `w_sz`
-    """
-    assert timelines.shape[0] == criteria.shape[0]
-    assert timelines.shape[1] == criteria.shape[1] + lag
-    if flags:
-        assert len(flags) == timelines.shape[0]
-    top_k_flat_idx = (
-        np.argsort(np.nan_to_num(criteria.flatten()))[::-1][:k]
-        if top_k
-        else np.argsort(np.nan_to_num(criteria.flatten(), nan=np.inf))[:k]  # bottom k
-    )
-    top_k_idx = np.array(np.unravel_index(top_k_flat_idx, criteria.shape)).T
-    m = timelines.shape[-1]
-    for i0, i1 in top_k_idx:
-        ints = timelines[i0, max(0, i1 - w_sz) : min(m - 1, i1 + w_sz + lag)]
-        tkns = "->".join(
-            s if (s := vocab.reverse[i]) is not None else "None" for i in ints
-        )
-        hit = " ".join(
-            s if (s := vocab.reverse[i]) is not None else "None"
-            for i in timelines[i0][i1 : i1 + lag + 1]
-        )
-        info_str = f"{i0=}, {i1=}"
-        if flags:
-            info_str += f" | {flags[i0]}"
-        if ids is not None:
-            info_str += f" | {ids[i0]=}"
-        logger.info(info_str)
-        logger.info(f"{hit=} in {tkns}")
-        logger.info(
-            "->".join(
-                map(
-                    str,
-                    criteria[i0, max(0, i1 - w_sz) : min(m - 1, i1 + w_sz + lag)].round(
-                        2
-                    ),
-                )
-            )
-        )
-
 
 def collate_events_info(
     times: np.ndarray,

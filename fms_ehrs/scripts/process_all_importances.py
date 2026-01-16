@@ -6,7 +6,6 @@ process importance metrics for all timelines in batches
 
 import argparse
 import gzip
-import itertools
 import os
 import pathlib
 import typing
@@ -25,13 +24,13 @@ logger.log_env()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data_dir", type=pathlib.Path, default="../../data-mimic")
-parser.add_argument("--data_version", type=str, default="W++")
+parser.add_argument("--data_version", type=str, default="V21")
 parser.add_argument(
     "--model_loc",
     type=pathlib.Path,
-    default="../../mdls-archive/llama-med-60358922_1-hp-W++",
+    default="../../mdls-archive/llama-med-4476655-hp-V21",
 )
-parser.add_argument("--splits", nargs="*", default=["train", "val", "test"])
+parser.add_argument("--splits", nargs="*", default=["test"])
 parser.add_argument(
     "--metrics",
     nargs="*",
@@ -50,6 +49,7 @@ parser.add_argument(
         "h2o-normed-mean_log",
     ],
 )
+parser.add_argument("--delete_batches", action="store_true")
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -66,25 +66,19 @@ data_dirs = {
 for s in args.splits:
     for met in args.metrics:
         logger.info(f"{s=},{met=}")
-        arrs = list(
-            itertools.chain(
-                data_dirs[s].glob(
-                    "importance-{met}-{mdl}?*.npy".format(met=met, mdl=model_loc.stem)
-                ),
-                data_dirs[s].glob(
-                    "importance-{met}-{mdl}?*.npy.gz".format(
-                        met=met, mdl=model_loc.stem
-                    )
-                ),
-            )
+        arrs = sorted(
+            data_dirs[s].glob(
+                "importance-{met}-{mdl}-s*.npy.gz".format(met=met, mdl=model_loc.stem)
+            ),
+            key=lambda s: int(s.stem.strip(".npy").split("-e")[-1]),
         )
         if len(arrs) < 2:
             logger.warning(f"For {s=} and {met=}, {arrs=}")
             logger.warning("Skipping...")
             continue
-        with gzip.open(arrs.pop(), "rb") as f:
+        with gzip.open(arrs[0], "rb") as f:
             arr = np.load(f)
-        for arr_next in tq.tqdm(arrs):
+        for arr_next in tq.tqdm(arrs[1:], initial=1, total=len(arrs)):
             with gzip.open(arr_next, "rb") as f:
                 new_arr = np.load(f)
                 arr[new_arr != 0] = new_arr[new_arr != 0]
@@ -98,6 +92,8 @@ for s in args.splits:
             ),
             arr,
         )
-
+        if args.delete_batches:
+            for f in arrs:
+                f.unlink()
 
 logger.info("---fin")
