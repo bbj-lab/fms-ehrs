@@ -56,6 +56,7 @@ prefix:
 
     - column: quantized_age
 
+    # change to admission_type_category in future
     - column: admission_type_name
       prefix: ADMN
 
