@@ -10,6 +10,7 @@ import typing
 
 import fire as fi
 import numpy as np
+import torch as t
 from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
@@ -17,7 +18,6 @@ from transformers import (
     TrainerCallback,
 )
 from trl import SFTConfig, SFTTrainer
-import torch as t
 
 from fms_ehrs.framework.dataset import Datasets
 from fms_ehrs.framework.logger import get_logger
@@ -124,6 +124,8 @@ def main(
         eval_strategy="steps",
         save_strategy="best",
         ddp_find_unused_parameters=False,
+        optim="paged_adamw_8bit",
+        bf16=True,
     )
 
     trainer = SFTTrainer(

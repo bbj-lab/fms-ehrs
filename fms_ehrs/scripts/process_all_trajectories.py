@@ -32,6 +32,7 @@ parser.add_argument(
 )
 parser.add_argument("--splits", nargs="*", default=["train", "val", "test"])
 parser.add_argument("--all_layers", action="store_true")
+parser.add_argument("--n_jobs", type=int, default=-1)
 
 args, unknowns = parser.parse_known_args()
 
@@ -69,7 +70,7 @@ for s in args.splits:
     # or n_batch × tl_len × d_rep × (num_hidden_layers + 1) if args.all_layers
 
     jumps = np.concatenate(
-        Parallel(n_jobs=-1, verbose=True)(
+        Parallel(n_jobs=args.n_jobs, verbose=True)(
             delayed(get_jumps_from_shard)(f)
             for f in tqdm.tqdm(featfiles, desc="shards")
         )
