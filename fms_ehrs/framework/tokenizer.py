@@ -347,7 +347,15 @@ class Tokenizer21(BaseTokenizer):
             )
             .lazy()
             .filter(pl.col("event_time").is_not_null())
-            .filter(~pl.col("tokens").is_in(pl.lit([self.vocab(None), self.vocab("nan")]).implode()).any())
+            .filter(
+                ~pl.col("tokens")
+                .list.eval(
+                    pl.element().is_null()
+                    | pl.element().eq(self.vocab("nan"))
+                    | pl.element().eq(self.vocab(None))
+                )
+                .list.any()
+            )
             .sort("event_time", pl.col("tokens").list.first())
             .explode("tokens")
             .group_by(self.config["subject_id"], maintain_order=True)

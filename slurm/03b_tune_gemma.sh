@@ -9,7 +9,7 @@
 
 source preamble.sh
 
-export data_version=V21
+export data_version=X21
 
 echo "Training an FM on MIMIC data..."
 python3 ../fms_ehrs/scripts/tune_model.py \
@@ -27,10 +27,9 @@ python3 ../fms_ehrs/scripts/tune_model.py \
     --model_version gemma \
     --model_name "google/gemma-3-270m" \
     --wandb_project ${data_version} \
-    --hidden_size 128 \
-    --intermediate_size 256 \
-    --num_hidden_layers 9 \
-    --max_position_embeddings 8192
+    --hidden_size 256 \
+    --intermediate_size 1024 \
+    --num_hidden_layers 9
 
 source postscript.sh
 
