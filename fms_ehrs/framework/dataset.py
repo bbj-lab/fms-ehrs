@@ -28,7 +28,7 @@ class Datasets:
         collation: typing.Literal["padded", "packed"] = "packed",
         *,
         max_seq_length: int = 1024,
-        shuffle_buffer_size: int = 1024,
+        shuffle_buffer_size: int = 256,
         i_part: int = None,
         n_parts: int = None,
     ):
@@ -61,10 +61,7 @@ class Datasets:
                 lambda batch: {
                     "input_ids": batch[
                         "padded" if (self.collation == "padded") else "tokens"
-                    ],
-                    "labels": batch[
-                        "padded" if (self.collation == "padded") else "tokens"
-                    ],
+                    ]
                 },
                 batched=True,
                 remove_columns=[
@@ -78,10 +75,7 @@ class Datasets:
                     {
                         "input_ids": ds.Sequence(
                             ds.Value(str(self.uint_dtype).split(".")[-1])
-                        ),
-                        "labels": ds.Sequence(
-                            ds.Value(str(self.uint_dtype).split(".")[-1])
-                        ),
+                        )
                     }
                 ),
             )
@@ -116,14 +110,14 @@ class Datasets:
                 x = x[ndiff:]
                 if ret.size(dim=0) == self.max_seq_length:
                     ret_uint = ret.to(self.uint_dtype)
-                    yield {"input_ids": ret_uint, "labels": ret_uint.clone()}
+                    yield {"input_ids": ret_uint}
                     ret = t.Tensor(size=(0,))
 
-    def get_train_dataset(self, n_epochs: int = 10, iterable: bool = False):
+    def get_train_dataset(self, n_epochs: int = 10):
         if self.collation == "padded":
             x = self.dataset["train"].shuffle(generator=self.np_rng)
         elif self.collation == "packed":
-            x = ds.IterableDataset.from_generator(
+            x = ds.Dataset.from_generator(
                 lambda: self.chunk_iterable(
                     ds.IterableDataset.from_generator(
                         lambda: itertools.chain.from_iterable(
@@ -137,10 +131,7 @@ class Datasets:
                     {
                         "input_ids": ds.Sequence(
                             ds.Value(str(self.uint_dtype).split(".")[-1])
-                        ),
-                        "labels": ds.Sequence(
-                            ds.Value(str(self.uint_dtype).split(".")[-1])
-                        ),
+                        )
                     }
                 ),
             )
@@ -148,22 +139,19 @@ class Datasets:
             raise ValueError(
                 "collation should be `padded` or `packed`, not ", self.collation
             )
-        return x if iterable else ds.Dataset.from_list(list(x))
+        return x
 
-    def get_val_dataset(self, iterable: bool = False):
+    def get_val_dataset(self):
         if self.collation == "padded":
             x = self.dataset["val"]
         elif self.collation == "packed":
-            x = ds.IterableDataset.from_generator(
+            x = ds.Dataset.from_generator(
                 lambda: self.chunk_iterable(self.dataset["val"]),
                 features=ds.Features(
                     {
                         "input_ids": ds.Sequence(
                             ds.Value(str(self.uint_dtype).split(".")[-1])
-                        ),
-                        "labels": ds.Sequence(
-                            ds.Value(str(self.uint_dtype).split(".")[-1])
-                        ),
+                        )
                     }
                 ),
             )
@@ -171,7 +159,7 @@ class Datasets:
             raise ValueError(
                 "collation should be `padded` or `packed`, not ", self.collation
             )
-        return x if iterable else ds.Dataset.from_list(list(x))
+        return x
 
     def get_context_length(self):
         return len(self.dataset["train"].select(range(1))["input_ids"][0])

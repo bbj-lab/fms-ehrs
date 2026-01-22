@@ -7,7 +7,7 @@
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
     ]
     dependencies = [
-        "bitsandbytes>=0.48.2",
+        "bitsandbytes>=0.48.2; sys_platform == 'linux'",
         "clifpy==0.3.1",
         "datasets>=3.2",
         "fire>=0.7",
@@ -19,7 +19,6 @@
         "numba>=0.61",
         "numpy>=1.26,<2",
         "optuna>=4.2",
-        "pacmap==0.8.0",
         "pandas>=2.2",
         "pip>=25.1",
         "plotly~=5.24.1",
@@ -33,18 +32,17 @@
         "statsmodels>=0.14",
         "torch>=2.8,<2.10",
         "transformers>=4.48",
-        "trl==0.13.0",
         "tqdm>=4.67",
-        "umap-learn==0.5.7",
         "vllm==0.11.0",
         "wandb",
         "xgboost>=2.1",
-    ]
+        "accelerate>=1.11.0",
+]
     license-files = [ "LICENSE.md" ]
     name = "fms-ehrs"
     readme = { file = "README.md", content-type = "text/markdown" }
     requires-python = ">=3.12"
-    version = "25.2.0"
+    version = "26.0.0"
 
 [tool.ruff]
     line-length = 88

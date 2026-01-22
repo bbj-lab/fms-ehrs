@@ -1,14 +1,15 @@
 #!/bin/bash
 
-#SBATCH --job-name=tune-mdl
+#SBATCH --job-name=tn-gemma
 #SBATCH --output=./output/%j-%x.stdout
-#SBATCH --partition=gpuq
+#SBATCH --partition=gpudev
 #SBATCH --gres=gpu:1
 #SBATCH --time=1-00:00:00
+#SBATCH --mem=100GB
 
 source preamble.sh
 
-export data_version=V21
+export data_version=X21
 
 echo "Training an FM on MIMIC data..."
 python3 ../fms_ehrs/scripts/tune_model.py \
@@ -18,18 +19,16 @@ python3 ../fms_ehrs/scripts/tune_model.py \
     --lr_max 4e-4 \
     --gr_acc_min 1 \
     --gr_acc_max 4 \
-    --per_device_train_batch_size 8 \
-    --max_seq_length 4096 \
+    --per_device_train_batch_size 4 \
+    --max_seq_length 2048 \
     --data_dir "${hm}/data-mimic" \
     --data_version ${data_version} \
     --model_dir "${hm}/mdls" \
-    --model_version llama-med \
-    --model_name "meta-llama/Llama-3.2-1B" \
+    --model_version gemma \
+    --model_name "google/gemma-3-270m" \
     --wandb_project ${data_version} \
-    --hidden_size 1024 \
-    --intermediate_size 2048 \
-    --num_hidden_layers 8 \
-    --num_attention_heads 8
+    --hidden_size 256 \
+    --intermediate_size 512
 
 source postscript.sh
 

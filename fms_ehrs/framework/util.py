@@ -95,7 +95,7 @@ def redact_tokens_times(
     k: int = None,
     pct: float = None,
     method: typing.Literal["top", "bottom", "random"] = "top",
-    aggregation: typing.Literal["max", "sum", "perplexity"] = "max",
+    aggregation: typing.Literal["max", "sum"] = "sum",
     rng: np.random._generator.Generator = np.random.default_rng(seed=42),
 ) -> tuple[typing.List[np.ndarray], typing.List[np.ndarray]]:
     """given an array of tokens happening at the corresponding array `tms_arr` of
