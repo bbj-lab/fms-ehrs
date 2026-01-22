@@ -58,6 +58,13 @@ parser.add_argument(
     help="Override whether numeric events are fused (code+quantile) into one token",
 )
 parser.add_argument(
+    "--numeric_encoding",
+    type=str,
+    choices=["quantile", "xval"],
+    default=None,
+    help="Override numeric encoding: 'quantile' (default) or 'xval' ([NUM] placeholder token)",
+)
+parser.add_argument(
     "--detect_discrete",
     action=argparse.BooleanOptionalAction,
     default=None,
@@ -127,6 +134,7 @@ tkzr = Tokenizer21(
     max_padded_len=args.max_padded_len,
     quantizer=args.quantizer,
     clinical_anchoring=args.clinical_anchoring,
+    numeric_encoding=args.numeric_encoding,
     include_ref_ranges=args.include_ref_ranges,
     include_time_spacing_tokens=args.include_time_spacing_tokens,
     fused_category_values=args.fused_category_values,
@@ -140,6 +148,9 @@ set_perms(tokens_timelines.write_parquet)(
     dirs_out["train"].joinpath("tokens_timelines.parquet")
 )
 tkzr.vocab.save(dirs_out["train"].joinpath("vocab.gzip"))
+# Save raw-value numeric stats (train split) for quantizer/anchoring-independent scaling.
+tkzr.save_numeric_stats(dirs_out["train"].joinpath("numeric_stats.json"))
+fix_perms(dirs_out["train"].joinpath("numeric_stats.json"))
 
 if args.include_24h_cut:
     tokens_timelines_24h = tkzr.cut_at_time(tokens_timelines)
@@ -150,6 +161,8 @@ if args.include_24h_cut:
         dirs_out_24h["train"].joinpath("tokens_timelines.parquet")
     )
     tkzr.vocab.save(dirs_out_24h["train"].joinpath("vocab.gzip"))
+    tkzr.save_numeric_stats(dirs_out_24h["train"].joinpath("numeric_stats.json"))
+    fix_perms(dirs_out_24h["train"].joinpath("numeric_stats.json"))
 
 # take the learned tokenizer and tokenize the validation and test sets
 for s in ("val", "test"):
@@ -167,6 +180,7 @@ for s in ("val", "test"):
         max_padded_len=args.max_padded_len,
         quantizer=args.quantizer,
         clinical_anchoring=args.clinical_anchoring,
+        numeric_encoding=args.numeric_encoding,
         include_ref_ranges=args.include_ref_ranges,
         include_time_spacing_tokens=args.include_time_spacing_tokens,
         fused_category_values=args.fused_category_values,

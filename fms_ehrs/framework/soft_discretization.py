@@ -86,7 +86,7 @@ class SoftDiscretizationEncoder(nn.Module):
         )
         self.register_buffer(
             "n_boundaries_by_id",
-            torch.empty(0, dtype=torch.int16),
+            torch.empty(0, dtype=torch.int32),
             persistent=False,
         )
 
@@ -149,7 +149,9 @@ class SoftDiscretizationEncoder(nn.Module):
         # - n_boundaries_by_id: (vocab_size,), number of valid boundaries per code id
         max_b = max(self.num_bins - 1, 0)
         boundaries_by_id = torch.zeros((vocab_size, max_b), dtype=torch.float32)
-        n_boundaries_by_id = torch.zeros((vocab_size,), dtype=torch.int16)
+        # NOTE: Use int32 (not int16/Short) because DDP initial state sync uses NCCL,
+        # and NCCL does not support torch.int16 (Short) for broadcast.
+        n_boundaries_by_id = torch.zeros((vocab_size,), dtype=torch.int32)
 
         for code, breaks in vocab_aux.items():
             tok_id = token_id_lookup.get(code)

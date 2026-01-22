@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 
 """
-Learned continuous encoder for numeric values.
+Continuous value encoder for numeric values.
 
-This module implements MLP-based continuous value encoding inspired by the xVal
-approach for representing numeric values in transformers.
+This module implements an xVal-style continuous number embedding adapted to
+MEDS tokenization: values are normalized (per-code z-score), optionally clipped,
+and then used to scale a learned embedding direction (and optional multiscale
+variants). This preserves continuity in the numeric channel while remaining
+compatible with a discrete-token backbone.
 
 References
 ----------
 [1] Golkar, S., Pettee, M., Eickenberg, M., et al. (2023). xVal: A Continuous
     Number Encoding for Large Language Models. arXiv:2310.02989.
-
-The encoder projects z-score normalized values through a small MLP to produce
-embeddings that preserve numeric relationships in the embedding space.
 """
 
 import typing
@@ -23,21 +23,30 @@ import torch.nn as nn
 
 
 class ContinuousValueEncoder(nn.Module):
-    """Encode continuous values via learned MLP projection.
+    """Encode continuous values via xVal-style multiplicative embeddings.
 
-    This encoder normalizes numeric values using per-code z-score normalization
-    and projects them through a 2-layer MLP to produce embeddings.
+    We normalize numeric values using per-code z-score statistics, then compute
+    a continuous embedding as a scaled direction in embedding space. This is a
+    practical adaptation of xVal to EHR tokenization: instead of replacing the
+    entire numeric token stream with a dedicated [NUM] token, we modify the
+    numeric value channel aligned to quantile tokens.
 
     Parameters
     ----------
     embed_dim : int
-        Dimension of output embeddings
+        Dimension of output embeddings.
     hidden_dim : int, optional
-        Hidden dimension of MLP. Defaults to embed_dim.
+        Unused (kept for backward compatibility with older MLP-based encoder).
     activation : str
-        Activation function: "gelu" or "relu"
+        Unused (kept for backward compatibility).
     clip_sigma : float
-        Clip normalized values to +/- this many standard deviations
+        Clip normalized values to +/- this many standard deviations.
+    num_scales : int
+        Number of multiscale xVal embeddings. num_scales=1 corresponds to the
+        default xVal setting (k=0). If >1, we use tanh(value * 10^i) across
+        exponents centered at 0.
+    scale_base : float
+        Base for multiscale exponents (default 10.0, per xVal).
 
     Example
     -------
@@ -53,18 +62,21 @@ class ContinuousValueEncoder(nn.Module):
         hidden_dim: int = None,
         activation: typing.Literal["gelu", "relu"] = "gelu",
         clip_sigma: float = 5.0,
+        num_scales: int = 1,
+        scale_base: float = 10.0,
     ):
         super().__init__()
         self.embed_dim = embed_dim
-        self.hidden_dim = hidden_dim or embed_dim
         self.clip_sigma = clip_sigma
+        self.num_scales = max(int(num_scales), 1)
+        self.scale_base = float(scale_base)
 
-        # 2-layer MLP: value -> hidden -> embed
-        self.mlp = nn.Sequential(
-            nn.Linear(1, self.hidden_dim),
-            nn.GELU() if activation == "gelu" else nn.ReLU(),
-            nn.Linear(self.hidden_dim, embed_dim),
-        )
+        # Learnable numeric embedding directions (xVal-style).
+        # Shape: (num_scales, embed_dim)
+        self.num_embeddings = nn.Parameter(torch.randn(self.num_scales, embed_dim))
+
+        # NOTE: hidden_dim/activation are unused but preserved for backward
+        # compatibility with earlier MLP-based versions of this encoder.
 
         # Per-code normalization statistics (not learnable)
         self._means: dict[str, float] = {}
@@ -109,12 +121,20 @@ class ContinuousValueEncoder(nn.Module):
         self,
         vocab_aux: dict[str, list[float]],
         *,
+        numeric_stats: dict[str, dict[str, float]] | None = None,
         token_id_lookup: dict[str, int] | None = None,
         vocab_size: int | None = None,
     ) -> None:
         """Estimate statistics from vocabulary auxiliary data (quantile breaks).
 
-        Uses the median and IQR of the breaks as robust estimates of mean and std.
+        By default, uses the median and IQR of the *breaks* as robust estimates of mean and std.
+        This is reasonable when breaks are population quantiles.
+
+        IMPORTANT: if `numeric_stats` is provided, we use that instead. This enables
+        quantizer/anchoring-independent scaling for xVal-style continuous encoding.
+        In particular, clinically-anchored breakpoints (e.g., 5-10-5) should not be
+        used to define (\\mu_c, \\sigma_c) because that couples discretization design
+        to continuous normalization.
 
         Parameters
         ----------
@@ -138,17 +158,21 @@ class ContinuousValueEncoder(nn.Module):
         for code, breaks in vocab_aux.items():
             if len(breaks) == 0:
                 continue
-            breaks_arr = np.array(breaks)
-            # Use median of breaks as estimate of mean
-            mean = float(np.median(breaks_arr))
-            # Use IQR / 1.35 as robust estimate of std (for normal distribution)
-            q25_idx = len(breaks_arr) // 4
-            q75_idx = 3 * len(breaks_arr) // 4
-            if q75_idx > q25_idx:
-                iqr = breaks_arr[q75_idx] - breaks_arr[q25_idx]
-                std = float(iqr / 1.35)
+            if numeric_stats is not None and code in numeric_stats:
+                mean = float(numeric_stats[code]["median"])
+                std = float(max(numeric_stats[code]["std"], 1e-8))
             else:
-                std = float(np.std(breaks_arr))
+                breaks_arr = np.array(breaks)
+                # Use median of breaks as estimate of mean
+                mean = float(np.median(breaks_arr))
+                # Use IQR / 1.35 as robust estimate of std (for normal distribution)
+                q25_idx = len(breaks_arr) // 4
+                q75_idx = 3 * len(breaks_arr) // 4
+                if q75_idx > q25_idx:
+                    iqr = breaks_arr[q75_idx] - breaks_arr[q25_idx]
+                    std = float(iqr / 1.35)
+                else:
+                    std = float(np.std(breaks_arr))
             self.set_statistics(code, mean, std)
 
             if token_id_lookup is not None:
@@ -188,8 +212,11 @@ class ContinuousValueEncoder(nn.Module):
                 z = max(-self.clip_sigma, min(self.clip_sigma, z))
                 normalized[i] = z
             else:
-                # If statistics not available, use value as-is
-                normalized[i] = value
+                # If statistics are not available, we must still bound the dynamic range.
+                # xVal explicitly relies on preprocessing to keep values within a finite
+                # range (they mention normalizing to approximately [-5, 5]). Passing raw
+                # values through can lead to overflow/NaNs in mixed precision.
+                normalized[i] = max(-self.clip_sigma, min(self.clip_sigma, float(value.item())))
 
         return normalized
 
@@ -226,11 +253,22 @@ class ContinuousValueEncoder(nn.Module):
                 raise ValueError("Must provide either `codes` or `code_ids`.")
             normalized = self.normalize(values, codes)
 
-        # Project through MLP
-        # Shape: (batch_size, 1) -> (batch_size, embed_dim)
-        embeddings = self.mlp(normalized.unsqueeze(-1))
+        # xVal-style multiplicative embedding.
+        # Shape: (batch_size,) -> (batch_size, embed_dim)
+        if self.num_scales == 1:
+            return normalized.unsqueeze(-1) * self.num_embeddings[0]
 
-        return embeddings
+        # Multiscale variant: sum_i tanh(z * 10^i) * [NUM_i]
+        exponents = torch.arange(
+            self.num_scales, device=normalized.device, dtype=normalized.dtype
+        )
+        exponents = exponents - (self.num_scales // 2)
+        scales = torch.pow(
+            torch.tensor(self.scale_base, device=normalized.device, dtype=normalized.dtype),
+            exponents,
+        )
+        scaled = torch.tanh(normalized.unsqueeze(-1) * scales)
+        return scaled @ self.num_embeddings
 
     def _normalize_code_ids(self, values: torch.Tensor, code_ids: torch.Tensor) -> torch.Tensor:
         """Vectorized normalization for code token ids."""
@@ -252,10 +290,11 @@ class ContinuousValueEncoder(nn.Module):
         stds = self.stds_by_id[code_ids]
         has = self.has_stats_by_id[code_ids]
 
-        # Match legacy behavior: if stats missing, use value as-is (no clipping).
+        # If stats are missing, we still bound the dynamic range to avoid overflow/NaNs.
         z = (values - means) / stds
         z = torch.clamp(z, -self.clip_sigma, self.clip_sigma)
-        return torch.where(has, z, values)
+        values_clipped = torch.clamp(values, -self.clip_sigma, self.clip_sigma)
+        return torch.where(has, z, values_clipped)
 
 
 class ContinuousValueLayer(nn.Module):

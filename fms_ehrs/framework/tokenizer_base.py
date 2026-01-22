@@ -9,6 +9,7 @@ import logging
 import os
 import pathlib
 import typing
+import json
 import numpy as np
 import polars as pl
 
@@ -30,6 +31,7 @@ class BaseTokenizer:
         clinical_anchoring: typing.Literal[
             "none", "5-10-5", "10-10-10"
         ] = "none",
+        numeric_encoding: typing.Literal["quantile", "xval"] = "quantile",
         include_time_spacing_tokens: bool = False,
         fused_category_values: bool = False,
         detect_discrete: bool = False,
@@ -57,6 +59,10 @@ class BaseTokenizer:
         self.data_dir = pathlib.Path(data_dir).expanduser().resolve()
         self.quantizer = quantizer
         self.clinical_anchoring = clinical_anchoring
+        self.numeric_encoding = numeric_encoding
+        self.num_token: str = "[NUM]"
+        if self.numeric_encoding == "xval" and fused_category_values:
+            raise ValueError("numeric_encoding='xval' requires fused_category_values=False.")
         if quantizer == "centiles":
             self.q_tokens = tuple(map(lambda i: f"Q{i}", range(100)))
         elif quantizer == "deciles":
@@ -65,6 +71,9 @@ class BaseTokenizer:
             self.q_tokens = tuple(map(lambda i: f"Q{i}", range(20)))
         elif quantizer == "trentiles":
             self.q_tokens = tuple(map(lambda i: f"Q{i}", range(30)))
+        if self.numeric_encoding == "xval":
+            # Canonical xVal uses a single number placeholder token instead of quantile tokens.
+            self.q_tokens = tuple()
         self.special: tuple = ("TL_START", "TL_END", "PAD", "TRUNC", None, "nan")
         self.max_padded_length = max_padded_len
         self.include_time_spacing_tokens = include_time_spacing_tokens
@@ -128,6 +137,7 @@ class BaseTokenizer:
             self.vocab_path = None
             self.vocab = Vocabulary(
                 (self.q_tokens if not fused_category_values else tuple())
+                + ((self.num_token,) if self.numeric_encoding == "xval" else tuple())
                 + self.special
                 + (self.t_tokens if self.include_time_spacing_tokens else tuple())
             )
@@ -136,6 +146,20 @@ class BaseTokenizer:
             self.vocab_path = pathlib.Path(vocab_path).expanduser().resolve()
             self.vocab = Vocabulary().load(self.vocab_path)
             self.vocab.is_training = False
+
+        # Numeric per-code summary stats computed from raw training values.
+        #
+        # Rationale:
+        # - `self.vocab.aux[code]` stores bin boundaries used for discretization, and when
+        #   clinical anchoring is enabled those boundaries can be *anchoring-dependent*.
+        # - Continuous encoders (xVal-style) need a per-code scaling, but that scaling
+        #   should be independent of the discretization/anchoring choice for fairness.
+        #
+        # We therefore compute robust per-code stats directly from raw values:
+        #   mu_c = median(v_c), sigma_c = IQR(v_c)/1.35 (approx std under normality)
+        #
+        # We store these as a mapping from code designator -> dict for export.
+        self.numeric_stats: dict[str, dict[str, float]] = {}
 
     def set_quants(
         self,
@@ -147,6 +171,28 @@ class BaseTokenizer:
     ) -> None:
         """store training quantile information in the self.vocab object"""
         designator = f"{prefix}_{c}" if prefix is not None else c
+
+        # Always compute per-code robust stats from raw values (training split),
+        # regardless of the quantizer/anchoring choice used for discretization.
+        #
+        # NOTE: we only compute these once per designator.
+        if designator not in self.numeric_stats:
+            vv = v[np.isfinite(v)]
+            if vv.size > 0:
+                med = float(np.nanmedian(vv))
+                q25 = float(np.nanquantile(vv, 0.25))
+                q75 = float(np.nanquantile(vv, 0.75))
+                iqr = q75 - q25
+                # Robust std estimate (avoid div-by-zero downstream)
+                std = float(max(iqr / 1.35, 1e-8))
+                self.numeric_stats[designator] = {
+                    "median": med,
+                    "q25": q25,
+                    "q75": q75,
+                    "iqr": iqr,
+                    "std": std,
+                    "n": float(vv.size),
+                }
         if not self.vocab.has_aux(designator) and self.vocab.is_training:
             if self.detect_discrete and len(unq := np.unique(v[np.isfinite(v)])) < len(
                 self.q_tokens
@@ -192,6 +238,27 @@ class BaseTokenizer:
             elif self.quantizer == "deciles":
                 self.vocab.set_aux(
                     designator, np.nanquantile(v, np.arange(0.1, 1.0, 0.1)).tolist()
+                )
+
+    def save_numeric_stats(self, filepath: Pathlike) -> None:
+        """Save per-code numeric stats computed from the training split.
+
+        Stored as JSON so downstream training scripts can load \mu_c,\sigma_c
+        independently of binning/anchoring choices.
+        """
+        fp = pathlib.Path(filepath).expanduser().resolve()
+        fp.parent.mkdir(parents=True, exist_ok=True)
+        with fp.open("w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "schema_version": 1,
+                    "method": "median_iqr",
+                    "clip_sigma": 5.0,
+                    "stats": self.numeric_stats,
+                },
+                f,
+                indent=2,
+                sort_keys=True,
                 )
 
     def _compute_anchored_breaks(
@@ -315,6 +382,27 @@ class BaseTokenizer:
             )
         else:
             self.set_quants(v=v, c=c, prefix=prefix)
+        if self.numeric_encoding == "xval":
+            # Canonical xVal tokenization:
+            # emit [code_token, [NUM]] and align raw numeric value to [NUM].
+            #   tokens: [code_token, num_token] -> numeric_values: [null, value]
+            if self.fused_category_values:
+                raise ValueError("numeric_encoding='xval' is not compatible with fused_category_values=True.")
+            return (
+                x.with_columns(
+                    token=pl.lit(self.vocab(f"{prefix}_{c}")).cast(pl.Int64),
+                    token_num=pl.lit(self.vocab(self.num_token)).cast(pl.Int64),
+                )
+                .with_columns(
+                    tokens=pl.concat_list("token", "token_num").cast(pl.List(pl.Int64))
+                )
+                .with_columns(
+                    numeric_values=pl.concat_list(
+                        pl.lit(None).cast(pl.Float32), pl.col("value").cast(pl.Float32)
+                    )
+                )
+                .drop("token", "token_num")
+            )
         if not self.fused_category_values:
             return (
                 x.with_columns(
@@ -506,6 +594,8 @@ class BaseTokenizer:
 
     def get_token_type(self, tk: str | None) -> str:
         """determine the type of a token, usually specified in the token's prefix"""
+        if tk == self.num_token:
+            return "NUM"
         if tk in self.special:
             return "SPECIAL"
         elif tk in self.q_tokens:

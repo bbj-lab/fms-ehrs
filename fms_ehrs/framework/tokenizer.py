@@ -32,6 +32,7 @@ class Tokenizer21(BaseTokenizer):
         max_padded_len: int = None,
         quantizer: typing.Literal["centiles", "deciles", "ventiles", "trentiles"] = None,
         clinical_anchoring: typing.Literal["none", "5-10-5", "10-10-10"] = None,
+        numeric_encoding: typing.Literal["quantile", "xval"] = None,
         cut_at_24h: bool = False,
         include_time_spacing_tokens: bool = None,
         fused_category_values: bool = None,
@@ -59,6 +60,11 @@ class Tokenizer21(BaseTokenizer):
                 clinical_anchoring
                 if clinical_anchoring is not None
                 else self.config["options"].get("clinical_anchoring", "none")
+            ),
+            numeric_encoding=(
+                numeric_encoding
+                if numeric_encoding is not None
+                else self.config["options"].get("numeric_encoding", "quantile")
             ),
             include_time_spacing_tokens=(
                 include_time_spacing_tokens

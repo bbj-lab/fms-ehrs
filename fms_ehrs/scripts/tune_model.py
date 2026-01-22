@@ -53,6 +53,12 @@ def main(
     model_name: str = "meta-llama/Llama-3.2-1B",
     per_device_train_batch_size: int = 4,
     # max_grad_norm: float = 1.0,
+    # Policy control:
+    # - do_hpo=True: run Optuna HPO (expensive; may exceed cluster walltime)
+    # - do_hpo=False: run a single fixed-hyperparameter training
+    do_hpo: bool = True,
+    learning_rate: float = 5e-5,
+    gradient_accumulation_steps: int = 2,
     lr_min: float = 5e-5,
     lr_max: float = 5e-4,
     gr_acc_min: int = 1,
@@ -63,7 +69,9 @@ def main(
     jid: str = os.getenv("SLURM_JOB_ID", ""),
     wandb_project: str = None,
     n_trials: int = 5,
-    iterable_dataset: bool = False,
+    # Referring to the "Quantifying-Surprise-EHRs" reference implementation:
+    # Packed collation is trained using an IterableDataset (no materialization).
+    iterable_dataset: bool = True,
     **kwargs,
 ):
     """pass additional model configuration parameters with kwargs"""
@@ -109,15 +117,14 @@ def main(
             ),
         }
 
+    # Reference computes max_steps explicitly for packed/iterable training.
+    # This keeps walltime predictable and avoids relying on "epoch" semantics
+    # when using an IterableDataset that repeats admissions `n_epochs` times.
     max_steps = (
-        (
             dataset.n_train
             * n_epochs
             // per_device_train_batch_size
             // t.cuda.device_count()
-        )
-        if iterable_dataset
-        else -1
     )
 
     # train model
@@ -154,24 +161,63 @@ def main(
         ],
     )
 
-    best_trial = trainer.hyperparameter_search(
-        direction="minimize",
-        backend="optuna",
-        hp_space=optuna_hp_space,
-        n_trials=n_trials,
+    best_mdl_loc = model_dir.joinpath(
+        "{m}-{j}-hp-{d}".format(m=model_version, j=jid, d=data_version)
     )
+    # If we already exported a "best model" pointer, do nothing (all ranks exit cleanly).
+    if best_mdl_loc.exists() or best_mdl_loc.is_symlink():
+        return str(best_mdl_loc) if os.getenv("RANK", "0") == "0" else None
+
+    # IMPORTANT (DDP correctness):
+    # All ranks must execute the same high-level control flow (HPO vs train),
+    # otherwise DDP initialization / collectives will hang or error.
+    best_ckpt = None
+    if do_hpo:
+        best_trial = trainer.hyperparameter_search(
+            direction="minimize",
+            backend="optuna",
+            hp_space=optuna_hp_space,
+            n_trials=n_trials,
+        )
+        # Each rank will compute `best_trial`, but only rank0 will export the checkpoint.
+        if os.getenv("RANK", "0") == "0":
+            best_ckpt = sorted(
+                output_dir.joinpath(f"run-{best_trial.run_id}").glob("checkpoint-*")
+            ).pop()
+    else:
+        # Fixed-hyperparameter training
+        trainer.args.learning_rate = learning_rate
+        trainer.args.gradient_accumulation_steps = gradient_accumulation_steps
+        trainer.train()
+
+        if os.getenv("RANK", "0") == "0":
+            ckpts = sorted(output_dir.glob("checkpoint-*"))
+            if not ckpts:
+                raise RuntimeError(
+                    f"No checkpoints found under {output_dir} after training."
+                )
+            best_ckpt = ckpts[-1]
+
+    # Ensure all ranks finished (and fail fast consistently) before rank0 exports the symlink.
+    if t.distributed.is_available() and t.distributed.is_initialized():
+        # If any rank errors above, torchrun/elastic will tear down the job; barrier here
+        # prevents silent rank-skew where rank0 exits early and others hang in collectives.
+        t.distributed.barrier()
 
     if os.getenv("RANK", "0") == "0":
-        best_ckpt = sorted(
-            output_dir.joinpath(f"run-{best_trial.run_id}").glob("checkpoint-*")
-        ).pop()
-        best_mdl_loc = model_dir.joinpath(
-            "{m}-{j}-hp-{d}".format(m=model_version, j=jid, d=data_version)
-        )
-        set_perms(AutoModelForCausalLM.from_pretrained(best_ckpt).save_pretrained)(
-            best_mdl_loc
-        )
-        return best_mdl_loc
+        if best_ckpt is None:
+            raise RuntimeError("best_ckpt was not resolved on rank0.")
+        best_mdl_loc.parent.mkdir(parents=True, exist_ok=True)
+        best_mdl_loc.symlink_to(best_ckpt, target_is_directory=True)
+
+        # Ensure group perms on the symlink target directory are already correct (created by Trainer);
+        # still set perms on the parent to avoid surprises in shared group contexts.
+        try:
+            os.chown(best_mdl_loc, uid=-1, gid=os.stat(best_mdl_loc.parent).st_gid)
+        except Exception:
+            pass
+
+        return str(best_mdl_loc)
 
     return None
 
