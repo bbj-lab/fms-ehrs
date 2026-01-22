@@ -325,6 +325,7 @@ class Tokenizer21(BaseTokenizer):
                     [
                         pl.col(cat)
                         .cast(str)
+                        .str.to_lowercase()
                         .str.replace_all(" ", "_")
                         .str.strip_chars(".")
                         .map_elements(

@@ -54,7 +54,7 @@ parser.add_argument(
         "h2o-normed-mean_log",
     ],
 )
-parser.add_argument("--data_version", type=str, default="V21")
+parser.add_argument("--data_version", type=str, default="X21")
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():

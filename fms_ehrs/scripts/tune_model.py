@@ -128,9 +128,15 @@ def main(
         bf16=True,
     )
 
+    def collate_fn(batch):
+        input_ids = t.tensor([x["input_ids"] for x in batch])
+        labels = input_ids.clone()
+        return {"input_ids": input_ids, "labels": labels}
+
     trainer = Trainer(
         model=model_init(),
         model_init=model_init,
+        data_collator=collate_fn,
         train_dataset=(tr_ds := dataset.get_train_dataset(n_epochs=n_epochs)),
         eval_dataset=dataset.get_val_dataset(),
         args=training_args,

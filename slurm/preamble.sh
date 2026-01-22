@@ -23,6 +23,7 @@ case "$(uname -n)" in
     bbj-lab*)
         hm="/mnt/bbj-lab/users/$(whoami)"
         HF_HOME=/mnt/bbj-lab/cache/huggingface/
+        export HF_DATASETS_CACHE="~/cache"
         name="adhoc"
         ;;
     *)
