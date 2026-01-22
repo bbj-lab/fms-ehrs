@@ -8,7 +8,7 @@
 
 source preamble.sh
 
-export data_version=V21
+export data_version=X21
 
 echo "Processing MIMIC data..."
 python3 ../fms_ehrs/scripts/tokenize_w_config.py \

@@ -10,7 +10,7 @@ options:
     include_time_spacing_tokens: !!bool true # chronicle the passage of time
     fused_category_values: !!bool false # combine categories and values into single tokens
     detect_discrete: !!bool true # simple strategy for categories that take fewer values than no. Q tokens
-    max_event_days: !!int 7 # truncate events at 7 days with an ellipsis token
+    max_event_days: !!int 28 # truncate events at 28 days with an ellipsis token
 
 # primary reference table for static data to which other tables will be joined
 reference:
@@ -25,19 +25,19 @@ reference:
           key: patient_id
           validation: "m:1"
 
-        - table: clif_hospital_diagnosis
-          key: hospitalization_id
-          filter_expr: pl.col("diagnosis_primary") == 1
-          with_col_expr: pl.col("diagnosis_code").str.split(".").list.first().alias("primary_dx_type")
-          agg_expr: pl.col("primary_dx_type").sort().alias("primary_dx_types")
-          validation: "1:1"
+        # - table: clif_hospital_diagnosis
+        #   key: hospitalization_id
+        #   filter_expr: pl.col("diagnosis_primary") == 1
+        #   with_col_expr: pl.col("diagnosis_code").str.split(".").list.first().alias("primary_dx_type")
+        #   agg_expr: pl.col("primary_dx_type").sort().alias("primary_dx_types")
+        #   validation: "1:1"
 
-        - table: clif_hospital_diagnosis
-          key: hospitalization_id
-          filter_expr: pl.col("diagnosis_primary") == 0
-          with_col_expr: pl.col("diagnosis_code").str.split(".").list.first().alias("dx_type")
-          agg_expr: pl.col("dx_type").sort().alias("non_primary_dx_types")
-          validation: "1:1"
+        # - table: clif_hospital_diagnosis
+        #   key: hospitalization_id
+        #   filter_expr: pl.col("diagnosis_primary") == 0
+        #   with_col_expr: pl.col("diagnosis_code").str.split(".").list.first().alias("dx_type")
+        #   agg_expr: pl.col("dx_type").sort().alias("non_primary_dx_types")
+        #   validation: "1:1"
 
 # run QC for times if necessary
 times_qc:
@@ -56,8 +56,7 @@ prefix:
 
     - column: quantized_age
 
-    # change to admission_type_category in future
-    - column: admission_type_name
+    - column: admission_type_category
       prefix: ADMN
 
 events:
@@ -244,10 +243,10 @@ suffix:
     - column: discharge_category
       prefix: DSCG
 
-    - column: primary_dx_types
-      prefix: DX
-      is_list: !!bool true
+    # - column: primary_dx_types
+    #   prefix: DX
+    #   is_list: !!bool true
 
-    - column: non_primary_dx_types
-      prefix: DX
-      is_list: !!bool true
+    # - column: non_primary_dx_types
+    #   prefix: DX
+    #   is_list: !!bool true

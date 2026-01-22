@@ -28,7 +28,7 @@ logger.info("running {}".format(__file__))
 logger.log_env()
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--data_dir", type=pathlib.Path, default="../../data-mimic")
+parser.add_argument("--data_dir", type=pathlib.Path, default="../../data-ucmc")
 parser.add_argument("--data_version", type=str, default="V21")
 parser.add_argument(
     "--model_loc",
@@ -40,6 +40,7 @@ parser.add_argument(
     type=str,
     nargs="*",
     default=[
+        # mimic
         "27416443",
         "29161299",
         "28311451",
@@ -52,6 +53,9 @@ parser.add_argument(
         "27854643",
         "21837764",
         "29761794",
+        # ucmc
+        "645165754",
+        "632760687",
     ],
 )
 parser.add_argument(
@@ -72,6 +76,7 @@ parser.add_argument(
         # "h2o-normed-mean",
         # "h2o-normed-mean_log",
         "information",
+        "all-jumps-all-layers",
     ],
 )
 parser.add_argument("--out_dir", type=pathlib.Path, default="../../figs")
@@ -148,7 +153,21 @@ mets = {
         )
     )[tt.select("index").to_numpy().ravel()]
     for met in args.metrics
+    if not met.startswith("all-jumps")
 }
+
+if "all-jumps-all-layers" in args.metrics:
+    jumps_all = np.load(
+        gzip.open(
+            data_dirs["test"].joinpath(
+                "all-jumps-all-layers-{mdl}.npy.gz".format(mdl=model_loc.stem)
+            ),
+            "rb",
+        )
+    )[tt.select("index").to_numpy().ravel()]
+    for i, jumps_i in enumerate(jumps_all.T):
+        mets[f"jumps-{i}"] = jumps_i.T
+    mets["jumps-all"] = np.sqrt(np.sum(np.square(jumps_all),axis=-1))
 
 if data_dir.stem == "data-ucmc" and "information" in mets.keys():
     # manually fix issue with admission types

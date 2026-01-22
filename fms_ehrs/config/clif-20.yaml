@@ -36,7 +36,7 @@ prefix:
     - column: sex_category
       prefix: SEX
     - column: quantized_age
-    - column: admission_type_name
+    - column: admission_type_category
       prefix: ADMN
 
 events:

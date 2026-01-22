@@ -78,7 +78,7 @@ def main(
     model = model.to(device)
 
     # iterate over splits and run inference using model
-    stop_tokens = t.tensor([vocab("PAD"), vocab("TRUNC"), vocab("TL_END")])
+    stop_tokens = t.tensor([vocab("PAD")]).to(device)
 
     for s in splits:
         n = dataset[s].num_rows
