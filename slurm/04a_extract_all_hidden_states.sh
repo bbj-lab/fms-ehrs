@@ -5,7 +5,7 @@
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:1
 #SBATCH --time=24:00:00
-#SBATCH --array=0-6
+#SBATCH --array=0-5
 #SBATCH --mem=160G
 
 source preamble.sh

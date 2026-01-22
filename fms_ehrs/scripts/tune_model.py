@@ -15,9 +15,10 @@ from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
     EarlyStoppingCallback,
+    Trainer,
     TrainerCallback,
+    TrainingArguments,
 )
-from trl import SFTConfig, SFTTrainer
 
 from fms_ehrs.framework.dataset import Datasets
 from fms_ehrs.framework.logger import get_logger
@@ -109,10 +110,9 @@ def main(
         }
 
     # train model
-    training_args = SFTConfig(
+    training_args = TrainingArguments(
         report_to="wandb",
         run_name="{m}-{j}".format(m=model_version, j=jid),
-        max_seq_length=max_seq_length,
         output_dir=str(output_dir),
         per_device_train_batch_size=per_device_train_batch_size,
         per_device_eval_batch_size=4,
@@ -128,7 +128,7 @@ def main(
         bf16=True,
     )
 
-    trainer = SFTTrainer(
+    trainer = Trainer(
         model=model_init(),
         model_init=model_init,
         train_dataset=(tr_ds := dataset.get_train_dataset(n_epochs=n_epochs)),

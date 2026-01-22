@@ -4,8 +4,8 @@
 #SBATCH --output=./output/%A_%a-%x.stdout
 #SBATCH --partition=tier3q
 #SBATCH --cpus-per-task=5
-#SBATCH --mem=250GB
-#SBATCH --time=2:00:00
+#SBATCH --mem=500GB
+#SBATCH --time=24:00:00
 #SBATCH --array=0-5
 ##SBATCH --dependency=afterok:4887053,4887863
 
@@ -39,6 +39,7 @@ python3 ../fms_ehrs/scripts/process_all_trajectories.py \
     --out_dir "${out_dirs[$i]}" \
     --data_version V21 \
     --model_loc "${hm}/mdls-archive/llama-med-4476655-hp-V21" \
-    --splits "${splits[$j]}"
+    --splits "${splits[$j]}" \
+    --all_layers
 
 source postscript.sh

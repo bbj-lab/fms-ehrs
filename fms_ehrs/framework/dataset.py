@@ -61,7 +61,10 @@ class Datasets:
                 lambda batch: {
                     "input_ids": batch[
                         "padded" if (self.collation == "padded") else "tokens"
-                    ]
+                    ],
+                    "labels": batch[
+                        "padded" if (self.collation == "padded") else "tokens"
+                    ],
                 },
                 batched=True,
                 remove_columns=[
@@ -75,7 +78,10 @@ class Datasets:
                     {
                         "input_ids": ds.Sequence(
                             ds.Value(str(self.uint_dtype).split(".")[-1])
-                        )
+                        ),
+                        "labels": ds.Sequence(
+                            ds.Value(str(self.uint_dtype).split(".")[-1])
+                        ),
                     }
                 ),
             )
@@ -109,7 +115,8 @@ class Datasets:
                 ret = t.concat((ret, x[:ndiff]))
                 x = x[ndiff:]
                 if ret.size(dim=0) == self.max_seq_length:
-                    yield {"input_ids": ret.to(self.uint_dtype)}
+                    ret_uint = ret.to(self.uint_dtype)
+                    yield {"input_ids": ret_uint, "labels": ret_uint.clone()}
                     ret = t.Tensor(size=(0,))
 
     def get_train_dataset(self, n_epochs: int = 10, iterable: bool = False):
@@ -130,7 +137,10 @@ class Datasets:
                     {
                         "input_ids": ds.Sequence(
                             ds.Value(str(self.uint_dtype).split(".")[-1])
-                        )
+                        ),
+                        "labels": ds.Sequence(
+                            ds.Value(str(self.uint_dtype).split(".")[-1])
+                        ),
                     }
                 ),
             )
@@ -150,7 +160,10 @@ class Datasets:
                     {
                         "input_ids": ds.Sequence(
                             ds.Value(str(self.uint_dtype).split(".")[-1])
-                        )
+                        ),
+                        "labels": ds.Sequence(
+                            ds.Value(str(self.uint_dtype).split(".")[-1])
+                        ),
                     }
                 ),
             )

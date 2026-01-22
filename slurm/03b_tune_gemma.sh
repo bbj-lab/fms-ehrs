@@ -2,9 +2,10 @@
 
 #SBATCH --job-name=tn-gemma
 #SBATCH --output=./output/%j-%x.stdout
-#SBATCH --partition=gpuq
+#SBATCH --partition=gpudev
 #SBATCH --gres=gpu:1
 #SBATCH --time=1-00:00:00
+#SBATCH --mem=100GB
 
 source preamble.sh
 
@@ -18,15 +19,18 @@ python3 ../fms_ehrs/scripts/tune_model.py \
     --lr_max 4e-4 \
     --gr_acc_min 1 \
     --gr_acc_max 4 \
-    --per_device_train_batch_size 8 \
-    --max_seq_length 4096 \
+    --per_device_train_batch_size 4 \
+    --max_seq_length 2048 \
     --data_dir "${hm}/data-mimic" \
     --data_version ${data_version} \
     --model_dir "${hm}/mdls" \
     --model_version gemma \
     --model_name "google/gemma-3-270m" \
     --wandb_project ${data_version} \
-    --intermediate_size 1280
+    --hidden_size 128 \
+    --intermediate_size 256 \
+    --num_hidden_layers 9 \
+    --max_position_embeddings 8192
 
 source postscript.sh
 

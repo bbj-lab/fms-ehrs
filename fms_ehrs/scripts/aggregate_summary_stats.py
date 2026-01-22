@@ -10,6 +10,7 @@ import pathlib
 
 import numpy as np
 import polars as pl
+import statsmodels.formula.api as smf
 
 from fms_ehrs.framework.logger import get_logger
 from fms_ehrs.framework.tokenizer import Tokenizer21
@@ -34,6 +35,25 @@ parser.add_argument(
     type=pathlib.Path,
     default="../../mdls-archive/llama-med-4476655-hp-V21",
 )
+parser.add_argument(
+    "--importances",
+    type=str,
+    nargs="*",
+    default=[
+        "h2o-mean",
+        "h2o-mean_log",
+        "h2o-va-mean",
+        "h2o-va-mean_log",
+        "scissorhands-10",
+        "scissorhands-20",
+        "scissorhands-va-10",
+        "scissorhands-va-20",
+        "rollout-mean",
+        "rollout-mean_log",
+        "h2o-normed-mean",
+        "h2o-normed-mean_log",
+    ],
+)
 parser.add_argument("--data_version", type=str, default="V21")
 args, unknowns = parser.parse_known_args()
 
@@ -44,26 +64,28 @@ model_loc = pathlib.Path(args.model_loc).expanduser().resolve()
 splits = ("train", "val", "test")
 data_dirs = [pathlib.Path(dd).expanduser().resolve() for dd in args.data_dirs]
 
-for data_dir in data_dirs[:1]:
-    dds = {s: data_dir / f"{args.data_version}-tokenized" / s for s in splits}
-    tkzr = Tokenizer21(
-        data_dir=dds["train"],
-        vocab_path=dds["train"] / "vocab.gzip",
-        config_file=args.config_loc,
-    )
+data_dir = data_dirs[1]
+dds = {s: data_dir / f"{args.data_version}-tokenized" / s for s in splits}
+tkzr = Tokenizer21(
+    data_dir=dds["train"],
+    vocab_path=dds["train"] / "vocab.gzip",
+    config_file=args.config_loc,
+)
 
-    def summarize_split(s):
-        logger.info(f"split {s=}")
-        tt = pl.read_parquet(dds[s] / "tokens_timelines.parquet")
-        n_hospitalizations = len(tt)
-        n_tokens = tt.select(pl.col("tokens").list.len().sum()).item()
-        logger.info(f"{n_hospitalizations=}")
-        logger.info(f"{n_tokens=}")
-        logger.info(f"avg_len={n_tokens / n_hospitalizations:.2f}")
-        summarize(tokenizer=tkzr, tokens_timelines=tt, logger=logger)
 
-    for s in splits:
-        summarize_split(s)
+def summarize_split(s):
+    logger.info(f"split {s=}")
+    tt = pl.read_parquet(dds[s] / "tokens_timelines.parquet")
+    n_hospitalizations = len(tt)
+    n_tokens = tt.select(pl.col("tokens").list.len().sum()).item()
+    logger.info(f"{n_hospitalizations=}")
+    logger.info(f"{n_tokens=}")
+    logger.info(f"avg_len={n_tokens / n_hospitalizations:.2f}")
+    summarize(tokenizer=tkzr, tokens_timelines=tt, logger=logger)
+
+
+for s in splits:
+    summarize_split(s)
 
 tkns = np.vstack(
     pl.scan_parquet(dds["test"] / "tokens_timelines.parquet")
@@ -75,26 +97,57 @@ tkns = np.vstack(
 infm = np.load(
     gzip.open(dds["test"] / "information-{mdl}.npy.gz".format(mdl=model_loc.stem), "rb")
 )
-impt = np.load(
+
+impt = {
+    k: np.load(
+        gzip.open(
+            dds["test"] / "importance-{k}-{mdl}.npy.gz".format(k=k, mdl=model_loc.stem),
+            "rb",
+        )
+    )
+    for k in args.importances
+}
+
+jmps_all = np.load(
     gzip.open(
-        dds["test"] / "importance-h2o-mean-{mdl}.npy.gz".format(mdl=model_loc.stem),
+        dds["test"].joinpath(
+            "all-jumps-all-layers-{mdl}.npy.gz".format(mdl=model_loc.stem)
+        ),
         "rb",
     )
 )
-df = pl.DataFrame(
-    {
-        "tkns": np.vectorize(tkzr.vocab.reverse.__getitem__)(tkns.ravel()),
-        "typs": np.vectorize(tkzr.get_token_type_from_int)(tkns.ravel()),
-        "infm": infm.ravel(),
-        "impt": impt.ravel(),
-        "ords": np.indices(tkns.shape)[1].ravel(),
-    }
-).filter(pl.col("tkns") != "PAD")
+
+df = (
+    pl.DataFrame(
+        {
+            "tkns": np.vectorize(tkzr.vocab.reverse.__getitem__)(tkns.ravel()),
+            "typs": np.vectorize(tkzr.get_token_type_from_int)(tkns.ravel()),
+            "infm": infm.ravel(),
+            "ords": np.indices(tkns.shape)[1].ravel(),
+            "jmps": np.sqrt(
+                np.sum(np.square(jmps_all.astype(np.float64)), axis=-1)
+            ).ravel(),
+        }
+        | {f"jmps{i}": jumps_i.T.ravel() for i, jumps_i in enumerate(jmps_all.T)}
+        | {k: v.ravel() for k, v in impt.items()}
+    )
+    .filter(pl.col("tkns") != "PAD")
+    .filter(pl.col("jmps").is_not_nan())
+)
 
 with pl.Config(tbl_rows=-1, set_float_precision=3):
-    df.group_by("typs").agg(pl.col("infm").mean(), pl.col("impt").mean()).sort(
-        "impt", descending=True
-    )
+    df.group_by("typs").agg(
+        pl.col("infm").mean(),
+        pl.col("h2o-mean").mean(),
+        pl.col("h2o-va-mean").mean(),
+        pl.col("h2o-normed-mean").mean(),
+        pl.col("jmps").mean(),
+        pl.col("jmps5").mean(),
+        pl.col("jmps6").mean(),
+        pl.col("jmps7").mean(),
+        pl.col("jmps8").mean(),
+        pl.len().alias("freq"),
+    ).sort("infm", descending=True)
 
 with pl.Config(tbl_rows=-1, set_float_precision=3):
     df.group_by("tkns").agg(pl.col("infm").mean(), pl.col("impt").mean()).sort(
@@ -104,10 +157,47 @@ with pl.Config(tbl_rows=-1, set_float_precision=3):
 with pl.Config(tbl_rows=-1, set_float_precision=3):
     df.group_by("ords").agg(
         pl.col("infm").mean(),
-        pl.col("impt").mean(),
+        pl.col("h2o-mean").mean(),
+        pl.col("h2o-va-mean").mean(),
+        pl.col("h2o-normed-mean").mean(),
+        pl.col("scissorhands-va-20").mean(),
+        pl.col("jmps").mean(),
+        pl.col("jmps5").mean(),
+        pl.col("jmps6").mean(),
+        pl.col("jmps7").mean(),
+        pl.col("jmps8").mean(),
         (pl.len() / len(tkns)).alias("freq"),
-    ).sort("ords").head(100)
+        pl.col("typs").mode(),
+    ).sort("ords").head(50)
 
+with pl.Config(tbl_rows=-1, set_float_precision=3):
+    df.group_by("typs").agg(
+        pl.col("jmps").mean(),
+        pl.col("impt").mean(),
+        pl.col("jmps").mean(),
+        pl.col("jmps6").mean(),
+        pl.col("jmps7").mean(),
+    ).sort("jmps", descending=True)
+
+with pl.Config(tbl_rows=-1, tbl_cols=-1, tbl_width_chars=300, set_float_precision=3):
+    df.select(pl.selectors.float()).filter(
+        pl.all_horizontal(pl.all().is_not_nan())
+    ).sample(n=100_000, seed=42).corr().pipe(
+        lambda x: x.with_columns(pl.Series("row", x.columns)).select("row", *x.columns)
+    )
+
+
+results = smf.ols("impt ~ infm + jmps", data=df.to_pandas()).fit()
+print(results.summary())
+
+results = smf.ols(
+    "impt ~ infm + jmps" + " + ".join([f"jmps{i}" for i in range(jmps_all.T.shape[0])]),
+    data=df.to_pandas(),
+).fit()
+print(results.summary())
+
+results = smf.ols("infm ~ jmps8", data=df.to_pandas()).fit()
+print(results.summary())
 
 # tt_all = pl.concat(
 #     [
