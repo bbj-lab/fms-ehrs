@@ -78,16 +78,11 @@ class TestSoftDiscretizationEncoder(unittest.TestCase):
 
 class TestContinuousValueEncoder(unittest.TestCase):
     def test_code_id_normalization_and_clipping(self):
-        # Make the MLP act like identity on positive inputs:
-        # embed_dim=1, hidden_dim=1, activation=relu, weights=1, biases=0
-        enc = ContinuousValueEncoder(embed_dim=1, hidden_dim=1, activation="relu", clip_sigma=2.0)
+        # ContinuousValueEncoder is xVal-style: with embed_dim=1 and num_embeddings=[1],
+        # output equals the normalized scalar (after clipping).
+        enc = ContinuousValueEncoder(embed_dim=1, clip_sigma=2.0, num_scales=1)
         with torch.no_grad():
-            lin1 = enc.mlp[0]
-            lin2 = enc.mlp[2]
-            lin1.weight.fill_(1.0)
-            lin1.bias.fill_(0.0)
-            lin2.weight.fill_(1.0)
-            lin2.bias.fill_(0.0)
+            enc.num_embeddings.fill_(1.0)
 
         # Stats for token id 5: mean=0, std=1
         enc.means_by_id = torch.zeros((16,), dtype=torch.float32)

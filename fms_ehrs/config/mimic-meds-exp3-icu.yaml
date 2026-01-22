@@ -1,0 +1,113 @@
+%YAML 1.2
+# Exp3 (MEDS arm): ICU-eligible hospitalizations only (cohort handled upstream),
+# and a **matched-signal subset** intended to overlap with CLIF Exp3:
+#   - Vitals (icu/chartevents)
+#   - Labs (hosp/labevents)
+#
+# Rationale:
+# Exp3 is intended to isolate vocabulary semantics (MEDS-native vs CLIF categories).
+# Restricting to vitals+labs reduces confounding from format-specific tables
+# (e.g., infusions/outputs) that do not have clean CLIF counterparts.
+---
+subject_id: hadm_id
+group_id: subject_id
+
+options:
+    day_stay_filter: !!bool true
+    max_padded_len: !!int 1024
+    quantizer: deciles
+    include_time_spacing_tokens: !!bool true
+    fused_category_values: !!bool false
+
+reference:
+    table: meds
+    filter_expr:
+        - pl.col("hadm_id").is_not_null()
+        - pl.col("code").str.starts_with("HOSPITAL_ADMISSION")
+    with_col_expr:
+        - pl.col("time").alias("admission_time")
+        - pl.col("code").str.split("//").list[1].str.to_lowercase().str.replace_all(" ",
+          "_").alias("admission_type")
+    start_time: admission_time
+    end_time: discharge_time
+    age: age_approx
+    post_join_cols:
+        - (pl.col("admission_time") - pl.col("dob_approx")).cast(float).alias("age_approx")
+
+    augmentation_tables:
+        - table: meds
+          key: hadm_id
+          filter_expr:
+              - pl.col("hadm_id").is_not_null()
+              - pl.col("code").str.starts_with("HOSPITAL_DISCHARGE")
+          validation: "1:1"
+          with_col_expr:
+              - pl.col("time").alias("discharge_time")
+              - pl.col("code").str.split("//").list[1].str.to_lowercase().str.replace_all(" ",
+                "_").alias("discharge_type")
+
+        - table: meds
+          key: subject_id
+          filter_expr: pl.col("code").str.starts_with("GENDER")
+          validation: "m:1"
+          agg_expr: pl.col("code").str.split("//").list[1].drop_nulls().first().alias("sex")
+
+        - table: meds
+          key: subject_id
+          filter_expr: pl.col("code") == "MEDS_BIRTH"
+          validation: "m:1"
+          agg_expr: pl.col("time").drop_nulls().first().alias("dob_approx")
+
+        - table: meds
+          key: subject_id
+          validation: "m:1"
+          agg_expr:
+              - pl.col("insurance").drop_nulls().first().alias("recorded_insurance")
+              - pl.col("language").drop_nulls().first().alias("recorded_language")
+              - pl.col("marital_status").drop_nulls().first().alias("recorded_marital_status")
+              - pl.col("race").drop_nulls().first().alias("recorded_race")
+
+prefix:
+    - column: recorded_race
+      prefix: RACE
+
+    - column: recorded_language
+      prefix: LANG
+
+    - column: sex
+      prefix: SEX
+
+    - column: quantized_age
+
+    - column: recorded_insurance
+      prefix: INSR
+
+    - column: recorded_marital_status
+      prefix: MRRD
+
+    - column: admission_type
+      prefix: ADMN
+
+events:
+    - table: meds
+      prefix: VTL
+      filter_expr:
+          - pl.col("hadm_id").is_not_null()
+          - pl.col("code").str.starts_with("VITAL")
+      code: code
+      numeric_value: numeric_value
+      time: time
+
+    - table: meds
+      prefix: LAB
+      filter_expr:
+          - pl.col("hadm_id").is_not_null()
+          - pl.col("code").str.starts_with("LAB")
+      code: code
+      numeric_value: numeric_value
+      time: time
+
+suffix:
+    - column: discharge_type
+      prefix: DSCG
+

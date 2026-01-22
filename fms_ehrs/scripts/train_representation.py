@@ -39,6 +39,7 @@ Note:
     (fused_category_values=false in the tokenizer config).
 """
 
+import json
 import os
 import pathlib
 import typing
@@ -136,16 +137,32 @@ def main(
     model_name: str = "meta-llama/Llama-3.2-1B",
     model_version: str = "llama1b",
     # Representation parameters
-    representation: typing.Literal["discrete", "soft", "continuous"] = "discrete",
+    representation: typing.Literal["discrete", "soft", "continuous", "xval"] = "discrete",
     temporal: typing.Literal["time_tokens", "time2vec"] = "time_tokens",
     num_bins: int = 20,
     time2vec_dim: int = 64,
+    continuous_num_scales: int = 1,
+    # xVal (canonical) knobs
+    numeric_loss_weight: float = 1.0,
+    numeric_loss_weight_choices: typing.Sequence[float] = (0.1, 1.0, 10.0),
     # Training parameters
     n_epochs: int = 5,
     per_device_train_batch_size: int = 4,
     per_device_eval_batch_size: int = 4,
     gradient_accumulation_steps: int = 2,
     learning_rate: float = 5e-5,
+    # HPO (reference-consistent: tune lr + grad accumulation; optional method knobs)
+    do_hpo: bool = False,
+    n_trials: int = 3,
+    lr_min: float = 5e-5,
+    lr_max: float = 5e-4,
+    gr_acc_min: int = 1,
+    gr_acc_max: int = 3,
+    # HPO (method-specific essential knobs; matched-budget)
+    tune_representation_hparams: bool = False,
+    num_bins_choices: typing.Sequence[int] | None = None,
+    time2vec_dim_choices: typing.Sequence[int] | None = None,
+    continuous_num_scales_choices: typing.Sequence[int] | None = None,
     max_seq_length: int = 1024,
     # Experiment tracking
     jid: str = os.getenv("SLURM_JOB_ID", ""),
@@ -175,6 +192,8 @@ def main(
         Number of quantile bins for soft discretization
     time2vec_dim : int
         Internal dimension for Time2Vec
+    continuous_num_scales : int
+        Number of xVal multiscale embeddings (continuous representation)
     n_epochs : int
         Number of training epochs
     per_device_train_batch_size : int
@@ -187,6 +206,14 @@ def main(
         Learning rate
     max_seq_length : int
         Maximum sequence length
+    tune_representation_hparams : bool
+        If True, allow Optuna to tune method-specific essential knobs.
+    num_bins_choices : Sequence[int], optional
+        Candidate num_bins values for soft discretization.
+    time2vec_dim_choices : Sequence[int], optional
+        Candidate Time2Vec dimensions.
+    continuous_num_scales_choices : Sequence[int], optional
+        Candidate xVal multiscale counts for continuous encoding.
     jid : str
         SLURM job ID for logging
     wandb_project : str
@@ -201,14 +228,37 @@ def main(
     np.random.seed(seed)
 
     # Validate configuration
-    if representation in ("soft", "continuous") and temporal == "time_tokens":
+    if representation in ("soft", "continuous", "xval") and temporal == "time_tokens":
         logger.warning(
             f"Using {representation} representation with time_tokens temporal encoding. "
             "This is valid but typically paired with time2vec for Exp2."
         )
 
+    # Default pre-registered grids if tuning is enabled but choices are omitted.
+    # These defaults preserve the "no extra knobs" setting unless explicitly set.
+    if tune_representation_hparams:
+        if representation == "soft" and not num_bins_choices:
+            num_bins_choices = [num_bins]
+        if temporal == "time2vec" and not time2vec_dim_choices:
+            time2vec_dim_choices = [time2vec_dim]
+        if representation == "continuous" and not continuous_num_scales_choices:
+            continuous_num_scales_choices = [continuous_num_scales]
+
+    def _select_numeric_loss_weight(trial=None, trial_params: dict | None = None) -> float:
+        # Matched-budget tuning:
+        # - Always keep n_trials identical across conditions.
+        # - For xVal only, tune numeric_loss_weight over a tiny fixed grid.
+        if representation != "xval":
+            return float(numeric_loss_weight)
+        choices = [float(x) for x in numeric_loss_weight_choices]
+        if trial is not None:
+            return float(trial.suggest_categorical("numeric_loss_weight", choices))
+        if trial_params and "numeric_loss_weight" in trial_params:
+            return float(trial_params["numeric_loss_weight"])
+        return float(numeric_loss_weight)
+
     # Determine what additional data to load
-    needs_numeric_values = representation in ("soft", "continuous")
+    needs_numeric_values = representation in ("soft", "continuous", "xval")
     needs_times = temporal == "time2vec"
 
     if needs_numeric_values or needs_times:
@@ -244,30 +294,161 @@ def main(
     logger.info(f"Loaded {dataset.n_train} train, {dataset.n_val} val samples")
     logger.info(f"Vocabulary size: {len(dataset.vocab)}")
 
-    # Create base model
-    config = AutoConfig.from_pretrained(
-        model_name,
-        vocab_size=len(dataset.vocab),
-        bos_token_id=dataset.vocab("TL_START"),
-        eos_token_id=dataset.vocab("TL_END"),
-        pad_token_id=dataset.vocab("PAD"),
-        **model_kwargs,
-    )
-    base_model = AutoModelForCausalLM.from_config(config)
+    # Load quantizer/anchoring-independent numeric stats (if available).
+    #
+    # These are produced by tokenization as:
+    #   <data_dir>/<data_version>-tokenized/train/numeric_stats.json
+    #
+    # If present, we use them to define (\mu_c, \sigma_c) for the continuous encoder,
+    # decoupling continuous scaling from discretization choices (e.g., 5-10-5 anchoring).
+    numeric_stats: dict[str, dict[str, float]] | None = None
+    stats_path = data_dir / f"{data_version}-tokenized" / "train" / "numeric_stats.json"
+    if stats_path.exists():
+        try:
+            payload = json.loads(stats_path.read_text(encoding="utf-8"))
+            numeric_stats = payload.get("stats", None)
+            logger.info("Loaded numeric_stats.json for continuous scaling: %s", str(stats_path))
+        except Exception as e:
+            logger.warning(
+                "Failed to load numeric_stats.json (falling back to vocab-aux-derived stats): %s",
+                e,
+            )
 
-    # Wrap with representation mechanics
-    model = create_representation_model(
-        base_model=base_model,
-        vocab=dataset.vocab,
-        representation=representation,
-        temporal=temporal,
-        num_bins=num_bins,
-        time2vec_dim=time2vec_dim,
-    )
+    def _select_representation_knobs(trial=None, trial_params: dict | None = None):
+        selected_num_bins = num_bins
+        selected_time2vec_dim = time2vec_dim
+        selected_num_scales = continuous_num_scales
+
+        if tune_representation_hparams:
+            if trial is not None:
+                if representation == "soft" and num_bins_choices:
+                    selected_num_bins = trial.suggest_categorical(
+                        "num_bins", list(num_bins_choices)
+                    )
+                if temporal == "time2vec" and time2vec_dim_choices:
+                    selected_time2vec_dim = trial.suggest_categorical(
+                        "time2vec_dim", list(time2vec_dim_choices)
+                    )
+                if representation == "continuous" and continuous_num_scales_choices:
+                    selected_num_scales = trial.suggest_categorical(
+                        "continuous_num_scales", list(continuous_num_scales_choices)
+                    )
+            elif trial_params:
+                if representation == "soft" and "num_bins" in trial_params:
+                    selected_num_bins = trial_params["num_bins"]
+                if temporal == "time2vec" and "time2vec_dim" in trial_params:
+                    selected_time2vec_dim = trial_params["time2vec_dim"]
+                if representation == "continuous" and "continuous_num_scales" in trial_params:
+                    selected_num_scales = trial_params["continuous_num_scales"]
+
+        return selected_num_bins, selected_time2vec_dim, selected_num_scales
+
+    def _log_param_deltas(
+        model,
+        *,
+        trial=None,
+        selected_num_bins: int,
+        selected_time2vec_dim: int,
+        selected_num_scales: int,
+        selected_numeric_loss_weight: float,
+    ):
+        trial_tag = f"trial={trial.number}" if trial is not None else "trial=base"
+        if isinstance(model, RepresentationModelWrapper):
+            base_params = sum(p.numel() for p in model.base_model.parameters())
+            value_params = (
+                sum(p.numel() for p in model.value_encoder.parameters())
+                if model.value_encoder is not None
+                else 0
+            )
+            time_params = (
+                sum(p.numel() for p in model.time2vec_layer.parameters())
+                if model.time2vec_layer is not None
+                else 0
+            )
+            total_params = base_params + value_params + time_params
+            logger.info(
+                "[%s] params: base=%s value=%s time=%s total=%s | knobs: num_bins=%s time2vec_dim=%s num_scales=%s numeric_loss_weight=%s",
+                trial_tag,
+                f"{base_params:,}",
+                f"{value_params:,}",
+                f"{time_params:,}",
+                f"{total_params:,}",
+                selected_num_bins,
+                selected_time2vec_dim,
+                selected_num_scales,
+                selected_numeric_loss_weight,
+            )
+        else:
+            total_params = sum(p.numel() for p in model.parameters())
+            logger.info(
+                "[%s] params: base=%s | knobs: num_bins=%s time2vec_dim=%s num_scales=%s numeric_loss_weight=%s",
+                trial_tag,
+                f"{total_params:,}",
+                selected_num_bins,
+                selected_time2vec_dim,
+                selected_num_scales,
+                selected_numeric_loss_weight,
+            )
+
+    def _build_model(
+        selected_num_bins: int,
+        selected_time2vec_dim: int,
+        selected_num_scales: int,
+        selected_numeric_loss_weight: float,
+    ):
+        # Rebuild model each time (required for Trainer.hyperparameter_search)
+        config = AutoConfig.from_pretrained(
+            model_name,
+            vocab_size=len(dataset.vocab),
+            bos_token_id=dataset.vocab("TL_START"),
+            eos_token_id=dataset.vocab("TL_END"),
+            pad_token_id=dataset.vocab("PAD"),
+            **model_kwargs,
+        )
+        base_model = AutoModelForCausalLM.from_config(config)
+        return create_representation_model(
+            base_model=base_model,
+            vocab=dataset.vocab,
+            representation=representation,
+            temporal=temporal,
+            num_bins=selected_num_bins,
+            time2vec_dim=selected_time2vec_dim,
+            continuous_num_scales=selected_num_scales,
+            continuous_numeric_stats=numeric_stats if representation in ("continuous", "xval") else None,
+            numeric_loss_weight=selected_numeric_loss_weight,
+        )
+
+    def model_init(trial=None):
+        selected_num_bins, selected_time2vec_dim, selected_num_scales = _select_representation_knobs(
+            trial=trial
+        )
+        selected_weight = _select_numeric_loss_weight(trial=trial)
+        model = _build_model(selected_num_bins, selected_time2vec_dim, selected_num_scales, selected_weight)
+        _log_param_deltas(
+            model,
+            trial=trial,
+            selected_num_bins=selected_num_bins,
+            selected_time2vec_dim=selected_time2vec_dim,
+            selected_num_scales=selected_num_scales,
+            selected_numeric_loss_weight=selected_weight,
+        )
+        return model
+
+    # Build initial model (non-HPO path) and use model_init for HPO path
+    model = model_init()
+    final_num_bins = num_bins
+    final_time2vec_dim = time2vec_dim
+    final_num_scales = continuous_num_scales
 
     n_params = sum(p.numel() for p in model.parameters())
     logger.info(f"Model initialized with {n_params:,} parameters")
     logger.info(f"Representation: {representation}, Temporal: {temporal}")
+    logger.info(
+        "Representation knobs: num_bins=%s time2vec_dim=%s continuous_num_scales=%s",
+        num_bins,
+        time2vec_dim,
+        continuous_num_scales,
+    )
 
     # Create data collator
     data_collator = RepresentationDataCollator(
@@ -277,6 +458,15 @@ def main(
     )
 
     # Training arguments
+    # IMPORTANT (DDP correctness):
+    # For soft/continuous representations, the value encoder is only exercised on
+    # batches that contain at least one numeric quantile token with a non-NaN value.
+    # Some admissions contain no numeric events, so some steps legitimately do not
+    # use the value-encoder parameters. In DDP, this requires find_unused_parameters,
+    # otherwise PyTorch raises:
+    #   RuntimeError: Expected to have finished reduction ... parameters not used ...
+    ddp_find_unused = representation in ("soft", "continuous", "xval")
+
     training_args = TrainingArguments(
         report_to="wandb",
         run_name=run_name,
@@ -285,6 +475,7 @@ def main(
         per_device_eval_batch_size=per_device_eval_batch_size,
         gradient_accumulation_steps=gradient_accumulation_steps,
         learning_rate=learning_rate,
+        max_grad_norm=1.0,
         num_train_epochs=n_epochs,
         save_total_limit=2,
         metric_for_best_model="eval_loss",
@@ -297,7 +488,7 @@ def main(
         #   RuntimeError: Some tensors share memory ... {'model.embed_tokens.weight', 'lm_head.weight'}
         # Use standard torch serialization for checkpoints instead.
         save_safetensors=False,
-        ddp_find_unused_parameters=False,
+        ddp_find_unused_parameters=ddp_find_unused,
         seed=seed,
         data_seed=seed,
     )
@@ -305,6 +496,7 @@ def main(
     # Create trainer
     trainer = Trainer(
         model=model,
+        model_init=model_init if do_hpo else None,
         train_dataset=dataset.dataset["train"],
         eval_dataset=dataset.dataset["val"],
         args=training_args,
@@ -315,9 +507,85 @@ def main(
         ],
     )
 
-    # Train
     logger.info("Starting training...")
-    trainer.train()
+    if do_hpo:
+        logger.info(
+            "HPO budget: n_trials=%s | hp_space: lr in [%s,%s] (log), grad_acc in [%s,%s]%s",
+            n_trials,
+            lr_min,
+            lr_max,
+            gr_acc_min,
+            gr_acc_max,
+            f", numeric_loss_weight in {list(map(float, numeric_loss_weight_choices))}" if representation == "xval" else "",
+        )
+
+        def optuna_hp_space(trial):
+            hp = {
+                "learning_rate": trial.suggest_float(
+                    "learning_rate", lr_min, lr_max, log=True
+                ),
+                "gradient_accumulation_steps": trial.suggest_int(
+                    "gradient_accumulation_steps", gr_acc_min, gr_acc_max
+                ),
+            }
+            # Matched-budget tuning: include numeric_loss_weight only for xVal.
+            if representation == "xval":
+                hp["numeric_loss_weight"] = trial.suggest_categorical(
+                    "numeric_loss_weight", [float(x) for x in numeric_loss_weight_choices]
+                )
+            return hp
+
+        best_trial = trainer.hyperparameter_search(
+            direction="minimize",
+            backend="optuna",
+            hp_space=optuna_hp_space,
+            n_trials=n_trials,
+        )
+        logger.info(f"Best trial: {best_trial}")
+        # IMPORTANT (reference-consistent):
+        # Do NOT retrain after HPO. Instead, load the best checkpoint from the best run
+        # and then proceed to save it in our standardized output format.
+        run_dir = pathlib.Path(training_args.output_dir) / f"run-{best_trial.run_id}"
+        state_path = run_dir / "trainer_state.json"
+        best_ckpt_dir: pathlib.Path | None = None
+        if state_path.exists():
+            try:
+                state = json.loads(state_path.read_text())
+                best_ckpt = state.get("best_model_checkpoint")
+                if best_ckpt:
+                    best_ckpt_dir = pathlib.Path(best_ckpt)
+            except Exception as e:
+                logger.warning(f"Failed to parse {state_path}: {e}")
+        if best_ckpt_dir is None:
+            ckpts = sorted(run_dir.glob("checkpoint-*"))
+            if not ckpts:
+                raise RuntimeError(f"No checkpoints found under {run_dir} for best trial run_id={best_trial.run_id}")
+            best_ckpt_dir = ckpts[-1]
+
+        weights_path = best_ckpt_dir / "pytorch_model.bin"
+        if not weights_path.exists():
+            raise RuntimeError(f"Expected checkpoint weights not found: {weights_path}")
+        logger.info(f"Loading best checkpoint weights from: {best_ckpt_dir}")
+        state_dict = t.load(weights_path, map_location="cpu")
+        selected_num_bins, selected_time2vec_dim, selected_num_scales = _select_representation_knobs(
+            trial_params=best_trial.params
+        )
+        selected_weight = _select_numeric_loss_weight(trial_params=best_trial.params)
+        model = _build_model(selected_num_bins, selected_time2vec_dim, selected_num_scales, selected_weight)
+        _log_param_deltas(
+            model,
+            trial=None,
+            selected_num_bins=selected_num_bins,
+            selected_time2vec_dim=selected_time2vec_dim,
+            selected_num_scales=selected_num_scales,
+            selected_numeric_loss_weight=selected_weight,
+        )
+        model.load_state_dict(state_dict)
+        final_num_bins = selected_num_bins
+        final_time2vec_dim = selected_time2vec_dim
+        final_num_scales = selected_num_scales
+    else:
+        trainer.train()
 
     # Save best model
     if os.getenv("RANK", "0") == "0":
@@ -338,8 +606,9 @@ def main(
             rep_state = {
                 "representation": representation,
                 "temporal": temporal,
-                "num_bins": num_bins,
-                "time2vec_dim": time2vec_dim,
+                "num_bins": final_num_bins,
+                "time2vec_dim": final_time2vec_dim,
+                "continuous_num_scales": final_num_scales,
                 "value_encoder_state": (
                     model.value_encoder.state_dict() if model.value_encoder is not None else None
                 ),

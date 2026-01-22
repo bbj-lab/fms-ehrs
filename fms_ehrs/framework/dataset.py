@@ -256,7 +256,7 @@ class Datasets:
                     yield {"input_ids": ret.to(self.uint_dtype)}
                     ret = t.Tensor(size=(0,))
 
-    def get_train_dataset(self, n_epochs: int = 10, iterable: bool = False):
+    def get_train_dataset(self, n_epochs: int = 10, iterable: bool = True):
         if self.collation == "padded":
             x = self.dataset["train"].shuffle(generator=self.np_rng)
         elif self.collation == "packed":
@@ -284,7 +284,7 @@ class Datasets:
             )
         return x if iterable else ds.Dataset.from_list(list(x))
 
-    def get_val_dataset(self, iterable: bool = False):
+    def get_val_dataset(self, iterable: bool = True):
         if self.collation == "padded":
             x = self.dataset["val"]
         elif self.collation == "packed":

@@ -9,7 +9,7 @@ encoding strategies (time_tokens, time2vec).
 
 The wrapper intercepts the embedding layer and modifies embeddings based on:
 - Soft discretization: Replace quantile-token embeddings with convex combinations
-- Continuous encoding: Replace quantile-token embeddings with MLP-projected values
+- Continuous encoding: Replace quantile-token embeddings with xVal-style scaled embeddings
 - Time2Vec: Add learned temporal embeddings based on relative time since admission
 
 Architecture:
@@ -22,7 +22,7 @@ Architecture:
 References
 ----------
 - Soft discretization: ConSE (Norouzi et al., 2014)
-- Continuous encoding: xVal (Golkar et al., 2023)
+- Continuous encoding: xVal (Golkar et al., 2023) with EHR-specific adaptation
 - Time2Vec: Kazemi & Poupart (2019)
 """
 
@@ -36,6 +36,7 @@ from fms_ehrs.framework.continuous_encoder import ContinuousValueEncoder
 from fms_ehrs.framework.soft_discretization import SoftDiscretizationEncoder
 from fms_ehrs.framework.time2vec import Time2VecEmbedding
 from fms_ehrs.framework.vocabulary import Vocabulary
+from fms_ehrs.framework.xval import XValModelWrapper
 
 
 class RepresentationModelWrapper(nn.Module):
@@ -55,7 +56,7 @@ class RepresentationModelWrapper(nn.Module):
         Value representation method:
         - discrete: Standard token embeddings (baseline)
         - soft: Convex combinations of adjacent bin embeddings
-        - continuous: MLP projection of z-scored values
+        - continuous: xVal-style scaled embedding of z-scored values
     temporal : {"time_tokens", "time2vec"}
         Temporal encoding method:
         - time_tokens: Use existing time spacing tokens (baseline)
@@ -64,6 +65,8 @@ class RepresentationModelWrapper(nn.Module):
         Number of quantile bins (for soft discretization)
     time2vec_dim : int
         Internal dimension for Time2Vec before projection
+    continuous_num_scales : int
+        Number of xVal multiscale embeddings for continuous encoding
     """
 
     def __init__(
@@ -74,6 +77,8 @@ class RepresentationModelWrapper(nn.Module):
         temporal: typing.Literal["time_tokens", "time2vec"] = "time_tokens",
         num_bins: int = 20,
         time2vec_dim: int = 64,
+        continuous_num_scales: int = 1,
+        continuous_numeric_stats: dict[str, dict[str, float]] | None = None,
     ):
         super().__init__()
         self.base_model = base_model
@@ -108,10 +113,13 @@ class RepresentationModelWrapper(nn.Module):
             )
         elif representation == "continuous":
             self.value_encoder = ContinuousValueEncoder(
-                embed_dim=self.hidden_size, hidden_dim=self.hidden_size
+                embed_dim=self.hidden_size,
+                hidden_dim=self.hidden_size,
+                num_scales=continuous_num_scales,
             )
             self.value_encoder.set_statistics_from_vocab_aux(
                 vocab.aux,
+                numeric_stats=continuous_numeric_stats,
                 token_id_lookup=vocab.lookup,
                 vocab_size=len(vocab),
             )
@@ -374,6 +382,18 @@ def create_representation_model(
     if representation == "discrete" and temporal == "time_tokens":
         # No modifications needed - return base model
         return base_model
+
+    if representation == "xval":
+        # Canonical xVal wrapper (requires [NUM] tokenization + numeric_values).
+        return XValModelWrapper(
+            base_model=base_model,
+            vocab=vocab,
+            temporal=temporal,
+            time2vec_dim=int(kwargs.get("time2vec_dim", 64)),
+            clip_sigma=float(kwargs.get("clip_sigma", 5.0)),
+            numeric_stats=kwargs.get("continuous_numeric_stats", None),
+            numeric_loss_weight=float(kwargs.get("numeric_loss_weight", 1.0)),
+        )
 
     return RepresentationModelWrapper(
         base_model=base_model,
