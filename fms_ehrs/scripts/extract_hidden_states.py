@@ -55,17 +55,19 @@ def main(
 
     vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
 
-    dataset = (
-        load_dataset(
-            "parquet",
-            data_files={
-                s: str(data_dirs[s].joinpath("tokens_timelines.parquet"))
-                for s in splits
-            },
-        )
-        .map(lambda batch: {"input_ids": batch["padded"]}, batched=True)
-        .with_format("torch")
+    dataset_raw = load_dataset(
+        "parquet",
+        data_files={s: str(data_dirs[s].joinpath("tokens_timelines.parquet")) for s in splits},
     )
+    # Backwards-compatible input loading:
+    # - Legacy tokenization writes a fully-padded fixed-length column `padded`
+    # - Stage0E eval-retokenization may write variable-length `tokens` only (truncate-only),
+    #   to avoid exploding parquet size at large max lengths (e.g., 4096).
+    use_padded = "padded" in dataset_raw["train"].column_names
+    if use_padded:
+        dataset = dataset_raw.map(lambda batch: {"input_ids": batch["padded"]}, batched=True).with_format("torch")
+    else:
+        dataset = dataset_raw.map(lambda batch: {"input_ids": batch["tokens"]}, batched=True)
 
     # load and prep model
     model = AutoModelForCausalLM.from_pretrained(
@@ -78,7 +80,8 @@ def main(
         model = t.nn.parallel.DistributedDataParallel(model, device_ids=[rank])
 
     # iterate over splits and run inference using model
-    stop_tokens = t.tensor([vocab("PAD"), vocab("TRUNC"), vocab("TL_END")]).to(device)
+    pad_id = vocab("PAD")
+    stop_tokens = t.tensor([pad_id, vocab("TRUNC"), vocab("TL_END")]).to(device)
 
     for s in splits:
         n = dataset[s].num_rows
@@ -88,9 +91,30 @@ def main(
             else np.empty((n, d), dtype=np.float16)
         )
         for batch_idx in tqdm(t.split(t.arange(n), batch_sz)):
-            batch = dataset[s]["input_ids"][batch_idx].to(device)
-            final_nonpadding_idx = (
-                t.argmax(t.isin(batch, stop_tokens).int(), dim=1, keepdim=True) - 1
+            if use_padded:
+                batch = dataset[s]["input_ids"][batch_idx].to(device)
+            else:
+                # Dynamic per-batch padding (avoid storing massive `padded` arrays in parquet).
+                seqs = dataset[s]["input_ids"][batch_idx.tolist()]
+                max_len = max((len(x) for x in seqs), default=0)
+                batch = t.full(
+                    (len(seqs), max_len),
+                    fill_value=pad_id,
+                    dtype=t.long,
+                    device=device,
+                )
+                for i, seq in enumerate(seqs):
+                    if not seq:
+                        continue
+                    batch[i, : len(seq)] = t.tensor(seq, dtype=t.long, device=device)
+
+            stop_mask = t.isin(batch, stop_tokens)
+            has_stop = stop_mask.any(dim=1, keepdim=True)
+            first_stop = t.argmax(stop_mask.int(), dim=1, keepdim=True)
+            final_nonpadding_idx = t.where(
+                has_stop,
+                first_stop - 1,
+                t.full_like(first_stop, batch.size(1) - 1),
             )
             with t.inference_mode():
                 x = model.forward(input_ids=batch, output_hidden_states=True)
