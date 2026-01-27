@@ -6,9 +6,9 @@ group_id: patient_id # multiple subjects can belong to a group
 options:
     day_stay_filter: !!bool true # keep only hospitalizations >=24h in duration
     max_padded_len: !!int 2048 # length of sequences used for supervised fine-tuning
-    quantizer: ventiles # 20 bins
+    quantizer: deciles # 10 bins
     include_time_spacing_tokens: !!bool true # chronicle the passage of time
-    fused_category_values: !!bool false # combine categories and values into single tokens
+    fused_category_values: !!bool true # combine categories and values into single tokens
     detect_discrete: !!bool true # simple strategy for categories that take fewer values than no. Q tokens
     max_event_days: !!int 28 # truncate events at 28 days with an ellipsis token
 
