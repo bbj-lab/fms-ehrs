@@ -2,14 +2,15 @@
 
 #SBATCH --job-name=tn-gemma
 #SBATCH --output=./output/%j-%x.stdout
-#SBATCH --partition=gpudev
+#SBATCH --partition=gpuq
 #SBATCH --gres=gpu:1
 #SBATCH --time=1-00:00:00
 #SBATCH --mem=100GB
+#SBATCH --dependency=afterok:5560968
 
 source preamble.sh
 
-export data_version=X21
+export data_version=Y21
 
 echo "Training an FM on MIMIC data..."
 python3 ../fms_ehrs/scripts/tune_model.py \
@@ -27,8 +28,8 @@ python3 ../fms_ehrs/scripts/tune_model.py \
     --model_version gemma \
     --model_name "google/gemma-3-270m" \
     --wandb_project ${data_version} \
-    --hidden_size 256 \
-    --intermediate_size 512
+    --hidden_size 128 \
+    --intermediate_size 256
 
 source postscript.sh
 
