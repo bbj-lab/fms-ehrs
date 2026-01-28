@@ -6,7 +6,6 @@ tune a model with a packing strategy
 
 import os
 import pathlib
-import typing
 
 import fire as fi
 import numpy as np
@@ -59,7 +58,6 @@ def main(
     gr_acc_max: int = 1,
     data_dir: os.PathLike = None,
     model_dir: os.PathLike = None,
-    collation: typing.Literal["padded", "packed"] = "packed",
     jid: str = os.getenv("SLURM_JOB_ID", ""),
     wandb_project: str = None,
     n_trials: int = 5,
@@ -78,10 +76,7 @@ def main(
     output_dir.mkdir(exist_ok=True, parents=True)
 
     dataset = Datasets(
-        data_version=data_version,
-        data_dir=data_dir,
-        collation=collation,
-        max_seq_length=max_seq_length,
+        data_version=data_version, data_dir=data_dir, max_seq_length=max_seq_length
     )
 
     conf_param = dict(
