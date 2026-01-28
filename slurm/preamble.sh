@@ -2,6 +2,8 @@
 
 # sources standard scripts, exports paths
 
+source ~/.bashrc 2> /dev/null
+
 if [ -v SLURM_ARRAY_JOB_ID ]; then
     echo "SLURM_ARRAY_JOB_ID=${SLURM_ARRAY_JOB_ID}"
     echo "SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
@@ -21,18 +23,18 @@ case "$(uname -n)" in
             | grep -oP 'JobName=\K\S+')
         ;;
     bbj-lab*)
-        hm="/mnt/bbj-lab/users/$(whoami)"
+        hm="/home/$(whoami)"
         HF_HOME=/mnt/bbj-lab/cache/huggingface/
-        export HF_DATASETS_CACHE="~/cache"
+        export HF_DATASETS_CACHE="/home/$(whoami)/cache"
         name="adhoc"
         ;;
     *)
-        hm=$HOME
+        echo "Unknown host $(uname -n)"
+        exit 1
         ;;
 esac
 
 parent_dir="$(dirname "$(dirname "$(realpath "${BASH_SOURCE[0]}")")")"
-source ~/.bashrc 2> /dev/null
 source "${parent_dir}/.venv/bin/activate" 2> /dev/null
 PYTHONPATH="${parent_dir}:$PYTHONPATH"
 

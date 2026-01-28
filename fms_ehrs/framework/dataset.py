@@ -4,7 +4,6 @@
 provide datasets for training
 """
 
-import itertools
 import os
 import pathlib
 import typing
@@ -25,7 +24,6 @@ class Datasets:
         self,
         data_version: str,
         data_dir: Pathlike,
-        collation: typing.Literal["padded", "packed"] = "packed",
         *,
         max_seq_length: int = 1024,
         shuffle_buffer_size: int = 256,
@@ -34,7 +32,6 @@ class Datasets:
     ):
         self.data_version = data_version
         self.data_dir = pathlib.Path(data_dir).expanduser().resolve()
-        self.collation = collation
         self.max_seq_length = max_seq_length
         self.shuffle_buffer_size = shuffle_buffer_size
         self.t_rng = t.Generator().manual_seed(42)
@@ -47,6 +44,7 @@ class Datasets:
         self.uint_dtype = (
             t.uint8 if len(self.vocab) <= t.iinfo(t.uint8).max else t.int64
         )
+        self.input_ids_type = ds.Sequence(ds.Value(str(self.uint_dtype).split(".")[-1]))
         self.i_part = i_part
         self.n_parts = n_parts
         self.dataset = (
@@ -58,11 +56,7 @@ class Datasets:
                 },
             )
             .map(
-                lambda batch: {
-                    "input_ids": batch[
-                        "padded" if (self.collation == "padded") else "tokens"
-                    ]
-                },
+                lambda batch: {"input_ids": batch["padded"]},
                 batched=True,
                 remove_columns=[
                     "hospitalization_id",
@@ -71,13 +65,7 @@ class Datasets:
                     "seq_len",
                     "padded",
                 ],
-                features=ds.Features(
-                    {
-                        "input_ids": ds.Sequence(
-                            ds.Value(str(self.uint_dtype).split(".")[-1])
-                        )
-                    }
-                ),
+                features=ds.Features({"input_ids": self.input_ids_type}),
             )
             .with_format("torch")
         )
@@ -92,74 +80,32 @@ class Datasets:
         self.n_train: int = self.dataset["train"].num_rows
         self.n_val: int = self.dataset["val"].num_rows
 
-    def generate_padding(self, poisson_rate: float = 7.0):
-        size = t.poisson(t.tensor(poisson_rate), generator=self.t_rng).to(
-            self.uint_dtype
-        )
-        return t.full(
-            size=(size.item(),), fill_value=self.vocab("PAD"), dtype=self.uint_dtype
-        )
-
     def chunk_iterable(self, it):
-        ret: t.Tensor = t.Tensor(size=(0,))
+        buf: t.Tensor = t.empty(0, dtype=self.uint_dtype)
+
         for eg in it:
-            x = t.concat((eg["input_ids"], self.generate_padding()))
-            while x.size(dim=0) > 0:
-                ndiff = min(self.max_seq_length - ret.size(dim=0), x.size(dim=0))
-                ret = t.concat((ret, x[:ndiff]))
-                x = x[ndiff:]
-                if ret.size(dim=0) == self.max_seq_length:
-                    ret_uint = ret.to(self.uint_dtype)
-                    yield {"input_ids": ret_uint}
-                    ret = t.Tensor(size=(0,))
+            buf = t.cat((buf, eg["input_ids"]))
+
+            while buf.numel() >= self.max_seq_length:
+                yield {"input_ids": buf[: self.max_seq_length]}
+                buf = buf[self.max_seq_length :]
 
     def get_train_dataset(self, n_epochs: int = 10):
-        if self.collation == "padded":
-            x = self.dataset["train"].shuffle(generator=self.np_rng)
-        elif self.collation == "packed":
-            x = ds.Dataset.from_generator(
-                lambda: self.chunk_iterable(
-                    ds.IterableDataset.from_generator(
-                        lambda: itertools.chain.from_iterable(
-                            iter(self.dataset["train"]) for _ in range(n_epochs)
-                        )
-                    ).shuffle(
-                        generator=self.np_rng, buffer_size=self.shuffle_buffer_size
-                    )
-                ),
-                features=ds.Features(
-                    {
-                        "input_ids": ds.Sequence(
-                            ds.Value(str(self.uint_dtype).split(".")[-1])
-                        )
-                    }
-                ),
-            )
-        else:
-            raise ValueError(
-                "collation should be `padded` or `packed`, not ", self.collation
-            )
-        return x
+        return ds.Dataset.from_generator(
+            lambda: self.chunk_iterable(
+                self.dataset["train"]
+                .to_iterable_dataset()
+                .repeat(n_epochs)
+                .shuffle(generator=self.np_rng, buffer_size=self.shuffle_buffer_size)
+            ),
+            features=ds.Features({"input_ids": self.input_ids_type}),
+        )
 
     def get_val_dataset(self):
-        if self.collation == "padded":
-            x = self.dataset["val"]
-        elif self.collation == "packed":
-            x = ds.Dataset.from_generator(
-                lambda: self.chunk_iterable(self.dataset["val"]),
-                features=ds.Features(
-                    {
-                        "input_ids": ds.Sequence(
-                            ds.Value(str(self.uint_dtype).split(".")[-1])
-                        )
-                    }
-                ),
-            )
-        else:
-            raise ValueError(
-                "collation should be `padded` or `packed`, not ", self.collation
-            )
-        return x
+        return ds.Dataset.from_generator(
+            lambda: self.chunk_iterable(self.dataset["val"].to_iterable_dataset()),
+            features=ds.Features({"input_ids": self.input_ids_type}),
+        )
 
     def get_context_length(self):
         return len(self.dataset["train"].select(range(1))["input_ids"][0])
@@ -174,10 +120,14 @@ if __name__ == "__main__":
 
     data_dir = hm.parent.joinpath(hm.stem + "-tokenized").expanduser()
     data = Datasets(
-        data_version="clif-development-sample",
-        data_dir=hm,
-        collation="packed",
-        i_part=42,
-        n_parts=100,
+        data_version="clif-development-sample", data_dir=hm, i_part=42, n_parts=100
     )
-    tr = data.get_train_dataset(n_epochs=1, iterable=False)
+    tr = data.get_train_dataset(n_epochs=1)
+    vl = data.get_val_dataset()
+
+    it = [
+        {"input_ids": t.arange(10_000, dtype=t.int64)},
+        {"input_ids": t.arange(20_000, dtype=t.int64)},
+    ]
+
+    print(list(data.chunk_iterable(it)))
