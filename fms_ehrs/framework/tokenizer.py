@@ -325,6 +325,7 @@ class Tokenizer21(BaseTokenizer):
                     [
                         pl.col(cat)
                         .cast(str)
+                        .str.to_lowercase()
                         .str.replace_all(" ", "_")
                         .str.strip_chars(".")
                         .map_elements(
@@ -347,9 +348,17 @@ class Tokenizer21(BaseTokenizer):
             )
             .lazy()
             .filter(pl.col("event_time").is_not_null())
+            .filter(
+                ~pl.col("tokens")
+                .list.eval(
+                    pl.element().is_null()
+                    | pl.element().eq(self.vocab("nan"))
+                    | pl.element().eq(self.vocab(None))
+                )
+                .list.any()
+            )
             .sort("event_time", pl.col("tokens").list.first())
             .explode("tokens")
-            .filter(~pl.col("tokens").is_in([self.vocab(None), self.vocab("nan")]))
             .group_by(self.config["subject_id"], maintain_order=True)
             .agg("tokens", pl.col("event_time").alias("times"))
         )
@@ -493,4 +502,3 @@ if __name__ == "__main__":
     # df = pl.read_parquet(dev_dir / "raw-meds-ed/dev/meds.parquet")
     # with pl.Config(tbl_cols=-1, tbl_width_chars=140):
     #     print(df.filter(pl.col("code").str.starts_with("PROCEDURE")))
-

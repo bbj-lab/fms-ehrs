@@ -6,18 +6,18 @@ tune a model with a packing strategy
 
 import os
 import pathlib
-import typing
 
 import fire as fi
 import numpy as np
+import torch as t
 from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
     EarlyStoppingCallback,
+    Trainer,
     TrainerCallback,
+    TrainingArguments,
 )
-from trl import SFTConfig, SFTTrainer
-import torch as t
 
 from fms_ehrs.framework.dataset import Datasets
 from fms_ehrs.framework.logger import get_logger
@@ -58,7 +58,6 @@ def main(
     gr_acc_max: int = 1,
     data_dir: os.PathLike = None,
     model_dir: os.PathLike = None,
-    collation: typing.Literal["padded", "packed"] = "packed",
     jid: str = os.getenv("SLURM_JOB_ID", ""),
     wandb_project: str = None,
     n_trials: int = 5,
@@ -77,10 +76,7 @@ def main(
     output_dir.mkdir(exist_ok=True, parents=True)
 
     dataset = Datasets(
-        data_version=data_version,
-        data_dir=data_dir,
-        collation=collation,
-        max_seq_length=max_seq_length,
+        data_version=data_version, data_dir=data_dir, max_seq_length=max_seq_length
     )
 
     conf_param = dict(
@@ -109,10 +105,9 @@ def main(
         }
 
     # train model
-    training_args = SFTConfig(
+    training_args = TrainingArguments(
         report_to="wandb",
         run_name="{m}-{j}".format(m=model_version, j=jid),
-        max_seq_length=max_seq_length,
         output_dir=str(output_dir),
         per_device_train_batch_size=per_device_train_batch_size,
         per_device_eval_batch_size=4,
@@ -124,11 +119,19 @@ def main(
         eval_strategy="steps",
         save_strategy="best",
         ddp_find_unused_parameters=False,
+        optim="paged_adamw_8bit",
+        bf16=True,
     )
 
-    trainer = SFTTrainer(
+    def collate_fn(batch):
+        input_ids = t.tensor([x["input_ids"] for x in batch])
+        labels = input_ids.clone()
+        return {"input_ids": input_ids, "labels": labels}
+
+    trainer = Trainer(
         model=model_init(),
         model_init=model_init,
+        data_collator=collate_fn,
         train_dataset=(tr_ds := dataset.get_train_dataset(n_epochs=n_epochs)),
         eval_dataset=dataset.get_val_dataset(),
         args=training_args,

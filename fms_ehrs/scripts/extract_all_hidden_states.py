@@ -44,7 +44,7 @@ def main(
         lambda d: pathlib.Path(d).expanduser().resolve(), (data_dir, model_loc, out_dir)
     )
 
-    t.cuda.set_device(device := t.device(f"cuda:0"))
+    t.cuda.set_device(device := t.device("cuda:0"))
 
     # load and prep data
     all_splits = ("train", "val", "test")
@@ -78,7 +78,7 @@ def main(
     model = model.to(device)
 
     # iterate over splits and run inference using model
-    stop_tokens = t.tensor([vocab("PAD"), vocab("TRUNC"), vocab("TL_END")])
+    stop_tokens = t.tensor([vocab("PAD")]).to(device)
 
     for s in splits:
         n = dataset[s].num_rows
