@@ -5,15 +5,13 @@ load different versions of tokenized timelines and generate descriptive statisti
 """
 
 import argparse
-import functools
 import pathlib
-import re
 
 import pandas as pd
 import polars as pl
 
 from fms_ehrs.framework.logger import get_logger
-from fms_ehrs.framework.vocabulary import Vocabulary
+from fms_ehrs.framework.tokenizer import Tokenizer21
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
@@ -27,17 +25,7 @@ parser.add_argument(
     default=["../../data-mimic", "../../data-ucmc"],
 )
 parser.add_argument(
-    "--data_versions",
-    nargs="*",
-    type=str,
-    default=[
-        "W++",
-        "W++_first_24h",
-        "W21",
-        "W21_first_24h",
-        "W21_fused",
-        "W21_fused_first_24h",
-    ],
+    "--data_versions", nargs="*", type=str, default=["Y21", "Y21_first_24h"]
 )
 parser.add_argument("--splits", nargs="*", type=str, default=["train", "val", "test"])
 args, unknowns = parser.parse_known_args()
@@ -46,6 +34,12 @@ for k, v in vars(args).items():
     logger.info(f"{k}: {v}")
 
 data_dirs = list(map(lambda d: pathlib.Path(d).expanduser().resolve(), args.data_dirs))
+data_dirs = list(
+    map(
+        lambda d: pathlib.Path(d).expanduser().resolve(),
+        ["~/Downloads/data-mimic", "~/Downloads/data-ucmc"],
+    )
+)
 
 
 idx = pd.MultiIndex.from_product(
@@ -54,27 +48,16 @@ idx = pd.MultiIndex.from_product(
 )
 res = pd.DataFrame(index=idx, columns=["tot_tokens", "unq_tokens"])
 
-
-@functools.cache
-def token_type(word: str) -> str:
-    if word in ("TL_START", "TL_END", "PAD", "TRUNC", None, "nan"):
-        return "SPECIAL"
-    elif re.fullmatch(r"Q\d+", word) or re.fullmatch(r"Q[0-3][+-]", word):
-        return "Q"
-    elif word.startswith("T_"):
-        return "TIME-SPACER"
-    else:
-        return word.split("_")[0]
-
-
 for vers in args.data_versions:
     logger.info(vers.ljust(42, "="))
     for d in data_dirs:
         logger.info(d.name.split("-")[-1].upper().ljust(42, "-"))
-        v = Vocabulary().load(
-            vpath := d.joinpath(f"{vers}-tokenized", "train", "vocab.gzip")
+        tkzr = Tokenizer21(
+            data_dir=d / f"{vers}-tokenized/train",
+            vocab_path=d / f"{vers}-tokenized/train/vocab.gzip",
+            config_file=d / f"{vers}-tokenized/train/config.yaml",
         )
-        logger.info(f"Vocab size: {len(v)}")
+        logger.info(f"Vocab size: {len(tkzr.vocab)}")
         for s in args.splits:
             logger.info(f"{s} split")
             df = pl.scan_parquet(
@@ -88,7 +71,7 @@ for vers in args.data_versions:
                 df.select(
                     pl.col("tokens")
                     .explode()
-                    .replace_strict(v.reverse, return_dtype=pl.String)
+                    .replace_strict(tkzr.vocab.reverse, return_dtype=pl.String)
                 )
                 .group_by("tokens")
                 .len()
@@ -101,7 +84,10 @@ for vers in args.data_versions:
                     pl.col("tokens")
                     .explode()
                     .replace_strict(
-                        {k: token_type(v) for k, v in v.reverse.items()},
+                        {
+                            k: tkzr.get_token_type(v)
+                            for k, v in tkzr.vocab.reverse.items()
+                        },
                         return_dtype=pl.String,
                     )
                     .alias("token_type")
@@ -114,3 +100,5 @@ for vers in args.data_versions:
 
 logger.info(res)
 logger.info(res.groupby(level=["version", "dataset"]).sum())
+
+logger.info("done")
