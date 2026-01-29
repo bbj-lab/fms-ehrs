@@ -115,13 +115,13 @@ follows.
 
 ### Global options
 
--   We first define the `subject_id` (required) and `group_id` (optional):
+- We first define the `subject_id` (required) and `group_id` (optional):
     ```yaml
     subject_id: hospitalization_id # designator for what timelines represent
     group_id: patient_id # multiple subjects can belong to a group
     ```
--   We then define global options for tokenization, with descriptions as in the
-    comments:
+- We then define global options for tokenization, with descriptions as in the
+  comments:
 
     ```yaml
     options:
@@ -136,12 +136,12 @@ follows.
 
 ### Reference table
 
--   Next we define a reference table that contains static data at the
-    `subject_id` level. Columns from this table will be used to create the
-    prefixes and suffixes of our timelines. The `table` field indicates the name
-    of the parquet file in the `data_dir` folder to load. That table should
-    contain a column `subject_id` and columns corresponding to the `start_time`
-    and `end_time` for the `subject_id`.
+- Next we define a reference table that contains static data at the `subject_id`
+  level. Columns from this table will be used to create the prefixes and suffixes
+  of our timelines. The `table` field indicates the name of the parquet file in
+  the `data_dir` folder to load. That table should contain a column `subject_id`
+  and columns corresponding to the `start_time` and `end_time` for the
+  `subject_id`.
 
     ```yaml
     reference:
@@ -189,14 +189,14 @@ follows.
 Now, we are prepared to configure the actual token columns. We form timelines as
 the concatenation of prefixes, events, and suffixes.
 
--   We specify prefix tokens using columns that should exist in the reference
-    frame (joining/postprocessing will have been completed prior to selecting
-    these columns). For example:
+- We specify prefix tokens using columns that should exist in the reference frame
+  (joining/postprocessing will have been completed prior to selecting these
+  columns). For example:
 
     ```yaml
     prefix:
         - column: sex_category
-        prefix: SEX
+          prefix: SEX
     ```
 
     inserts "SEX_Female" and "SEX_Male" tokens. Here "Female" and "Male"
@@ -207,8 +207,8 @@ the concatenation of prefixes, events, and suffixes.
 
 ### Events
 
--   We next specify events that are inserted into respective timelines according
-    to the `time` designation for each event listed. For example:
+- We next specify events that are inserted into respective timelines according to
+  the `time` designation for each event listed. For example:
 
     ```yaml
     events:
@@ -282,8 +282,8 @@ the concatenation of prefixes, events, and suffixes.
 
 ### Suffix
 
--   Finally we specify suffix tokens. These work in the same way as the prefix
-    tokens. For example:
+- Finally we specify suffix tokens. These work in the same way as the prefix
+  tokens. For example:
 
     ```yaml
     suffix:
@@ -309,11 +309,11 @@ the training portion of the data.
 
 ## Usage notes
 
--   We've started experimenting with [apptainer](https://apptainer.org)-based
-    containerization, a successor to
-    [singularity](https://singularityware.github.io/index.html). In an
-    environment with apptainer available (e.g.
-    `/gpfs/data/bbj-lab/.envs/apptainer`), you can define something like
+- We've started experimenting with [apptainer](https://apptainer.org)-based
+  containerization, a successor to
+  [singularity](https://singularityware.github.io/index.html). In an environment
+  with apptainer available (e.g. `/gpfs/data/bbj-lab/.envs/apptainer`), you can
+  define something like
 
     ```sh
     export hm="/gpfs/data/bbj-lab/users/$(whoami)"
@@ -336,8 +336,8 @@ the training portion of the data.
     apptainer build env.sif env.def
     ```
 
--   The number of model parameters depends on the size of the vocabulary (because
-    we're learning a token embedding).
+- The number of model parameters depends on the size of the vocabulary (because
+  we're learning a token embedding).
 
 [^1]:
     M. Burkhart, B. Ramadan, Z. Liao, K. Chhikara, J. Rojas, W. Parker, & B.
