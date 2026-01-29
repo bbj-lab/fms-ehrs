@@ -78,7 +78,7 @@ def main(
         model = t.nn.parallel.DistributedDataParallel(model, device_ids=[rank])
 
     # iterate over splits and run inference using model
-    stop_tokens = t.tensor([vocab("PAD"), vocab("TRUNC"), vocab("TL_END")]).to(device)
+    stop_tokens = t.tensor([vocab("PAD")]).to(device)
 
     for s in splits:
         n = dataset[s].num_rows

@@ -28,5 +28,6 @@
     "[yaml]": {
         "editor.defaultFormatter": "esbenp.prettier-vscode"
     },
-    "python.experiments.enabled": false
+    "python.experiments.enabled": false,
+    "terminal.integrated.shellIntegration.enabled": false
 }

@@ -56,9 +56,19 @@ class Vocabulary:
                 )
                 return self.lookup[None] if None in self.lookup else None
 
+    def __contains__(self, word: Hashable | None) -> bool:
+        return word in self.lookup
+
     def __repr__(self):
         return "{sp} of {sz} words {md}".format(
             sp=super().__repr__(),
+            sz=len(self),
+            md="in training mode" if self._is_training else "(frozen)",
+        )
+
+    def __str__(self):
+        return "{sp} of {sz} words {md}".format(
+            sp=super().__str__(),
             sz=len(self),
             md="in training mode" if self._is_training else "(frozen)",
         )

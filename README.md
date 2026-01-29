@@ -367,7 +367,7 @@ rsync -avht \
  --exclude ".venv/" \
  --exclude ".idea/" \
  ~/Documents/chicago/fms-ehrs-reps \
- randi:/gpfs/data/bbj-lab/users/burkh4rt
+ bbj-lab2:~
 ```
 
 Run on randi:

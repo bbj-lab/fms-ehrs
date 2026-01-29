@@ -64,10 +64,11 @@ def ragged_lists_to_array(
         arr[i, : len(x)] = x
     return arr
 
+
 def collate_events_info(
     times: np.ndarray,
     info: np.ndarray,
-    aggregation: typing.Literal["max", "sum", "perplexity"] = "sum",
+    aggregation: typing.Literal["max", "sum"] = "sum",
 ):
     """given an array of `tokens` that occur at `times` and have context-
     aware information `info`, groups these tokens into events and calculates
@@ -78,12 +79,9 @@ def collate_events_info(
     if aggregation == "max":
         info_agg = np.full(times_uniq.shape, -np.inf)
         np.maximum.at(info_agg, times_idx, info)
-    elif aggregation in ("sum", "perplexity"):
+    elif aggregation == "sum":
         info_agg = np.zeros(shape=times_uniq.shape)
         np.add.at(info_agg, times_idx, info)
-        if aggregation == "perplexity":
-            info_agg /= np.bincount(times_idx, minlength=times_uniq.shape[0])
-            np.exp2(info_agg, out=info_agg)  # exponentiates in-place
     else:
         raise Exception("Check aggregation.")
     return info_agg, times_idx
@@ -92,32 +90,32 @@ def collate_events_info(
 def redact_tokens_times(
     tks_arr: typing.List[np.ndarray],
     tms_arr: typing.List[np.ndarray],
-    inf_arr: np.ndarray,
+    met_arr: np.ndarray,
     *,
     k: int = None,
     pct: float = None,
     method: typing.Literal["top", "bottom", "random"] = "top",
-    aggregation: typing.Literal["max", "sum", "perplexity"] = "max",
+    aggregation: typing.Literal["max", "sum"] = "sum",
     rng: np.random._generator.Generator = np.random.default_rng(seed=42),
-) -> tuple[np.ndarray, np.ndarray]:
-    """given an array `tks_arr` of arrays of tokens and an array `tms_arr` of
-    arrays of times, and an array `inf_arr` containing the information content
+) -> tuple[typing.List[np.ndarray], typing.List[np.ndarray]]:
+    """given an array of tokens happening at the corresponding array `tms_arr` of
+    of times, and an array `met_arr` containing some metric on tokens
     up to a certain cutoff of the tokens in each timeline, iterate through the
     timelines and drop all tokens corresponding to events containing the (`top`)
     most informative, (`bottom`) least informative, or (`random`) randomly
-    chosen tokens (not including the prefix, which we always keep); we specify
+    chosen events (not including the prefix, which we always keep); we specify
     the number of events either as fixed `k` for all timelines or as a `pct` of
     the total number of events in each timeline; one and only one of these should
     be specified
     """
-    assert len(tks_arr) == len(tms_arr) == len(inf_arr)
+    assert len(tks_arr) == len(tms_arr) == len(met_arr)
     assert (k is not None) ^ (pct is not None)  # xor
     tks_new = copy.deepcopy(tks_arr)
     tms_new = copy.deepcopy(tms_arr)
     for i in range(len(tks_new)):
         tks, tms = tks_arr[i], tms_arr[i]
         tlen = min(len(tks), len(tms))
-        tks, tms, infm = tks[:tlen], tms[:tlen], inf_arr[i, :tlen]
+        tks, tms, infm = tks[:tlen], tms[:tlen], met_arr[i, :tlen]
         if method in ("top", "bottom"):
             result, idx = collate_events_info(tms, infm, aggregation)
             srt = np.argsort(result)
