@@ -109,7 +109,7 @@ for s in ("val", "test"):
         logger.info("24h cut...")
         summarize(tkzr, tokens_timelines_24h, logger=logger)
         tokens_timelines_24h = tkzr.pad_and_truncate(tokens_timelines_24h)
-        set_perms(tokens_timelines.write_parquet)(
+        set_perms(tokens_timelines_24h.write_parquet)(
             dirs_out_24h[s].joinpath("tokens_timelines.parquet")
         )
 

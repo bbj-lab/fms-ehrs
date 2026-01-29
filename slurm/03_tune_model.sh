@@ -19,15 +19,18 @@ python3 ../fms_ehrs/scripts/tune_model.py \
     --lr_min 2e-4 \
     --lr_max 4e-4 \
     --gr_acc_min 1 \
-    --gr_acc_max 4 \
-    --per_device_train_batch_size 4 \
-    --max_seq_length 8192 \
+    --gr_acc_max 16 \
+    --per_device_train_batch_size 1 \
+    --max_seq_length 16384 \
     --data_dir "${hm}/data-mimic" \
     --data_version ${data_version} \
     --model_dir "${hm}/mdls" \
     --model_version gemma \
     --model_name "google/gemma-3-270m" \
-    --wandb_project ${data_version}
+    --wandb_project ${data_version} \
+    --jid 20260129
+# --hidden_size 128 \
+# --intermediate_size 256
 
 source postscript.sh
 
