@@ -21,7 +21,7 @@ esac
 
 python3 ../fms_ehrs/scripts/extract_outcomes.py \
     --data_dir "$data_dir" \
-    --ref_version "X21" \
-    --data_version "X21_first_24h"
+    --ref_version "Y21" \
+    --data_version "Y21_first_24h"
 
 source postscript.sh
