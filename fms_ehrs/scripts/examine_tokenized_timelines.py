@@ -34,19 +34,12 @@ for k, v in vars(args).items():
     logger.info(f"{k}: {v}")
 
 data_dirs = list(map(lambda d: pathlib.Path(d).expanduser().resolve(), args.data_dirs))
-data_dirs = list(
-    map(
-        lambda d: pathlib.Path(d).expanduser().resolve(),
-        ["~/Downloads/data-mimic", "~/Downloads/data-ucmc"],
-    )
-)
-
 
 idx = pd.MultiIndex.from_product(
     [args.data_versions, (d.name.split("-")[-1] for d in data_dirs), args.splits],
     names=["version", "dataset", "split"],
 )
-res = pd.DataFrame(index=idx, columns=["tot_tokens", "unq_tokens"])
+res = pd.DataFrame(index=idx, columns=["examples", "tot_tokens", "unq_tokens"])
 
 for vers in args.data_versions:
     logger.info(vers.ljust(42, "="))
@@ -61,12 +54,13 @@ for vers in args.data_versions:
         for s in args.splits:
             logger.info(f"{s} split")
             df = pl.scan_parquet(
-                d.joinpath(f"{vers}-tokenized", s, "tokens_timelines.parquet")
+                d / f"{vers}-tokenized" / s / "tokens_timelines.parquet"
             )
+            n_ex = len(df.collect())
             n_tot = df.select("seq_len").sum().collect().item()
             n_unq = df.select(pl.col("tokens").explode().n_unique()).collect().item()
-            res.loc[(vers, d.name.split("-")[-1], s)] = (n_tot, n_unq)
-            logger.info("top 10 tokens by usage:")
+            res.loc[(vers, d.name.split("-")[-1], s)] = (n_ex, n_tot, n_unq)
+            logger.info("top 20 tokens by usage:")
             logger.info(
                 df.select(
                     pl.col("tokens")
@@ -76,7 +70,7 @@ for vers in args.data_versions:
                 .group_by("tokens")
                 .len()
                 .sort("len", descending=True)
-                .head(10)
+                .head(20)
                 .collect()
             )
             logger.info(
@@ -101,4 +95,4 @@ for vers in args.data_versions:
 logger.info(res)
 logger.info(res.groupby(level=["version", "dataset"]).sum())
 
-logger.info("done")
+logger.info("---fin")

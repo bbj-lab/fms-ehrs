@@ -4,7 +4,7 @@
 #SBATCH --output=./output/%j-%x.stdout
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:1
-#SBATCH --time=12:00:00
+#SBATCH --time=24:00:00
 #SBATCH --mem=100GB
 ##SBATCH --dependency=afterok:5560968
 
@@ -15,22 +15,21 @@ export data_version=Y21
 echo "Training an FM on MIMIC data..."
 python3 ../fms_ehrs/scripts/tune_model.py \
     --n_epochs 10 \
-    --n_trials 25 \
+    --n_trials 5 \
     --lr_min 2e-4 \
     --lr_max 4e-4 \
     --gr_acc_min 1 \
-    --gr_acc_max 16 \
-    --per_device_train_batch_size 1 \
+    --gr_acc_max 4 \
+    --per_device_train_batch_size 4 \
     --max_seq_length 16384 \
     --data_dir "${hm}/data-mimic" \
-    --data_version ${data_version} \
+    --data_version "${data_version}" \
     --model_dir "${hm}/mdls" \
     --model_version gemma \
     --model_name "google/gemma-3-270m" \
     --wandb_project ${data_version} \
-    --jid 20260129
-# --hidden_size 128 \
-# --intermediate_size 256
+    --hidden_size 128 \
+    --intermediate_size 256
 
 source postscript.sh
 
