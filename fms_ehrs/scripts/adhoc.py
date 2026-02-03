@@ -5,6 +5,7 @@ for a list of models, collect predictions and compare performance
 """
 
 import argparse
+import itertools
 import pathlib
 
 import polars as pl
@@ -17,8 +18,8 @@ logger.info("running {}".format(__file__))
 logger.log_env()
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--data_dir", type=pathlib.Path, default="~/Downloads/data-mimic")
-parser.add_argument("--data_version", type=str, default="Y21")
+parser.add_argument("--data_dir", type=pathlib.Path, default="../../data-mimic")
+parser.add_argument("--data_version", type=str, default="Y21_unfused")
 parser.add_argument("--out_dir", type=pathlib.Path, default="../../figs")
 args, unknowns = parser.parse_known_args()
 
@@ -88,34 +89,47 @@ with pl.Config(tbl_rows=-1, tbl_width_chars=200, fmt_str_lengths=100):
         .collect()
     )
 
-with pl.Config(tbl_rows=-1, tbl_width_chars=200, fmt_str_lengths=100):
-    print(
-        tt.select(
-            pl.col("tokens")
-            .explode()
-            .replace_strict(tkzr.vocab.reverse, return_dtype=pl.String)
-        )
-        .with_columns(
-            quadruples=pl.concat_str(
-                [
-                    pl.col("tokens"),
-                    pl.col("tokens").shift(-1),
-                    pl.col("tokens").shift(-2),
-                    pl.col("tokens").shift(-3),
-                ],
-                separator=",",
-            )
-        )
-        .filter(pl.col("tokens") != "TL_END")
-        .filter(pl.col("tokens").shift(-1) != "TL_END")
-        .filter(pl.col("tokens").shift(-2) != "TL_END")
-        .group_by("quadruples")
-        .len()
-        .sort("len", descending=True)
-        .head(100)
-        .collect()
-    )
+# with pl.Config(tbl_rows=-1, tbl_width_chars=200, fmt_str_lengths=100):
+#     print(
+#         tt.select(
+#             pl.col("tokens")
+#             .explode()
+#             .replace_strict(tkzr.vocab.reverse, return_dtype=pl.String)
+#         )
+#         .with_columns(
+#             quadruples=pl.concat_str(
+#                 [
+#                     pl.col("tokens"),
+#                     pl.col("tokens").shift(-1),
+#                     pl.col("tokens").shift(-2),
+#                     pl.col("tokens").shift(-3),
+#                 ],
+#                 separator=",",
+#             )
+#         )
+#         .filter(pl.col("tokens") != "TL_END")
+#         .filter(pl.col("tokens").shift(-1) != "TL_END")
+#         .filter(pl.col("tokens").shift(-2) != "TL_END")
+#         .group_by("quadruples")
+#         .len()
+#         .sort("len", descending=True)
+#         .head(100)
+#         .collect()
+#     )
 
 
 # with pl.Config(tbl_rows=-1):
 #     print(rass.group_by("numerical_value").len().sort("numerical_value"))
+
+
+tt = tt.with_columns(
+    events=pl.struct(["times", "tokens"]).map_elements(
+        lambda s: [
+            [tok for tok, _ in group]
+            for _, group in itertools.groupby(
+                zip(s["tokens"], s["times"]),
+                key=lambda x: x[1],
+            )
+        ]
+    )
+)
