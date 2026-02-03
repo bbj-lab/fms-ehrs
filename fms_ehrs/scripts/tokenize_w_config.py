@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 
 """
-learn the tokenizer on the training set and apply it to the validation and test sets
+learn the tokenizer on the training set and apply it to the validation and test sets;
+training folders will contain a copy of the vocabulary object & configuration
 """
 
 import argparse
 import pathlib
+import shutil
 
 from fms_ehrs.framework.logger import get_logger
 from fms_ehrs.framework.storage import fix_perms, set_perms
@@ -72,6 +74,10 @@ set_perms(tokens_timelines.write_parquet)(
     dirs_out["train"].joinpath("tokens_timelines.parquet")
 )
 tkzr.vocab.save(dirs_out["train"].joinpath("vocab.gzip"))
+shutil.copy2(
+    pathlib.Path(args.config_loc).expanduser().resolve(),
+    dirs_out["train"] / "config.yaml",
+)
 
 if args.include_24h_cut:
     tokens_timelines_24h = tkzr.cut_at_time(tokens_timelines)
@@ -82,6 +88,10 @@ if args.include_24h_cut:
         dirs_out_24h["train"].joinpath("tokens_timelines.parquet")
     )
     tkzr.vocab.save(dirs_out_24h["train"].joinpath("vocab.gzip"))
+    shutil.copy2(
+        pathlib.Path(args.config_loc).expanduser().resolve(),
+        dirs_out_24h["train"] / "config.yaml",
+    )
 
 # take the learned tokenizer and tokenize the validation and test sets
 for s in ("val", "test"):

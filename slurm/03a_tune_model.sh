@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=tn-gemma
+#SBATCH --job-name=tun-gemma
 #SBATCH --output=./output/%j-%x.stdout
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:1

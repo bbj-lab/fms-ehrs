@@ -1,8 +1,8 @@
 #!/bin/bash
 
-#SBATCH --job-name=tn-gemma
+#SBATCH --job-name=trn-gemma
 #SBATCH --output=./output/%j-%x.stdout
-#SBATCH --partition=gpuq
+#SBATCH --partition=gpudev
 #SBATCH --gres=gpu:1
 #SBATCH --time=24:00:00
 #SBATCH --mem=100GB
@@ -10,7 +10,7 @@
 
 source preamble.sh
 
-export data_version=Y21
+export data_version=Y21_unfused
 
 echo "Training an FM on MIMIC data..."
 python3 ../fms_ehrs/scripts/train_model.py \
@@ -18,7 +18,7 @@ python3 ../fms_ehrs/scripts/train_model.py \
     --lr 2.5e-4 \
     --gr_acc 4 \
     --per_device_train_batch_size 4 \
-    --max_seq_length 16384 \
+    --max_seq_length 4096 \
     --data_dir "${hm}/data-mimic" \
     --data_version "${data_version}" \
     --model_dir "${hm}/mdls" \
@@ -27,6 +27,5 @@ python3 ../fms_ehrs/scripts/train_model.py \
     --wandb_project ${data_version}
 
 source postscript.sh
-
 # this leaves tuned models at ${model_dir}/${model_version}-%j-hp-${data_version}
 # typically we copy the ones we like to ${hm}/mdls-archive
