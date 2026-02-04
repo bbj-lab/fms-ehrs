@@ -26,17 +26,30 @@ logger.info("running {}".format(__file__))
 logger.log_env()
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--data_dir_orig", type=pathlib.Path)
-parser.add_argument("--data_dir_new", type=pathlib.Path)
-parser.add_argument("--data_version", type=str)
-parser.add_argument("--model_loc", type=pathlib.Path)
+parser.add_argument("--data_dir_orig", type=pathlib.Path, default="../../data-mimic")
+parser.add_argument("--data_dir_new", type=pathlib.Path, default="../../data-ucmc")
+parser.add_argument("--data_version", type=str, default="Y21_unfused_first_24h")
+parser.add_argument(
+    "--model_loc", type=pathlib.Path, default="../../mdls-archive/gemma-5635921-Y21"
+)
 parser.add_argument(
     "--classifier",
     choices=["light_gbm", "logistic_regression_cv", "logistic_regression"],
     default="logistic_regression",
 )
+parser.add_argument(
+    "--outcomes",
+    nargs="+",
+    default=[
+        "same_admission_death",
+        "long_length_of_stay",
+        "icu_admission",
+        "imv_event",
+        "ama_discharge",
+        "hospice_discharge",
+    ],
+)
 parser.add_argument("--save_preds", action="store_true")
-parser.add_argument("--drop_icu_adm", action="store_true")
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -49,9 +62,6 @@ data_dir_orig, data_dir_new, model_loc = map(
 
 splits = ("train", "val", "test")
 versions = ("orig", "new")
-outcomes = ("same_admission_death", "long_length_of_stay", "imv_event") + (
-    ("icu_admission",) if not args.drop_icu_adm else ()
-)
 
 data_dirs = collections.defaultdict(dict)
 features = collections.defaultdict(dict)
@@ -68,12 +78,13 @@ for v in versions:
         features[v][s] = np.load(
             data_dirs[v][s] / "features-{m}.npy".format(m=model_loc.stem)
         )
-        for outcome in outcomes:
+        for outcome in args.outcomes:
             labels[outcome][v][s] = (
                 pl.scan_parquet(data_dirs[v][s] / "tokens_timelines_outcomes.parquet")
                 .select(outcome)
                 .collect()
                 .to_numpy()
+                .astype(int)
                 .ravel()
             )
             qualifiers[outcome][v][s] = (
@@ -84,10 +95,11 @@ for v in versions:
                     .select(outcome + "_24h")
                     .collect()
                     .to_numpy()
+                    .astype(bool)
                     .ravel()
                 )  # *not* people who have had this outcome in the first 24h
                 if outcome in ("icu_admission", "imv_event")
-                else True * np.ones_like(labels[outcome][v][s])
+                else np.ones_like(labels[outcome][v][s]).astype(bool)
             )
 
 
@@ -96,7 +108,7 @@ for v in versions:
 
 preds = collections.defaultdict(dict)
 
-for outcome in outcomes:
+for outcome in args.outcomes:
     logger.info(outcome.replace("_", " ").upper().ljust(79, "-"))
 
     Xtrain = (features["orig"]["train"])[qualifiers[outcome]["orig"]["train"]]
@@ -106,8 +118,21 @@ for outcome in outcomes:
 
     match args.classifier:
         case "light_gbm":
-            estimator = lgb.LGBMClassifier(metric="auc")
-            estimator.fit(X=Xtrain, y=ytrain, eval_set=(Xval, yval))
+            estimator = lgb.LGBMClassifier(
+                metric="auc",
+                scale_pos_weight=(ytrain == 0).sum() / (ytrain == 1).sum(),
+                random_state=42,
+                max_bin=100,
+                learning_rate=0.01,
+                num_leaves=8,
+                boosting="dart",
+            )
+            estimator.fit(
+                X=Xtrain,
+                y=ytrain,
+                eval_set=(Xval, yval),
+                callbacks=[lgb.log_evaluation(period=1)],
+            )
 
         case "logistic_regression_cv":
             estimator = skl.pipeline.make_pipeline(
@@ -162,11 +187,14 @@ if args.save_preds:
             pickle.dump(
                 {
                     "qualifiers": {
-                        outcome: qualifiers[outcome][v]["test"] for outcome in outcomes
+                        outcome: qualifiers[outcome][v]["test"]
+                        for outcome in args.outcomes
                     },
-                    "predictions": {outcome: preds[outcome][v] for outcome in outcomes},
+                    "predictions": {
+                        outcome: preds[outcome][v] for outcome in args.outcomes
+                    },
                     "labels": {
-                        outcome: labels[outcome][v]["test"] for outcome in outcomes
+                        outcome: labels[outcome][v]["test"] for outcome in args.outcomes
                     },
                 },
                 fp,

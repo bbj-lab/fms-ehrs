@@ -27,5 +27,6 @@ python3 ../fms_ehrs/scripts/train_model.py \
     --wandb_project ${data_version}
 
 source postscript.sh
+
 # this leaves tuned models at ${model_dir}/${model_version}-%j-hp-${data_version}
 # typically we copy the ones we like to ${hm}/mdls-archive
