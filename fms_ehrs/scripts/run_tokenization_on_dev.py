@@ -13,7 +13,6 @@ import tempfile
 from fms_ehrs.framework.tokenizer import Tokenizer21
 from fms_ehrs.framework.tokenizer_base import summarize
 
-
 dev_dir = (
     pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/development-sample-21")
     if os.uname().nodename.startswith("cri")
@@ -44,7 +43,7 @@ for name, conf in {
 
 print("transfer vocab test".upper().ljust(72, "="))
 tkzr21_pp = Tokenizer21(
-    config_file="../config/clif-21.yaml", data_dir=dev_dir.joinpath("raw-mimic/dev")
+    config_file="../config/clif-21.yaml", data_dir=dev_dir / "raw-mimic" / "dev"
 )
 tt21_pp = tkzr21_pp.get_tokens_timelines()
 summarize(tkzr21_pp, tt21_pp)
@@ -57,7 +56,7 @@ with tempfile.NamedTemporaryFile() as fp:
     tkzr21_pp_ucmc = Tokenizer21(
         vocab_path=fp.name,
         config_file="../config/clif-21.yaml",
-        data_dir=dev_dir.joinpath("raw-ucmc/dev"),
+        data_dir=dev_dir / "raw-ucmc" / "dev",
     )
     tt21_pp_ucmc = tkzr21_pp_ucmc.get_tokens_timelines()
     summarize(tkzr21_pp_ucmc, tt21_pp_ucmc)

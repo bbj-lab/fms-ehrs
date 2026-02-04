@@ -36,7 +36,7 @@ for k, v in vars(args).items():
     logger.info(f"{k}: {v}")
 
 ucmc_dir = pathlib.Path(args.ucmc_dir).expanduser().resolve()
-dx = pl.read_csv(ucmc_dir.joinpath("C19_DX_DID.txt"), separator="|", infer_schema=False)
+dx = pl.read_csv(ucmc_dir / "C19_DX_DID.txt", separator="|", infer_schema=False)
 
 for har_id in args.har_ids:
     print(dx.filter(pl.col("C19_PATIENT_ID") == har_id))

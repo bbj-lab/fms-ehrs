@@ -481,7 +481,7 @@ if __name__ == "__main__":
     ) / "development-sample-21"
 
     tkzr21_pp = Tokenizer21(
-        config_file="../config/clif-21.yaml", data_dir=dev_dir.joinpath("raw-mimic/dev")
+        config_file="../config/clif-21.yaml", data_dir=dev_dir / "raw-mimic" / "dev"
     )
     tt21_pp = tkzr21_pp.get_tokens_timelines()
     summarize(tkzr21_pp, tt21_pp)
@@ -494,7 +494,7 @@ if __name__ == "__main__":
         tkzr21_pp_ucmc = Tokenizer21(
             vocab_path=fp.name,
             config_file="../config/clif-21.yaml",
-            data_dir=dev_dir.joinpath("raw-ucmc/dev"),
+            data_dir=dev_dir / "raw-ucmc" / "dev",
         )
         tt21_pp_ucmc = tkzr21_pp_ucmc.get_tokens_timelines()
         summarize(tkzr21_pp_ucmc, tt21_pp_ucmc)

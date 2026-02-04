@@ -52,7 +52,7 @@ versions = ("orig", "new")
 outcomes = ("same_admission_death", "long_length_of_stay", "imv_event", "icu_admission")
 
 vocab = Vocabulary().load(
-    data_dir_orig.joinpath(f"{args.data_version}-tokenized", "train", "vocab.gzip")
+    data_dir_orig / f"{args.data_version}-tokenized" / "train" / "vocab.gzip"
 )
 data_dirs = dict()
 race = dict()
@@ -61,11 +61,13 @@ sex = dict()
 preds = dict()
 
 for v in versions:
-    data_dirs[v] = (data_dir_orig if v == "orig" else data_dir_new).joinpath(
-        f"{args.data_version}-tokenized", "test"
+    data_dirs[v] = (
+        (data_dir_orig if v == "orig" else data_dir_new)
+        / f"{args.data_version}-tokenized"
+        / "test"
     )
     race[v] = (
-        pl.scan_parquet(data_dirs[v].joinpath("tokens_timelines_outcomes.parquet"))
+        pl.scan_parquet(data_dirs[v] / "tokens_timelines_outcomes.parquet")
         .select(
             pl.col("tokens")
             .list.get(1)  # index of race token
@@ -84,7 +86,7 @@ for v in versions:
         .to_numpy()
     )
     ethnicity[v] = (
-        pl.scan_parquet(data_dirs[v].joinpath("tokens_timelines_outcomes.parquet"))
+        pl.scan_parquet(data_dirs[v] / "tokens_timelines_outcomes.parquet")
         .select(
             pl.col("tokens")
             .list.get(2)  # index of ethnicity token
@@ -96,7 +98,7 @@ for v in versions:
         .to_numpy()
     )
     sex[v] = (
-        pl.scan_parquet(data_dirs[v].joinpath("tokens_timelines_outcomes.parquet"))
+        pl.scan_parquet(data_dirs[v] / "tokens_timelines_outcomes.parquet")
         .select(
             pl.col("tokens")
             .list.get(3)  # index of sex token
@@ -107,8 +109,7 @@ for v in versions:
         .to_numpy()
     )
     with open(
-        data_dirs[v].joinpath(args.classifier + "-preds-" + model_loc.stem + ".pkl"),
-        "rb",
+        data_dirs[v] / (args.classifier + "-preds-" + model_loc.stem + ".pkl"), "rb"
     ) as fp:
         preds[v] = pickle.load(fp)
 

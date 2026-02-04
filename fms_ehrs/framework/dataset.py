@@ -124,7 +124,7 @@ if __name__ == "__main__":
         # change following line to develop locally
         hm = pathlib.Path("~/Documents/chicago/CLIF/")
 
-    data_dir = hm.parent.joinpath(hm.stem + "-tokenized").expanduser()
+    data_dir = hm.parent / (hm.stem + "-tokenized")
     data = Datasets(
         data_version="clif-development-sample", data_dir=hm, i_part=42, n_parts=100
     )

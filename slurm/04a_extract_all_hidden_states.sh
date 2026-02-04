@@ -10,7 +10,7 @@
 
 source preamble.sh
 
-ni=1 nj=1
+ni=2 nj=3
 i=$((SLURM_ARRAY_TASK_ID % ni)) j=$((SLURM_ARRAY_TASK_ID / ni))
 
 if ((SLURM_ARRAY_TASK_COUNT != ni * nj)); then
@@ -36,8 +36,8 @@ splits=(
 python3 ../fms_ehrs/scripts/extract_all_hidden_states.py \
     --data_dir "${data_dirs[$i]}" \
     --out_dir "${out_dirs[$i]}" \
-    --data_version V21 \
-    --model_loc "${hm}/mdls-archive/llama-med-4476655-hp-V21" \
+    --data_version Y21 \
+    --model_loc "${hm}/mdls-archive/gemma-5635921-Y21" \
     --small_batch_sz $((2 ** 3)) \
     --big_batch_sz $((2 ** 10)) \
     --all_layers \

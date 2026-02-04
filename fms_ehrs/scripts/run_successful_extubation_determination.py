@@ -57,10 +57,10 @@ last_vitals_df = (
 )
 
 resp_p = pl.read_parquet(
-    data_dir.joinpath("clif_respiratory_support_processed.parquet")
+    data_dir / "clif_respiratory_support_processed.parquet"
 ).to_pandas()
 
-all_streaks = ddb.sql(q_dir.joinpath("modified_cohort_id.sql").read_text())
+all_streaks = ddb.sql((q_dir / "modified_cohort_id.sql").read_text())
 
 q = """
 FROM all_streaks
@@ -96,7 +96,7 @@ con.register("last_vitals_df", last_vitals_df)
 con.register("resp_p", resp_p)
 con.register("cs_df", cs_df)
 con.register("hosp_df", hosp_df)
-sbt_outcomes = con.sql(q_dir.joinpath("modified_whiskey.sql").read_text()).df()
+sbt_outcomes = con.sql((q_dir / "modified_whiskey.sql").read_text()).df()
 
 # whiskey_sql_url = (
 #     "https://raw.githubusercontent.com/Common-Longitudinal-ICU-data-Format"
@@ -134,7 +134,7 @@ logger.info(
 )
 
 set_perms(extub_flag.to_parquet)(
-    out_loc := data_dir.joinpath("clif_successful_extubation.parquet")
+    out_loc := data_dir / "clif_successful_extubation.parquet"
 )
 logger.info(f"Saved frame to {out_loc}.")
 

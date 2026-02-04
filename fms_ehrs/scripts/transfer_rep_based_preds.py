@@ -60,17 +60,17 @@ labels = collections.defaultdict(lambda: collections.defaultdict(dict))
 
 for v in versions:
     for s in splits:
-        data_dirs[v][s] = (data_dir_orig if v == "orig" else data_dir_new).joinpath(
-            f"{args.data_version}-tokenized", s
+        data_dirs[v][s] = (
+            (data_dir_orig if v == "orig" else data_dir_new)
+            / f"{args.data_version}-tokenized"
+            / s
         )
         features[v][s] = np.load(
-            data_dirs[v][s].joinpath("features-{m}.npy".format(m=model_loc.stem))
+            data_dirs[v][s] / "features-{m}.npy".format(m=model_loc.stem)
         )
         for outcome in outcomes:
             labels[outcome][v][s] = (
-                pl.scan_parquet(
-                    data_dirs[v][s].joinpath("tokens_timelines_outcomes.parquet")
-                )
+                pl.scan_parquet(data_dirs[v][s] / "tokens_timelines_outcomes.parquet")
                 .select(outcome)
                 .collect()
                 .to_numpy()
@@ -79,7 +79,7 @@ for v in versions:
             qualifiers[outcome][v][s] = (
                 (
                     ~pl.scan_parquet(
-                        data_dirs[v][s].joinpath("tokens_timelines_outcomes.parquet")
+                        data_dirs[v][s] / "tokens_timelines_outcomes.parquet"
                     )
                     .select(outcome + "_24h")
                     .collect()
@@ -155,9 +155,8 @@ for outcome in outcomes:
 if args.save_preds:
     for v in versions:
         with open(
-            data_dirs[v]["test"].joinpath(
-                args.classifier + "-preds-" + model_loc.stem + ".pkl"
-            ),
+            data_dirs[v]["test"]
+            / (args.classifier + "-preds-" + model_loc.stem + ".pkl"),
             "wb",
         ) as fp:
             pickle.dump(

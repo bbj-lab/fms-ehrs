@@ -95,38 +95,13 @@ fix_perms(out_dir)
 
 # load and prep data
 splits = ("train", "val", "test")
-data_dirs = {s: data_dir.joinpath(f"{args.data_version}-tokenized", s) for s in splits}
+data_dirs = {s: data_dir / f"{args.data_version}-tokenized" / s for s in splits}
 
-vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
+vocab = Vocabulary().load(data_dirs["train"] / "vocab.gzip")
 
-# lookup = dict(
-#     enumerate(
-#         pl.scan_parquet(data_dirs["test"].joinpath("tokens_timelines.parquet"))
-#         .select("hospitalization_id")
-#         .collect()
-#         .to_series()
-#         .to_list()
-#     )
-# )
-
-# infm = np.load(
-#     gzip.open(
-#         data_dirs["test"].joinpath(
-#             ("information-{mdl}.npy.gz").format(mdl=model_loc.stem)
-#         ),
-#         "rb",
-#     )
-# )[:, 7:300]
-
-# [
-#     lookup[i]
-#     for i in np.argsort(np.max(infm, axis=1) * np.isfinite(infm[:, 299 - 7]))[::-1][:50]
-# ]
-
-# np.random.default_rng().choice(list(lookup.values()), size=50, replace=False).tolist()
 
 tt = (
-    pl.scan_parquet(data_dirs["test"].joinpath("tokens_timelines.parquet"))
+    pl.scan_parquet(data_dirs["test"] / "tokens_timelines.parquet")
     .with_row_index()
     .filter(pl.col("hospitalization_id").is_in(args.ids))
     .with_columns(
@@ -142,13 +117,12 @@ tt = (
 mets = {
     met: np.load(
         gzip.open(
-            data_dirs["test"].joinpath(
-                (
-                    "{met}-{mdl}.npy.gz"
-                    if met.startswith("information")
-                    else "importance-{met}-{mdl}.npy.gz"
-                ).format(met=met, mdl=model_loc.stem)
-            ),
+            data_dirs["test"]
+            / (
+                "{met}-{mdl}.npy.gz"
+                if met.startswith("information")
+                else "importance-{met}-{mdl}.npy.gz"
+            ).format(met=met, mdl=model_loc.stem),
             "rb",
         )
     )[tt.select("index").to_numpy().ravel()]
@@ -159,15 +133,14 @@ mets = {
 if "all-jumps-all-layers" in args.metrics:
     jumps_all = np.load(
         gzip.open(
-            data_dirs["test"].joinpath(
-                "all-jumps-all-layers-{mdl}.npy.gz".format(mdl=model_loc.stem)
-            ),
+            data_dirs["test"]
+            / "all-jumps-all-layers-{mdl}.npy.gz".format(mdl=model_loc.stem),
             "rb",
         )
     )[tt.select("index").to_numpy().ravel()]
     for i, jumps_i in enumerate(jumps_all.T):
         mets[f"jumps-{i}"] = jumps_i.T
-    mets["jumps-all"] = np.sqrt(np.sum(np.square(jumps_all),axis=-1))
+    mets["jumps-all"] = np.sqrt(np.sum(np.square(jumps_all), axis=-1))
 
 if data_dir.stem == "data-ucmc" and "information" in mets.keys():
     # manually fix issue with admission types
@@ -196,10 +169,9 @@ for i, hid in tq.tqdm(
         imshow_text(
             values=v[i, :max_len].reshape((-1, n_cols)),
             text=tl[:max_len].reshape((-1, n_cols)),
-            savepath=out_dir.joinpath(
-                "tls-{sid}-{met}-{dv}-{mv}.pdf".format(
-                    sid=hid, met=k, dv=args.data_version, mv=model_loc.stem
-                )
+            savepath=out_dir
+            / "tls-{sid}-{met}-{dv}-{mv}.pdf".format(
+                sid=hid, met=k, dv=args.data_version, mv=model_loc.stem
             ),
             autosize=False,
             zmin=v[i, :max_len].min(),

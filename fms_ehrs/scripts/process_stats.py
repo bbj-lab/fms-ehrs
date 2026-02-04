@@ -37,17 +37,17 @@ data_dir, model_loc = map(
 )
 
 info = np.load(
-    data_dir.joinpath(
-        f"{args.data_version}-tokenized",
-        "test",
-        "log_probs-{m}.npy".format(m=model_loc.stem),
-    )
+    data_dir
+    / f"{args.data_version}-tokenized"
+    / "test"
+    / "log_probs-{m}.npy".format(m=model_loc.stem)
 ) / -np.log(2)
 
 tto = pl.read_parquet(
-    data_dir.joinpath(
-        f"{args.data_version}-tokenized", "test", "tokens_timelines_outcomes.parquet"
-    )
+    data_dir
+    / f"{args.data_version}-tokenized"
+    / "test"
+    / "tokens_timelines_outcomes.parquet"
 )
 
 assert info.shape[0] == tto.shape[0]

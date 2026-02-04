@@ -66,11 +66,11 @@ new_data = (
 splits = ("train", "val", "test") if not args.development_sample else ("dev",)
 for s in splits:
     sbj_ids = pl.scan_parquet(
-        data_dir.joinpath(args.data_version, s, f"{ref_tbl_str}.parquet")
+        data_dir / args.data_version / s / f"{ref_tbl_str}.parquet"
     ).select(pl.col(sbj_id_str).cast(pl.String))
     set_perms(
         new_data.join(sbj_ids, how="inner", on=sbj_id_str, validate="m:1").sink_parquet
-    )(data_dir.joinpath(args.data_version, s, f"{new_data_loc.stem}.parquet"))
+    )(data_dir / args.data_version / s / f"{new_data_loc.stem}.parquet")
     logger.info(f"Added {new_data_loc.stem} to {s} split.")
 
 

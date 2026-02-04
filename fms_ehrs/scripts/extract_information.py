@@ -55,16 +55,14 @@ t.cuda.set_device(device)
 splits = ("train", "val", "test")
 data_dirs = dict()
 for s in splits:
-    data_dirs[s] = data_dir.joinpath(f"{args.data_version}-tokenized", s)
+    data_dirs[s] = data_dir / f"{args.data_version}-tokenized" / s
 
-vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
+vocab = Vocabulary().load(data_dirs["train"] / "vocab.gzip")
 
 dataset = (
     load_dataset(
         "parquet",
-        data_files={
-            s: str(data_dirs[s].joinpath("tokens_timelines.parquet")) for s in splits
-        },
+        data_files={s: str(data_dirs[s] / "tokens_timelines.parquet") for s in splits},
     )
     .map(lambda batch: {"input_ids": batch["padded"]}, batched=True)
     .with_format("torch")
@@ -114,7 +112,7 @@ for s in args.splits:
         log_probs[batch_idx, 1:] = log_probs_realized
 
     set_perms(np.save, compress=True)(
-        data_dirs[s].joinpath("information-{m}.npy.gz".format(m=model_loc.stem)),
+        data_dirs[s] / "information-{m}.npy.gz".format(m=model_loc.stem),
         log_probs / -np.log(2),
     )  # save out result
 

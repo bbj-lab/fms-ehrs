@@ -59,19 +59,17 @@ data_dir, out_dir, model_loc = map(
     (args.data_dir, args.out_dir, args.model_loc),
 )
 
-data_dirs = {
-    s: data_dir.joinpath(f"{args.data_version}-tokenized", s) for s in args.splits
-}
+data_dirs = {s: data_dir / f"{args.data_version}-tokenized" / s for s in args.splits}
 
 vocab = Vocabulary().load(
-    data_dir.joinpath(f"{args.data_version}-tokenized", "train", "vocab.gzip")
+    data_dir / f"{args.data_version}-tokenized" / "train" / "vocab.gzip"
 )
 pad_tkn = vocab("PAD")
 
 splits = ("train", "val", "test")
 df = pl.concat(
     [
-        pl.read_parquet(data_dirs[s].joinpath("tokens_timelines.parquet")).with_columns(
+        pl.read_parquet(data_dirs[s] / "tokens_timelines.parquet").with_columns(
             split=pl.lit(s)
         )
         for s in args.splits
@@ -80,7 +78,7 @@ df = pl.concat(
 
 infm = np.concatenate(
     [
-        np.load(data_dirs[s].joinpath("log_probs-{m}.npy".format(m=model_loc.stem)))
+        np.load(data_dirs[s] / "log_probs-{m}.npy".format(m=model_loc.stem))
         for s in args.splits
     ]
 ) / -np.log(2)
@@ -90,10 +88,9 @@ metrics = {
         [
             np.load(
                 gzip.open(
-                    data_dirs[s].joinpath(
-                        "importance-{met}-{mdl}.npy.gz".format(
-                            met=met, mdl=model_loc.stem
-                        )
+                    data_dirs[s]
+                    / "importance-{met}-{mdl}.npy.gz".format(
+                        met=met, mdl=model_loc.stem
                     ),
                     "rb",
                 )
@@ -122,10 +119,9 @@ ravelled = (
 
 p = sns.pairplot(ravelled.sample(n_samp := 10_000).to_pandas(), hue="tk_typ")
 set_perms(p.figure.savefig)(
-    out_dir.joinpath(
-        "importance-metrics-samp{ns}-{m}-{d}.pdf".format(
-            ns=n_samp, m=model_loc.stem, d=data_dir.stem
-        )
+    out_dir
+    / "importance-metrics-samp{ns}-{m}-{d}.pdf".format(
+        ns=n_samp, m=model_loc.stem, d=data_dir.stem
     ),
     bbox_inches="tight",
 )
