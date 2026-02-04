@@ -52,15 +52,15 @@ data_dir, model_loc, out_dir = map(
 
 rng = np.random.default_rng(42)
 splits = ("train", "val", "test")
-data_dirs = {s: data_dir.joinpath(f"{args.data_version}-tokenized", s) for s in splits}
-vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
-infm = data_dirs[v]["test"].joinpath("information-{m}.npy".format(m=model_loc.stem))
+data_dirs = {s: data_dir / f"{args.data_version}-tokenized" / s for s in splits}
+vocab = Vocabulary().load(data_dirs["train"] / "vocab.gzip")
+infm = data_dirs[v]["test"] / "information-{m}.npy".format(m=model_loc.stem)
 
 logger.info(f"{v=},{np.nanmean(infm)=}")
 
 
 tl = np.array(
-    pl.scan_parquet(data_dirs[v]["test"].joinpath("tokens_timelines.parquet"))
+    pl.scan_parquet(data_dirs[v]["test"] / "tokens_timelines.parquet")
     .select("padded")
     .collect()
     .to_series()
@@ -68,7 +68,7 @@ tl = np.array(
 )
 
 tm = (
-    pl.scan_parquet(data_dirs[v]["test"].joinpath("tokens_timelines.parquet"))
+    pl.scan_parquet(data_dirs[v]["test"] / "tokens_timelines.parquet")
     .select("times")
     .collect()
     .to_series()
@@ -76,7 +76,7 @@ tm = (
 )
 
 ids = np.array(
-    pl.scan_parquet(data_dirs[v]["test"].joinpath("tokens_timelines.parquet"))
+    pl.scan_parquet(data_dirs[v]["test"] / "tokens_timelines.parquet")
     .select("hospitalization_id")
     .collect()
     .to_series()
@@ -107,9 +107,8 @@ for s in args.samp:
         values=np.nan_to_num(infm[v][i])[:max_len].reshape((-1, n_cols)),
         text=tt[:max_len].reshape((-1, n_cols)),
         # title=f"Information by token for patient {s} in {names[v]}",
-        savepath=out_dir.joinpath(
-            "tokens-{v}-{s}-{m}-hist.pdf".format(v=v, s=s, m=model_loc.stem)
-        ),
+        savepath=out_dir
+        / "tokens-{v}-{s}-{m}-hist.pdf".format(v=v, s=s, m=model_loc.stem),
         autosize=False,
         zmin=0,
         height=height,

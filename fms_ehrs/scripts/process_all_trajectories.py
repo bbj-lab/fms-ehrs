@@ -53,7 +53,7 @@ def diff0(arr: np.ndarray, axis=0):
 
 for s in args.splits:
     featfiles = sorted(
-        data_dir.joinpath(f"{args.data_version}-tokenized", s).glob(
+        (data_dir / f"{args.data_version}-tokenized" / s).glob(
             "all-features{x}-{m}-batch*.npy.gz".format(
                 x="-all-layers" if args.all_layers else "", m=model_loc.stem
             )
@@ -77,12 +77,11 @@ for s in args.splits:
     )  # shape n_obs × tl_len or n_obs × tl_len × (num_hidden_layers + 1) if args.all_layers
 
     set_perms(np.save, compress=True)(
-        out_dir.joinpath(
-            f"{args.data_version}-tokenized",
-            s,
-            "all-jumps{x}-{m}.npy.gz".format(
-                x="-all-layers" if args.all_layers else "", m=model_loc.stem
-            ),
+        out_dir
+        / f"{args.data_version}-tokenized"
+        / s
+        / "all-jumps{x}-{m}.npy.gz".format(
+            x="-all-layers" if args.all_layers else "", m=model_loc.stem
         ),
         jumps,
     )

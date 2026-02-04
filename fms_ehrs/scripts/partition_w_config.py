@@ -64,7 +64,7 @@ data_dir_in, data_dir_out = map(
 splits = ("train", "val", "test") if not args.development_sample else ("dev",)
 dirs_out = dict()
 for s in splits:
-    dirs_out[s] = data_dir_out.joinpath(args.data_version_out, s)
+    dirs_out[s] = data_dir_out / args.data_version_out / s
     dirs_out[s].mkdir(exist_ok=True, parents=True)
 
 sbj_ids = dict()
@@ -72,7 +72,7 @@ grp_ids = dict()
 aug_tbls = [t["table"] for t in config.get("augmentation_tables", {}) if "table" in t]
 
 ref = (
-    pl.scan_parquet(data_dir_in.joinpath("{}.parquet".format(ref_tbl_str)))
+    pl.scan_parquet(data_dir_in / "{}.parquet".format(ref_tbl_str))
     .filter(pl.col(config_ref.get("age", "age_at_admission")) >= 18)
     .cast(
         {
@@ -146,11 +146,11 @@ if not args.development_sample:
 # generate sub-tables
 for s in splits:
     set_perms(
-        pl.scan_parquet(data_dir_in.joinpath("{}.parquet".format(ref_tbl_str)))
+        pl.scan_parquet(data_dir_in / "{}.parquet".format(ref_tbl_str))
         .with_columns(pl.col(sbj_id_str).cast(pl.String))
         .join(sbj_ids[s].lazy(), on=sbj_id_str)
         .sink_parquet
-    )(dirs_out[s].joinpath("{}.parquet".format(ref_tbl_str)))
+    )(dirs_out[s] / "{}.parquet".format(ref_tbl_str))
     for t in data_dir_in.glob("*.parquet"):
         if t.stem != ref_tbl_str:
             try:  # attempt to partition on subject id
@@ -159,7 +159,7 @@ for s in splits:
                     .with_columns(pl.col(sbj_id_str).cast(pl.String))
                     .join(sbj_ids[s].lazy(), on=sbj_id_str)
                     .sink_parquet
-                )(dirs_out[s].joinpath(t.name))
+                )(dirs_out[s] / t.name)
                 logger.info(f"Created {t.name} in {s} with {sbj_id_str}")
                 continue
             except pl.exceptions.ColumnNotFoundError:
@@ -172,7 +172,7 @@ for s in splits:
                     )
                     .join(sbj_ids[s].lazy(), on=sbj_id_str)
                     .sink_parquet
-                )(dirs_out[s].joinpath(t.name))
+                )(dirs_out[s] / t.name)
                 logger.info(f"Created {t.name} in {s} with {sbj_id_str}")
                 continue
             except pl.exceptions.ColumnNotFoundError:
@@ -183,7 +183,7 @@ for s in splits:
                     .with_columns(pl.col(grp_id_str).cast(pl.String))
                     .join(grp_ids[s].lazy(), on=grp_id_str)
                     .sink_parquet
-                )(dirs_out[s].joinpath(t.name))
+                )(dirs_out[s] / t.name)
                 logger.info(f"Created {t.name} in {s} with {grp_id_str}")
                 continue
             except pl.exceptions.ColumnNotFoundError:

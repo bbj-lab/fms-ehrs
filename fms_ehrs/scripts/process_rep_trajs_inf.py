@@ -59,17 +59,17 @@ data_dir, out_dir, model_loc = map(
     lambda d: pathlib.Path(d).expanduser().resolve(),
     (args.data_dir, args.out_dir, args.model_loc),
 )
-test_dir = data_dir.joinpath(f"{args.data_version}-tokenized", "test")
+test_dir = data_dir / f"{args.data_version}-tokenized" / "test"
 vocab = Vocabulary().load(
-    data_dir.joinpath(f"{args.data_version}-tokenized", "train", "vocab.gzip")
+    data_dir / f"{args.data_version}-tokenized" / "train" / "vocab.gzip"
 )
 colorer = dict(zip(token_types, colors[1:]))
 
-jumps = np.load(test_dir.joinpath(f"all-jumps-{model_loc.stem}.npy"))
-inf_arr = np.load(test_dir.joinpath(f"log_probs-{model_loc.stem}.npy")) / -np.log(2)
-if (f := test_dir.joinpath("tokens_timelines_outcomes.parquet")).exists():
+jumps = np.load(test_dir / f"all-jumps-{model_loc.stem}.npy")
+inf_arr = np.load(test_dir / f"log_probs-{model_loc.stem}.npy") / -np.log(2)
+if (f := test_dir / "tokens_timelines_outcomes.parquet").exists():
     tt = pl.scan_parquet(f)
-elif (f := test_dir.joinpath("tokens_timelines.parquet")).exists():
+elif (f := test_dir / "tokens_timelines.parquet").exists():
     tt = pl.scan_parquet(f)
 else:
     raise FileNotFoundError("Check tokens_timelines* file.")
@@ -119,9 +119,8 @@ if args.make_plots:
         font_family="CMU Serif, Times New Roman, serif",
     )
     set_perms(fig.write_image)(
-        out_dir.joinpath(
-            "twise-jumps-infs-{m}-{d}.pdf".format(m=model_loc.stem, d=data_dir.stem)
-        )
+        out_dir
+        / "twise-jumps-infs-{m}-{d}.pdf".format(m=model_loc.stem, d=data_dir.stem)
     )
 
 if not args.skip_kde:
@@ -148,9 +147,8 @@ if not args.skip_kde:
     ax.set_xlabel("information")
     ax.set_ylabel("jump_length")
     set_perms(plt.savefig)(
-        out_dir.joinpath(
-            "tokens-jumps-vs-infm-{m}-{d}.pdf".format(m=model_loc.stem, d=data_dir.stem)
-        ),
+        out_dir
+        / "tokens-jumps-vs-infm-{m}-{d}.pdf".format(m=model_loc.stem, d=data_dir.stem),
         bbox_inches="tight",
     )
 
@@ -211,19 +209,17 @@ if args.make_plots:
         font_family="CMU Serif, Times New Roman, serif",
     )
     set_perms(fig.write_image)(
-        out_dir.joinpath(
-            "path-lens-vs-infm-{agg}-{m}-{d}.pdf".format(
-                agg=args.aggregation, m=model_loc.stem, d=data_dir.stem
-            )
+        out_dir
+        / "path-lens-vs-infm-{agg}-{m}-{d}.pdf".format(
+            agg=args.aggregation, m=model_loc.stem, d=data_dir.stem
         )
     )
 
     plot_histogram(
         df_e["information"].values,
-        savepath=out_dir.joinpath(
-            "events-infm-{agg}-{m}-{d}.pdf".format(
-                agg=args.aggregation, m=model_loc.stem, d=data_dir.stem
-            )
+        savepath=out_dir
+        / "events-infm-{agg}-{m}-{d}.pdf".format(
+            agg=args.aggregation, m=model_loc.stem, d=data_dir.stem
         ),
     )
 

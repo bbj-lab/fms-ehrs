@@ -83,9 +83,9 @@ t.cuda.set_device(device)
 
 # load and prep data
 splits = ("train", "val", "test")
-data_dirs = {s: data_dir.joinpath(f"{args.data_version}-tokenized", s) for s in splits}
+data_dirs = {s: data_dir / f"{args.data_version}-tokenized" / s for s in splits}
 
-vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
+vocab = Vocabulary().load(data_dirs["train"] / "vocab.gzip")
 stop_tokens = t.tensor([vocab("TRUNC"), vocab("TL_END")])
 
 # load and prep model
@@ -109,9 +109,7 @@ if is_parallel:
 dataset = (
     load_dataset(
         "parquet",
-        data_files={
-            s: str(data_dirs[s].joinpath("tokens_timelines.parquet")) for s in splits
-        },
+        data_files={s: str(data_dirs[s] / "tokens_timelines.parquet") for s in splits},
     )
     .map(lambda batch: {"input_ids": batch["padded"]}, batched=True)
     .with_format("torch")
@@ -189,21 +187,20 @@ for s in args.splits:
 
     for met in args.metrics:
         set_perms(np.save, compress=True)(
-            data_dirs[s].joinpath(
-                "importance-{met}-{mdl}{sn}{en}.npy.gz".format(
-                    met=met,
-                    mdl=model_loc.stem,
-                    sn=(
-                        "-s" + str(ns).zfill(4)
-                        if (ns := args.batch_num_start) is not None
-                        else ""
-                    ),
-                    en=(
-                        "-e" + str(ne).zfill(4)
-                        if (ne := args.batch_num_end) is not None
-                        else ""
-                    ),
-                )
+            data_dirs[s]
+            / "importance-{met}-{mdl}{sn}{en}.npy.gz".format(
+                met=met,
+                mdl=model_loc.stem,
+                sn=(
+                    "-s" + str(ns).zfill(4)
+                    if (ns := args.batch_num_start) is not None
+                    else ""
+                ),
+                en=(
+                    "-e" + str(ne).zfill(4)
+                    if (ne := args.batch_num_end) is not None
+                    else ""
+                ),
             ),
             metrics[met],
         )

@@ -27,8 +27,8 @@ metrics=(
 
 python3 ../fms_ehrs/scripts/extract_all_importances.py \
     --data_dir "${hm}/data-ucmc" \
-    --data_version V21 \
-    --model_loc "${hm}/mdls-archive/llama-med-4476655-hp-V21" \
+    --data_version Y21 \
+    --model_loc "${hm}/mdls-archive/gemma-5635921-Y21" \
     --batch_size 8 \
     --metrics "${metrics[@]}" \
     --splits "${splits[@]}" \

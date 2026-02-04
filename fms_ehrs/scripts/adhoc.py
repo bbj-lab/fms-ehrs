@@ -127,8 +127,7 @@ tt = tt.with_columns(
         lambda s: [
             [tok for tok, _ in group]
             for _, group in itertools.groupby(
-                zip(s["tokens"], s["times"]),
-                key=lambda x: x[1],
+                zip(s["tokens"], s["times"]), key=lambda x: x[1]
             )
         ]
     )

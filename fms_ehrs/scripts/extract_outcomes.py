@@ -34,10 +34,10 @@ splits = ("train", "val", "test")
 data_dirs = dict()
 ref_dirs = dict()
 for s in splits:
-    data_dirs[s] = data_dir.joinpath(f"{args.data_version}-tokenized", s)
-    ref_dirs[s] = data_dir.joinpath(f"{args.ref_version}-tokenized", s)
+    data_dirs[s] = data_dir / f"{args.data_version}-tokenized" / s
+    ref_dirs[s] = data_dir / f"{args.ref_version}-tokenized" / s
 
-vocab = Vocabulary().load(ref_dirs["train"].joinpath("vocab.gzip"))
+vocab = Vocabulary().load(ref_dirs["train"] / "vocab.gzip")
 expired_token = vocab("DSCG_Expired")
 icu_token = vocab("XFR-IN_icu")
 imv_token = vocab("RESP_imv")
@@ -53,7 +53,7 @@ hosp_token = vocab("DSCG_Hospice")
 
 for s in splits:
     outcomes = (
-        pl.scan_parquet(ref_dirs[s].joinpath("tokens_timelines.parquet"))
+        pl.scan_parquet(ref_dirs[s] / "tokens_timelines.parquet")
         .with_columns(
             length_of_stay=(
                 pl.col("times").list.get(-1) - pl.col("times").list.get(0)
@@ -83,7 +83,7 @@ for s in splits:
     )
     (
         set_perms(
-            pl.scan_parquet(data_dirs[s].joinpath("tokens_timelines.parquet"))
+            pl.scan_parquet(data_dirs[s] / "tokens_timelines.parquet")
             .with_columns(
                 icu_admission_24h=pl.col("tokens").list.contains(icu_token),
                 imv_event_24h=pl.col("tokens").list.contains(imv_token),
@@ -97,7 +97,7 @@ for s in splits:
             )
             .collect()
             .write_parquet
-        )(data_dirs[s].joinpath("tokens_timelines_outcomes.parquet"))
+        )(data_dirs[s] / "tokens_timelines_outcomes.parquet")
     )
 
 logger.info("---fin")

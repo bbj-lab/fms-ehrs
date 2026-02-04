@@ -56,20 +56,18 @@ outcome_columns = (
 )
 
 vocab = Vocabulary().load(
-    data_dir.joinpath(f"{args.data_version}-tokenized", "train", "vocab.gzip")
+    data_dir / f"{args.data_version}-tokenized" / "train" / "vocab.gzip"
 )
 pad_tkn = vocab("PAD")
 
 splits = ("train", "val", "test")
 for s in splits:
-    dv = data_dir.joinpath(f"{args.data_version}-tokenized", s)
-    d_out = data_dir.joinpath(f"{args.new_version}-tokenized", s)
+    dv = data_dir / f"{args.data_version}-tokenized" / s
+    d_out = data_dir / f"{args.new_version}-tokenized" / s
     d_out.mkdir(exist_ok=True, parents=True)
 
-    df = pl.read_parquet(dv.joinpath("tokens_timelines_outcomes.parquet"))
-    infm = np.load(dv.joinpath("log_probs-{m}.npy".format(m=model_loc.stem))) / -np.log(
-        2
-    )
+    df = pl.read_parquet(dv / "tokens_timelines_outcomes.parquet")
+    infm = np.load(dv / "log_probs-{m}.npy".format(m=model_loc.stem)) / -np.log(2)
 
     icu_adm = df.select("icu_admission_24h").to_numpy().ravel()
     df_icu = df.filter("icu_admission_24h")
@@ -110,12 +108,12 @@ for s in splits:
     else:
         df = df_icu
 
-    set_perms(df.write_parquet)(d_out.joinpath("tokens_timelines_outcomes.parquet"))
+    set_perms(df.write_parquet)(d_out / "tokens_timelines_outcomes.parquet")
     df.drop(outcome_columns, strict=False).write_parquet(
-        d_out.joinpath("tokens_timelines.parquet")
+        d_out / "tokens_timelines.parquet"
     )
     if s == "train":
-        vocab.save(d_out.joinpath("vocab.gzip"))
+        vocab.save(d_out / "vocab.gzip")
 
 
 logger.info("---fin")

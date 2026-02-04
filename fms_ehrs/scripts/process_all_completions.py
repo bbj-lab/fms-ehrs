@@ -74,7 +74,11 @@ vocab = Vocabulary().load(
 )
 
 with gzip.open(
-    data_dir / f"{args.data_version}-tokenized" / "test" / f"gen_preds_ml{args.max_len}_nsamp{args.n_samp}.pkl.gz", "r+"
+    data_dir
+    / f"{args.data_version}-tokenized"
+    / "test"
+    / f"gen_preds_ml{args.max_len}_nsamp{args.n_samp}.pkl.gz",
+    "r+",
 ) as f:
     res = pickle.load(f)
 

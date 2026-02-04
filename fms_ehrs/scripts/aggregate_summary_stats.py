@@ -110,9 +110,7 @@ impt = {
 
 jmps_all = np.load(
     gzip.open(
-        dds["test"].joinpath(
-            "all-jumps-all-layers-{mdl}.npy.gz".format(mdl=model_loc.stem)
-        ),
+        dds["test"] / "all-jumps-all-layers-{mdl}.npy.gz".format(mdl=model_loc.stem),
         "rb",
     )
 )
@@ -198,17 +196,6 @@ print(results.summary())
 
 results = smf.ols("infm ~ jmps8", data=df.to_pandas()).fit()
 print(results.summary())
-
-# tt_all = pl.concat(
-#     [
-#         pl.read_parquet(
-#             data_dir / f"{args.data_version}-tokenized" / s / "tokens_timelines.parquet"
-#         ).with_columns(split=pl.lit(s), set=pl.lit(data_dir.stem))
-#         for s in splits
-#         for data_dir in data_dirs
-#     ]
-# )
-# summarize(tokenizer=tkzr, tokens_timelines=tt_all, logger=logger)
 
 
 logger.info("---fin")

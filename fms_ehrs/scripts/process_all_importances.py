@@ -59,9 +59,7 @@ data_dir, model_loc = map(
     lambda d: pathlib.Path(d).expanduser().resolve(), (args.data_dir, args.model_loc)
 )
 
-data_dirs = {
-    s: data_dir.joinpath(f"{args.data_version}-tokenized", s) for s in args.splits
-}
+data_dirs = {s: data_dir / f"{args.data_version}-tokenized" / s for s in args.splits}
 
 for s in args.splits:
     for met in args.metrics:
@@ -87,9 +85,8 @@ for s in args.splits:
                 f"Likely issues for {met=} in {s=} with {mask.sum()} arrays: {np.nonzero(mask)[0]}"
             )
         set_perms(np.save, compress=True)(
-            data_dirs[s].joinpath(
-                "importance-{met}-{mdl}.npy.gz".format(met=met, mdl=model_loc.stem)
-            ),
+            data_dirs[s]
+            / "importance-{met}-{mdl}.npy.gz".format(met=met, mdl=model_loc.stem),
             arr,
         )
         if args.delete_batches:

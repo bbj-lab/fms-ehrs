@@ -27,9 +27,7 @@ python3 ../fms_ehrs/scripts/tune_model.py \
     --model_dir "${hm}/mdls" \
     --model_version gemma \
     --model_name "google/gemma-3-270m" \
-    --wandb_project ${data_version} \
-    --hidden_size 128 \
-    --intermediate_size 256
+    --wandb_project ${data_version}
 
 source postscript.sh
 
