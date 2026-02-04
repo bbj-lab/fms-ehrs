@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-provide datasets for training
+provide datasets for training; token packing is used for forming batches
 """
 
 import os
@@ -42,7 +42,13 @@ class Datasets:
         }
         self.vocab = Vocabulary().load(self.data_dirs["train"] / "vocab.gzip")
         self.uint_dtype = (
-            t.uint8 if len(self.vocab) <= t.iinfo(t.uint8).max else t.int64
+            t.uint8
+            if len(self.vocab) <= t.iinfo(t.uint8).max
+            else t.uint16
+            if len(self.vocab) <= t.iinfo(t.uint16).max
+            else t.uint32
+            if len(self.vocab) <= t.iinfo(t.uint32).max
+            else t.int64
         )
         self.input_ids_type = ds.Sequence(ds.Value(str(self.uint_dtype).split(".")[-1]))
         self.i_part = i_part
@@ -84,7 +90,7 @@ class Datasets:
         buf: t.Tensor = t.empty(0, dtype=self.uint_dtype)
 
         for eg in it:
-            buf = t.cat((buf, eg["input_ids"]))
+            buf = t.cat((buf, eg["input_ids"].to(self.uint_dtype)))
 
             while buf.numel() >= self.max_seq_length:
                 yield {"input_ids": buf[: self.max_seq_length]}
@@ -118,7 +124,7 @@ if __name__ == "__main__":
         # change following line to develop locally
         hm = pathlib.Path("~/Documents/chicago/CLIF/")
 
-    data_dir = hm.parent.joinpath(hm.stem + "-tokenized").expanduser()
+    data_dir = hm.parent / (hm.stem + "-tokenized")
     data = Datasets(
         data_version="clif-development-sample", data_dir=hm, i_part=42, n_parts=100
     )

@@ -6,7 +6,7 @@ of strings to unique integers;
 The Vocabulary class has two modes: training and not-training.
 - During training, new items are added to the lookup table and new auxiliary
 information can be associated to them through the `aux` object.
-- During not-training, the vocabulary is frozen and new items are all mapped to the
+- After training, the vocabulary is frozen and new items are all mapped to the
 None item or None itself, and no new auxiliary information can be added.
 """
 
