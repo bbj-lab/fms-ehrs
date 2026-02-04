@@ -84,7 +84,7 @@ if args.include_24h_cut:
     logger.info("24h cut...")
     summarize(tkzr, tokens_timelines_24h, logger=logger)
     tokens_timelines_24h = tkzr.pad_and_truncate(tokens_timelines_24h)
-    set_perms(tokens_timelines.write_parquet)(
+    set_perms(tokens_timelines_24h.write_parquet)(
         dirs_out_24h["train"] / "tokens_timelines.parquet"
     )
     tkzr.vocab.save(dirs_out_24h["train"] / "vocab.gzip")

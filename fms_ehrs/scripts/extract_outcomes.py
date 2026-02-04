@@ -19,8 +19,8 @@ logger.log_env()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data_dir", type=pathlib.Path, default="../../data-mimic")
-parser.add_argument("--ref_version", type=str, default="X21")
-parser.add_argument("--data_version", type=str, default="X21_first_24h")
+parser.add_argument("--ref_version", type=str, default="Y21")
+parser.add_argument("--data_version", type=str, default="Y21_first_24h")
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -43,13 +43,6 @@ icu_token = vocab("XFR-IN_icu")
 imv_token = vocab("RESP_imv")
 ama_token = vocab("DSCG_Against_Medical_Advice_(AMA)")
 hosp_token = vocab("DSCG_Hospice")
-# sofa_2_plus_tokens = [
-#     vocab(s)
-#     for sys in ["cv", "cns", "coag", "liver", "renal", "resp"]
-#     for num in range(2, 5)
-#     if (s := f"SOFA_{sys}-{num}") in vocab.lookup
-# ]
-
 
 for s in splits:
     outcomes = (
@@ -63,9 +56,6 @@ for s in splits:
             imv_event=pl.col("tokens").list.contains(imv_token),
             ama_discharge=pl.col("tokens").list.contains(ama_token),
             hospice_discharge=pl.col("tokens").list.contains(hosp_token),
-            # sofa_2_plus=pl.col("tokens")
-            # .list.eval(pl.element().is_in(sofa_2_plus_tokens))
-            # .list.any(),
         )
         .with_columns(
             long_length_of_stay=pl.col("length_of_stay") > 24 * 7  # 7 days in hours
@@ -83,21 +73,26 @@ for s in splits:
     )
     (
         set_perms(
-            pl.scan_parquet(data_dirs[s] / "tokens_timelines.parquet")
-            .with_columns(
-                icu_admission_24h=pl.col("tokens").list.contains(icu_token),
-                imv_event_24h=pl.col("tokens").list.contains(imv_token),
-            )
-            .join(
-                outcomes,
-                how="left",
-                on="hospitalization_id",
-                validate="1:1",
-                maintain_order="left",
-            )
-            .collect()
-            .write_parquet
+            (
+                df := pl.scan_parquet(data_dirs[s] / "tokens_timelines.parquet")
+                .with_columns(
+                    icu_admission_24h=pl.col("tokens").list.contains(icu_token),
+                    imv_event_24h=pl.col("tokens").list.contains(imv_token),
+                )
+                .join(
+                    outcomes,
+                    how="left",
+                    on="hospitalization_id",
+                    validate="1:1",
+                    maintain_order="left",
+                )
+                .collect()
+            ).write_parquet
         )(data_dirs[s] / "tokens_timelines_outcomes.parquet")
     )
+
+    logger.info(f"{s=}")
+    with pl.Config(tbl_cols=-1, set_float_precision=3):
+        logger.info(df.mean())
 
 logger.info("---fin")

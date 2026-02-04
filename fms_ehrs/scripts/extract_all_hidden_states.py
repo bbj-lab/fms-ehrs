@@ -65,6 +65,7 @@ dataset = (
         data_files={
             s: str(data_dirs[s] / "tokens_timelines.parquet") for s in args.splits
         },
+        columns=["padded"],
     )
     .map(lambda batch: {"input_ids": batch["padded"]}, batched=True)
     .with_format("torch")
@@ -79,7 +80,7 @@ h = model.config.num_hidden_layers
 model = model.to(device)
 
 # iterate over splits and run inference using model
-stop_tokens = t.tensor([vocab("PAD")]).to(device)
+stop_tokens = t.tensor([vocab("PAD"), vocab("TRUNC")]).to(device)
 
 for s in args.splits:
     n = dataset[s].num_rows
@@ -108,7 +109,7 @@ for s in args.splits:
                 else x.hidden_states[-1].detach().to("cpu").numpy().astype(np.float16)
             )
             first_stop_idx = t.argmax(
-                t.isin(batch, stop_tokens).int(), dim=1, keepdim=True
+                t.isin(batch, stop_tokens).int(), dim=1
             )  # or 0 if no stop token
             for i, j in enumerate(first_stop_idx.cpu().numpy().ravel()):
                 if j > 0:
