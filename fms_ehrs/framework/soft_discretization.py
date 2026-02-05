@@ -3,7 +3,7 @@
 """
 Soft discretization via convex combinations of adjacent bin embeddings.
 
-This module implements the ConSE-inspired approach for representing continuous
+This module implements the ConSE approach for representing continuous
 values as weighted interpolations of discrete bin embeddings.
 
 References
@@ -333,10 +333,10 @@ class SoftDiscretizationEncoder(nn.Module):
         # Handle edge cases
         if bin_idx == 0:
             # Below first boundary: use first bin embedding
-            return self.bin_embeddings(torch.tensor(0, device=device))
+            return self.bin_embeddings(torch.tensor(0, dtype=torch.long, device=device))
         elif bin_idx >= eff_bins - 1:
             # Above last boundary: use last effective bin embedding
-            return self.bin_embeddings(torch.tensor(eff_bins - 1, device=device))
+            return self.bin_embeddings(torch.tensor(eff_bins - 1, dtype=torch.long, device=device))
 
         # Compute interpolation weight
         lower_boundary = boundaries[bin_idx - 1]
@@ -351,8 +351,8 @@ class SoftDiscretizationEncoder(nn.Module):
             alpha = alpha.clamp(0.0, 1.0)
 
         # Get adjacent bin embeddings
-        lower_embed = self.bin_embeddings(torch.tensor(bin_idx - 1, device=device))
-        upper_embed = self.bin_embeddings(torch.tensor(bin_idx, device=device))
+        lower_embed = self.bin_embeddings((bin_idx - 1).to(dtype=torch.long))
+        upper_embed = self.bin_embeddings(bin_idx.to(dtype=torch.long))
 
         # Convex combination
         return (1 - alpha) * lower_embed + alpha * upper_embed

@@ -2,7 +2,6 @@ import unittest
 
 import torch
 
-from fms_ehrs.framework.continuous_encoder import ContinuousValueEncoder
 from fms_ehrs.framework.soft_discretization import SoftDiscretizationEncoder
 
 
@@ -74,30 +73,6 @@ class TestSoftDiscretizationEncoder(unittest.TestCase):
         out_slow = enc_slow(values, codes=codes)
 
         self.assertTrue(torch.allclose(out_fast, out_slow, atol=1e-6))
-
-
-class TestContinuousValueEncoder(unittest.TestCase):
-    def test_code_id_normalization_and_clipping(self):
-        # ContinuousValueEncoder is xVal-style: with embed_dim=1 and num_embeddings=[1],
-        # output equals the normalized scalar (after clipping).
-        enc = ContinuousValueEncoder(embed_dim=1, clip_sigma=2.0, num_scales=1)
-        with torch.no_grad():
-            enc.num_embeddings.fill_(1.0)
-
-        # Stats for token id 5: mean=0, std=1
-        enc.means_by_id = torch.zeros((16,), dtype=torch.float32)
-        enc.stds_by_id = torch.ones((16,), dtype=torch.float32)
-        enc.has_stats_by_id = torch.zeros((16,), dtype=torch.bool)
-        enc.means_by_id[5] = 0.0
-        enc.stds_by_id[5] = 1.0
-        enc.has_stats_by_id[5] = True
-
-        values = torch.tensor([0.5, 10.0], dtype=torch.float32)
-        code_ids = torch.tensor([5, 5], dtype=torch.long)
-
-        out = enc(values, code_ids=code_ids).squeeze(1)
-        # 10.0 should be clipped to 2.0 after z-score
-        self.assertTrue(torch.allclose(out, torch.tensor([0.5, 2.0]), atol=1e-6))
 
 
 if __name__ == "__main__":

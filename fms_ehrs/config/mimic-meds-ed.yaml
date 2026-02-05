@@ -7,7 +7,7 @@ group_id: subject_id
 
 options:
     day_stay_filter: !!bool true
-    max_padded_len: !!int 1024
+    max_padded_len: !!int 4096
     quantizer: deciles
     include_time_spacing_tokens: !!bool true
     fused_category_values: !!bool false

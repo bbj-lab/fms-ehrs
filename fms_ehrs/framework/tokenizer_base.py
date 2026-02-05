@@ -74,7 +74,15 @@ class BaseTokenizer:
         if self.numeric_encoding == "xval":
             # Canonical xVal uses a single number placeholder token instead of quantile tokens.
             self.q_tokens = tuple()
-        self.special: tuple = ("TL_START", "TL_END", "PAD", "TRUNC", None, "nan")
+        # Special tokens.
+        #
+        # NOTE:
+        # - TL_START/TL_END delimit a hospitalization timeline.
+        # - PAD is used for padding and (in packed training) as a boundary-gap filler.
+        # - TRUNC marks that a timeline was truncated when materializing fixed-length columns.
+        # - TL_CONT marks continuation windows for full-timeline windowed training
+        #   (used by Experiment 2/3 padded-mode windowing; inserted downstream, not by tokenization).
+        self.special: tuple = ("TL_START", "TL_END", "TL_CONT", "PAD", "TRUNC", None, "nan")
         self.max_padded_length = max_padded_len
         self.include_time_spacing_tokens = include_time_spacing_tokens
         self.fused_category_values = fused_category_values
