@@ -22,7 +22,7 @@ Time2Vec operates orthogonally to RoPE:
 - Time2Vec: Encodes temporal semantics (hours since admission) via learned 
   periodic and linear components
 
-These embeddings are added to token embeddings before transformer processing.
+Time2Vec is composed with token embeddings before transformer processing.
 """
 
 import math
@@ -58,6 +58,8 @@ class Time2Vec(nn.Module):
         embed_dim: int = 64,
         num_periodic: int | None = None,
         learnable_frequencies: bool = True,
+        init_period_max_hours: float = 24.0,
+        init_period_min_hours: float = 0.1,
     ):
         super().__init__()
         self.embed_dim = embed_dim
@@ -76,25 +78,34 @@ class Time2Vec(nn.Module):
         
         # Periodic component parameters
         if learnable_frequencies:
-            # Initialize frequencies with log-spacing for multi-scale patterns
-            # Covers scales from ~minutes to ~weeks
-            init_freqs = torch.exp(
-                torch.linspace(
-                    math.log(1.0 / 24.0),    # Daily (24-hour period)
-                    math.log(1.0 / 0.1),     # 6-minute period
-                    num_periodic
+            # Initialize angular frequencies ω with log-spacing across periods.
+            #
+            # In Eq. (Time2Vec), periodic components are sin(ω_i τ + φ_i), so the
+            # period in the units of τ is (2π / ω_i). If τ is measured in hours,
+            # a 24-hour period corresponds to ω = 2π/24 (not 1/24).
+            period_max = float(init_period_max_hours)
+            period_min = float(init_period_min_hours)
+            if not (0.0 < period_min <= period_max):
+                raise ValueError(
+                    f"Expected 0 < init_period_min_hours <= init_period_max_hours, got {period_min} and {period_max}."
                 )
-            )
+            w_min = (2.0 * math.pi) / period_max
+            w_max = (2.0 * math.pi) / period_min
+            init_freqs = torch.exp(torch.linspace(math.log(w_min), math.log(w_max), num_periodic))
             self.periodic_weights = nn.Parameter(init_freqs)
         else:
             # Fixed log-spaced frequencies
+            period_max = float(init_period_max_hours)
+            period_min = float(init_period_min_hours)
+            if not (0.0 < period_min <= period_max):
+                raise ValueError(
+                    f"Expected 0 < init_period_min_hours <= init_period_max_hours, got {period_min} and {period_max}."
+                )
+            w_min = (2.0 * math.pi) / period_max
+            w_max = (2.0 * math.pi) / period_min
             self.register_buffer(
                 'periodic_weights',
-                torch.exp(torch.linspace(
-                    math.log(1.0 / 24.0),
-                    math.log(1.0 / 0.1),
-                    num_periodic
-                ))
+                torch.exp(torch.linspace(math.log(w_min), math.log(w_max), num_periodic))
             )
         
         self.periodic_biases = nn.Parameter(torch.zeros(num_periodic))
@@ -163,7 +174,7 @@ class Time2VecEmbedding(nn.Module):
     This module:
     1. Computes Time2Vec embeddings from relative timestamps
     2. Projects to model hidden dimension
-    3. Adds to token embeddings (additive composition)
+    3. Composes with token embeddings (additive or concatenative)
     
     Args:
         hidden_size: Model hidden dimension (for projection)
@@ -176,6 +187,7 @@ class Time2VecEmbedding(nn.Module):
         hidden_size: int,
         time2vec_dim: int = 64,
         num_periodic: int | None = None,
+        compose: str = "add",
     ):
         super().__init__()
         
@@ -187,6 +199,15 @@ class Time2VecEmbedding(nn.Module):
         
         # Project Time2Vec output to model hidden dimension
         self.projection = nn.Linear(time2vec_dim, hidden_size)
+
+        if compose not in ("add", "concat"):
+            raise ValueError(f"Unknown Time2VecEmbedding compose={compose!r}. Expected 'add' or 'concat'.")
+        self.compose = compose
+
+        # If concatenating, fuse (token || time) back to hidden_size.
+        self.fuse = None
+        if self.compose == "concat":
+            self.fuse = nn.Linear(2 * hidden_size, hidden_size)
         
         # Layer norm for stability
         self.layer_norm = nn.LayerNorm(hidden_size)
@@ -212,8 +233,11 @@ class Time2VecEmbedding(nn.Module):
         # Project to hidden dimension
         time_emb = self.projection(time_emb)  # (batch, seq, hidden_size)
         
-        # Additive composition
-        combined = token_embeddings + time_emb
+        if self.compose == "add":
+            combined = token_embeddings + time_emb
+        else:
+            assert self.fuse is not None
+            combined = self.fuse(torch.cat([token_embeddings, time_emb], dim=-1))
         
         # Normalize
         return self.layer_norm(combined)

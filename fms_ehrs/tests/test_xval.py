@@ -101,6 +101,45 @@ class TestXValModelWrapper(unittest.TestCase):
         # Numeric loss: pred=0, target=2 => MSE = 4
         self.assertTrue(torch.allclose(out["numeric_loss"], torch.tensor(4.0)))
 
+    def test_xval_missing_stats_skips_injection_and_numeric_loss(self):
+        # Build minimal vocab with required tokens.
+        vocab = Vocabulary()
+        code_id = vocab("CODE_A")
+        num_id = vocab("[NUM]")
+        pad_id = vocab("PAD")
+        vocab("TL_START")
+        vocab("TL_END")
+        vocab.is_training = False
+
+        base = _DummyCausalLM(vocab_size=len(vocab), hidden_size=4)
+        with torch.no_grad():
+            base.model.embed_tokens.weight.fill_(1.0)
+            base.lm_head.weight.fill_(0.0)
+
+        # No stats for CODE_A -> wrapper should skip injection.
+        wrapper = XValModelWrapper(
+            base_model=base,
+            vocab=vocab,
+            temporal="time_tokens",
+            numeric_stats={},  # missing per-code stats
+            numeric_loss_weight=1.0,
+        )
+        with torch.no_grad():
+            wrapper.number_head.weight.zero_()
+            wrapper.number_head.bias.zero_()
+
+        input_ids = torch.tensor([[code_id, num_id, pad_id, pad_id]], dtype=torch.long)
+        numeric_values = torch.tensor([[float("nan"), 2.0, float("nan"), float("nan")]], dtype=torch.float32)
+        labels = input_ids.clone()
+
+        out = wrapper(input_ids=input_ids, numeric_values=numeric_values, labels=labels)
+
+        # [NUM] embedding should be unchanged (base embed is ones).
+        self.assertTrue(torch.allclose(base.last_inputs_embeds[0, 1], torch.full((4,), 1.0)))
+
+        # Numeric loss should be 0 because we exclude missing-stat positions.
+        self.assertTrue(torch.allclose(out["numeric_loss"], torch.tensor(0.0)))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -42,6 +42,20 @@ validation sets. UCMC data was primarily used as a held-out test set. For this
 reason, we partitioned UCMC hospitalizations into training, validation, and test
 sets at a 5\%-5\%-90\% rate in the same manner as used for MIMIC.
 
+## Experiment 3 cohort definition (input-representation-benchmark)
+
+The companion benchmark (`input-representation-benchmark`) defines an explicit ICU-hospitalization cohort
+\(H_{\mathrm{ICU}}\) for Experiment 3 (vocabulary semantics). When using the Exp3 tokenizer configs
+`fms_ehrs/config/mimic-meds-exp3-icu.yaml` (MEDS),
+the input data directories are assumed to already be filtered to \(H_{\mathrm{ICU}}\):
+
+- **Hospitalization-level inclusion (\(H_{\mathrm{ICU}}\))**: MIMIC-IV admissions (`hadm_id`) with hospital
+  LOS \(\ge\) 24h (computed from `hosp/admissions.csv.gz` `admittime`/`dischtime`) AND \(\ge\)1 linked ICU stay
+  record in `icu/icustays.csv.gz` for the same `hadm_id`.
+- **Splitting**: patient-level 70/10/20 split by `subject_id` with a fixed RNG seed, then split-specific `hadm_id`
+  lists are derived by intersecting admissions for those patients with \(H_{\mathrm{ICU}}\)
+  (see `input-representation-benchmark/scripts/align_cohorts.py`).
+
 We convert each hospitalization event into a sequence of integers corresponding
 to the stay. For a given sequence, the first token always corresponds to timeline
 start token. The next three tokens contain patient-level demographic information

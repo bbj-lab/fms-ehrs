@@ -54,8 +54,8 @@ class XValModelWrapper(nn.Module):
         Clip normalized values to [-clip_sigma, clip_sigma].
     numeric_stats:
         Mapping from code-string -> stats dict, as stored under numeric_stats.json["stats"].
-        Used to compute per-code mean/std. If missing for a code, we fall back to clipping
-        the raw value (still bounded).
+        Used to compute per-code mean/std. If missing for a code, we skip scaling and
+        exclude that position from the numeric loss.
     numeric_loss_weight:
         Weight for numeric regression loss added to token loss.
     numeric_loss_type:
@@ -136,19 +136,17 @@ class XValModelWrapper(nn.Module):
     ) -> torch.Tensor:
         """Per-code z-score normalization with clipping.
 
-        If stats are missing for a code, fall back to clipping raw value.
+        Note: callers are responsible for skipping numeric injection when stats are missing.
         """
         device = values.device
         code_ids = code_ids.to(device=device, dtype=torch.long)
 
         means = self.means_by_id.to(device)[code_ids]
         stds = self.stds_by_id.to(device)[code_ids]
-        has = self.has_stats_by_id.to(device)[code_ids]
 
         z = (values - means) / stds
         z = torch.clamp(z, -self.clip_sigma, self.clip_sigma)
-        values_clipped = torch.clamp(values, -self.clip_sigma, self.clip_sigma)
-        return torch.where(has, z, values_clipped)
+        return z
 
     def forward(
         self,
@@ -172,7 +170,10 @@ class XValModelWrapper(nn.Module):
         code_ids = torch.zeros_like(input_ids)
         code_ids[:, 1:] = input_ids[:, :-1]
 
-        # Normalize values (only meaningful at num_mask positions).
+        # Determine which [NUM] positions have per-code stats (skip injection if missing).
+        has_stats = self.has_stats_by_id.to(device=input_ids.device)[code_ids]
+
+        # Normalize values (only meaningful at [NUM] positions with stats).
         norm_values = self._normalize_by_code_id(
             values=numeric_values.nan_to_num(0.0),
             code_ids=code_ids,
@@ -180,7 +181,7 @@ class XValModelWrapper(nn.Module):
 
         # Build multiplicative scaling factors: 1 for non-[NUM] positions.
         scale = torch.ones_like(norm_values)
-        scale = torch.where(num_mask, norm_values, scale)
+        scale = torch.where(num_mask & has_stats, norm_values, scale)
 
         # Embed tokens and apply xVal scaling at [NUM] positions.
         embeddings = self._embed_tokens(input_ids)
@@ -210,7 +211,8 @@ class XValModelWrapper(nn.Module):
         token_loss = outputs["loss"] if isinstance(outputs, dict) else outputs.loss
         numeric_loss = torch.tensor(0.0, device=token_loss.device, dtype=token_loss.dtype)
 
-        if torch.any(num_mask):
+        num_mask_used = num_mask & has_stats
+        if torch.any(num_mask_used):
             hidden_states = outputs["hidden_states"] if isinstance(outputs, dict) else outputs.hidden_states
             hidden = hidden_states[-1]  # (batch, seq, hidden)
             pred = self.number_head(hidden).squeeze(-1)  # (batch, seq)
@@ -223,7 +225,7 @@ class XValModelWrapper(nn.Module):
                 # hidden state at position t.
                 #
                 # Therefore: compare pred[:, :-1] to target[:, 1:] where input_ids[:, 1:] is [NUM].
-                mask_next = num_mask[:, 1:]
+                mask_next = num_mask_used[:, 1:]
                 numeric_loss = torch.mean((pred[:, :-1][mask_next] - target[:, 1:][mask_next]) ** 2)
             else:
                 raise ValueError(f"Unsupported numeric_loss_type: {self.numeric_loss_type}")

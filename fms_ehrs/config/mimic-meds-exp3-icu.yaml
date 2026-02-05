@@ -1,5 +1,13 @@
 %YAML 1.2
-# Exp3 (MEDS arm): ICU-eligible hospitalizations only (cohort handled upstream),
+# Exp3 (MEDS arm): this tokenizer config assumes the input MEDS events directory has already been
+# filtered to the Exp3 ICU-hospitalization cohort H_ICU, defined as MIMIC-IV admissions (`hadm_id`)
+# with (i) hospital LOS>=24h in `hosp/admissions.csv.gz` and (ii) >=1 linked ICU stay record in
+# `icu/icustays.csv.gz` for the same `hadm_id` (see input-representation-benchmark/scripts/align_cohorts.py).
+#
+# The `day_stay_filter: true` option below is an additional LOS>=24h guardrail, but it does not enforce
+# the ICU-stay linkage; that linkage must be enforced by constructing the input directory using the
+# split `*_hadm_ids.csv` lists.
+#
 # and a **matched-signal subset** intended to overlap with CLIF Exp3:
 #   - Vitals (icu/chartevents)
 #   - Labs (hosp/labevents)
@@ -14,7 +22,7 @@ group_id: subject_id
 
 options:
     day_stay_filter: !!bool true
-    max_padded_len: !!int 1024
+    max_padded_len: !!int 4096
     quantizer: deciles
     include_time_spacing_tokens: !!bool true
     fused_category_values: !!bool false

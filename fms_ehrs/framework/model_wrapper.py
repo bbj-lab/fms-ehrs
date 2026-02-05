@@ -4,12 +4,12 @@
 Model wrapper for Experiment 2 representation mechanics.
 
 This module wraps a pretrained causal LM (e.g., LLaMA) to support different
-value representation methods (discrete, soft, continuous) and temporal
+value representation methods (discrete, soft, xval) and temporal
 encoding strategies (time_tokens, time2vec).
 
 The wrapper intercepts the embedding layer and modifies embeddings based on:
-- Soft discretization: Replace quantile-token embeddings with convex combinations
-- Continuous encoding: Replace quantile-token embeddings with xVal-style scaled embeddings
+- Soft discretization: Replace quantile-token embeddings with convex combinations, and train quantile-token positions with a soft target
+- xVal: Handled by a separate wrapper (XValModelWrapper) that operates on [NUM] tokenization and adds a numeric head loss
 - Time2Vec: Add learned temporal embeddings based on relative time since admission
 
 Architecture:
@@ -30,9 +30,9 @@ import typing
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from transformers import PreTrainedModel
 
-from fms_ehrs.framework.continuous_encoder import ContinuousValueEncoder
 from fms_ehrs.framework.soft_discretization import SoftDiscretizationEncoder
 from fms_ehrs.framework.time2vec import Time2VecEmbedding
 from fms_ehrs.framework.vocabulary import Vocabulary
@@ -52,11 +52,11 @@ class RepresentationModelWrapper(nn.Module):
         The base transformer model (e.g., LLaMA)
     vocab : Vocabulary
         Tokenizer vocabulary with quantile auxiliary data
-    representation : {"discrete", "soft", "continuous"}
+    representation : {"discrete", "soft", "xval"}
         Value representation method:
         - discrete: Standard token embeddings (baseline)
         - soft: Convex combinations of adjacent bin embeddings
-        - continuous: xVal-style scaled embedding of z-scored values
+        - xval: canonical xVal wrapper ([NUM] tokenization + multiplicative scaling + numeric head loss)
     temporal : {"time_tokens", "time2vec"}
         Temporal encoding method:
         - time_tokens: Use existing time spacing tokens (baseline)
@@ -65,20 +65,16 @@ class RepresentationModelWrapper(nn.Module):
         Number of quantile bins (for soft discretization)
     time2vec_dim : int
         Internal dimension for Time2Vec before projection
-    continuous_num_scales : int
-        Number of xVal multiscale embeddings for continuous encoding
     """
 
     def __init__(
         self,
         base_model: PreTrainedModel,
         vocab: Vocabulary,
-        representation: typing.Literal["discrete", "soft", "continuous"] = "discrete",
+        representation: typing.Literal["discrete", "soft"] = "discrete",
         temporal: typing.Literal["time_tokens", "time2vec"] = "time_tokens",
         num_bins: int = 20,
         time2vec_dim: int = 64,
-        continuous_num_scales: int = 1,
-        continuous_numeric_stats: dict[str, dict[str, float]] | None = None,
     ):
         super().__init__()
         self.base_model = base_model
@@ -100,6 +96,25 @@ class RepresentationModelWrapper(nn.Module):
                 is_q[tid] = True
         self.register_buffer("is_q_token", is_q, persistent=False)
 
+        # For soft-target training on quantile tokens, we need a stable mapping
+        # bin index k -> token id of "Q{k}".
+        self.q_token_id_by_bin: torch.Tensor | None = None
+        if representation == "soft":
+            qids: list[int] = []
+            for k in range(int(num_bins)):
+                tok = f"Q{k}"
+                if tok not in self.vocab.lookup:
+                    raise ValueError(
+                        f"Soft discretization requires quantile token {tok} in vocab."
+                    )
+                qids.append(int(self.vocab.lookup[tok]))
+            self.q_token_id_by_bin = torch.tensor(qids, dtype=torch.long)
+            self.register_buffer(
+                "q_token_id_by_bin_buf",
+                self.q_token_id_by_bin,
+                persistent=False,
+            )
+
         # Initialize value encoder if needed
         self.value_encoder: nn.Module | None = None
         if representation == "soft":
@@ -111,19 +126,6 @@ class RepresentationModelWrapper(nn.Module):
                 token_id_lookup=vocab.lookup,
                 vocab_size=len(vocab),
             )
-        elif representation == "continuous":
-            self.value_encoder = ContinuousValueEncoder(
-                embed_dim=self.hidden_size,
-                hidden_dim=self.hidden_size,
-                num_scales=continuous_num_scales,
-            )
-            self.value_encoder.set_statistics_from_vocab_aux(
-                vocab.aux,
-                numeric_stats=continuous_numeric_stats,
-                token_id_lookup=vocab.lookup,
-                vocab_size=len(vocab),
-            )
-
         # Initialize Time2Vec if needed
         self.time2vec_layer: nn.Module | None = None
         if temporal == "time2vec":
@@ -192,8 +194,8 @@ class RepresentationModelWrapper(nn.Module):
                 f"Cannot find embedding layer for model type {type(self.base_model)}"
             )
 
-        # Apply value encoding modifications if using soft/continuous
-        if self.representation in ("soft", "continuous") and numeric_values is not None:
+        # Apply value encoding modifications if using soft (xval is handled by XValModelWrapper).
+        if self.representation == "soft" and numeric_values is not None:
             embeddings = self._apply_value_encoding(
                 embeddings, input_ids, numeric_values
             )
@@ -217,8 +219,41 @@ class RepresentationModelWrapper(nn.Module):
         if embeddings.dtype != base_dtype:
             embeddings = embeddings.to(dtype=base_dtype)
 
-        # Pass modified embeddings through the model
-        # We bypass the embedding layer by passing inputs_embeds
+        # Soft discretization uses a soft target at quantile-token positions.
+        # We therefore compute the LM loss explicitly when labels are provided.
+        if self.representation == "soft" and labels is not None and numeric_values is not None:
+            model_kwargs = dict(kwargs)
+            model_kwargs.pop("labels", None)
+            model_kwargs.setdefault("return_dict", True)
+            outputs = self.base_model(
+                inputs_embeds=embeddings,
+                attention_mask=attention_mask,
+                labels=None,
+                **model_kwargs,
+            )
+            logits = outputs["logits"] if isinstance(outputs, dict) else outputs.logits
+            loss = self._soft_discretization_lm_loss(
+                logits=logits,
+                input_ids=input_ids,
+                labels=labels,
+                numeric_values=numeric_values,
+            )
+            out = {"loss": loss, "logits": logits}
+            if isinstance(outputs, dict):
+                # Preserve optional fields for callers that request them.
+                for k in ("hidden_states", "past_key_values", "attentions"):
+                    if k in outputs:
+                        out[k] = outputs[k]
+            else:
+                if getattr(outputs, "hidden_states", None) is not None:
+                    out["hidden_states"] = outputs.hidden_states
+                if getattr(outputs, "past_key_values", None) is not None:
+                    out["past_key_values"] = outputs.past_key_values
+                if getattr(outputs, "attentions", None) is not None:
+                    out["attentions"] = outputs.attentions
+            return out
+
+        # Default path: let the base model compute standard causal-LM loss.
         return self.base_model(
             inputs_embeds=embeddings,
             attention_mask=attention_mask,
@@ -226,13 +261,128 @@ class RepresentationModelWrapper(nn.Module):
             **kwargs,
         )
 
+    def _soft_discretization_lm_loss(
+        self,
+        *,
+        logits: torch.Tensor,
+        input_ids: torch.Tensor,
+        labels: torch.Tensor,
+        numeric_values: torch.Tensor,
+    ) -> torch.Tensor:
+        """Causal-LM loss with soft targets at quantile-token positions.
+
+        For positions where the next-token label is a quantile token Qk and a numeric
+        value v is available, we replace hard cross-entropy with a two-point target
+        distribution over adjacent bins determined by the within-boundary interpolation
+        weight alpha (from the same construction used for the soft embedding).
+        """
+        if self.value_encoder is None or not isinstance(self.value_encoder, SoftDiscretizationEncoder):
+            raise ValueError("Soft discretization loss requires SoftDiscretizationEncoder.")
+        if self.q_token_id_by_bin is None:
+            # Buffer is registered as q_token_id_by_bin_buf.
+            q = getattr(self, "q_token_id_by_bin_buf", None)
+            if q is None:
+                raise ValueError("Missing q_token_id_by_bin buffer for soft discretization.")
+            self.q_token_id_by_bin = q
+
+        # Shift for causal LM: logits[t] predicts label[t+1]
+        logits_next = logits[:, :-1, :]  # (B, S-1, V)
+        labels_next = labels[:, 1:]  # (B, S-1)
+        values_next = numeric_values[:, 1:]  # (B, S-1)
+        code_ids = input_ids[:, :-1]  # (B, S-1) code token before the quantile token
+
+        ignore_index = -100
+        valid = labels_next != ignore_index
+
+        # Start with standard hard CE everywhere.
+        hard = F.cross_entropy(
+            logits_next.reshape(-1, logits_next.size(-1)),
+            labels_next.reshape(-1),
+            reduction="none",
+            ignore_index=ignore_index,
+        ).reshape_as(labels_next)
+
+        # Soft-target positions: quantile label + present numeric value + boundaries available.
+        is_q_label = self.is_q_token.to(device=labels_next.device)[labels_next.clamp(min=0)]
+        has_value = ~torch.isnan(values_next)
+
+        # Determine which codes have boundaries.
+        n_boundaries_by_id = self.value_encoder.n_boundaries_by_id
+        if n_boundaries_by_id.device != code_ids.device:
+            n_boundaries_by_id = n_boundaries_by_id.to(code_ids.device)
+        has_boundaries = n_boundaries_by_id[code_ids] > 0
+
+        soft_mask = valid & is_q_label & has_value & has_boundaries
+        if not torch.any(soft_mask):
+            denom = valid.sum().clamp(min=1)
+            return hard[valid].sum() / denom
+
+        # Compute (lower_bin, upper_bin, alpha) for each soft position.
+        flat_pos = soft_mask.nonzero(as_tuple=False)  # (N, 2): (batch, pos_in_Sminus1)
+        v = values_next[soft_mask].to(dtype=torch.float32)  # (N,)
+        cids = code_ids[soft_mask].to(dtype=torch.long)  # (N,)
+
+        boundaries_by_id = self.value_encoder.boundaries_by_id
+        n_boundaries_by_id = self.value_encoder.n_boundaries_by_id
+        if boundaries_by_id.device != cids.device:
+            boundaries_by_id = boundaries_by_id.to(cids.device)
+        if n_boundaries_by_id.device != cids.device:
+            n_boundaries_by_id = n_boundaries_by_id.to(cids.device)
+
+        b = boundaries_by_id[cids]  # (N, M)
+        n_b = n_boundaries_by_id[cids].to(torch.int64)  # (N,)
+        m = b.shape[1]
+        idx = torch.arange(m, device=cids.device).unsqueeze(0)  # (1, M)
+        valid_b = idx < n_b.unsqueeze(1)
+        b_eff = b.masked_fill(~valid_b, float("inf"))
+
+        # Bin index = number of boundaries strictly less than v.
+        bin_idx = torch.sum(v.unsqueeze(1) > b_eff, dim=1)  # (N,)
+        eff_bin = torch.where(bin_idx >= n_b, n_b, bin_idx)  # last bin is n_b
+        eff_bin = eff_bin.clamp(0, self.value_encoder.num_bins - 1)
+
+        lower = (eff_bin - 1).clamp(0, self.value_encoder.num_bins - 1)
+        upper = eff_bin.clamp(0, self.value_encoder.num_bins - 1)
+
+        alpha = torch.zeros_like(v)
+        mid = (bin_idx > 0) & (bin_idx < n_b)
+        if torch.any(mid):
+            bi = bin_idx[mid].to(torch.long)
+            b_mid = b_eff[mid]
+            v_mid = v[mid]
+            lower_b = b_mid.gather(1, (bi - 1).unsqueeze(1)).squeeze(1)
+            upper_b = b_mid.gather(1, bi.unsqueeze(1)).squeeze(1)
+            denom = upper_b - lower_b
+            a = torch.where(
+                denom.abs() < 1e-8,
+                torch.full_like(denom, 0.5),
+                (v_mid - lower_b) / denom,
+            ).clamp(0.0, 1.0)
+            alpha[mid] = a
+
+        qmap = self.q_token_id_by_bin.to(device=logits.device)
+        q_low = qmap[lower.to(torch.long)]
+        q_up = qmap[upper.to(torch.long)]
+
+        logp = F.log_softmax(logits_next, dim=-1)
+        lp = logp[flat_pos[:, 0], flat_pos[:, 1], :]  # (N, V)
+        lp_low = lp.gather(1, q_low.unsqueeze(1)).squeeze(1)
+        lp_up = lp.gather(1, q_up.unsqueeze(1)).squeeze(1)
+        soft_loss = -((1.0 - alpha) * lp_low + alpha * lp_up)  # (N,)
+
+        # Replace losses at soft positions.
+        out = hard.clone()
+        out[soft_mask] = soft_loss.to(dtype=out.dtype)
+        denom = valid.sum().clamp(min=1)
+        return out[valid].sum() / denom
+
     def _apply_value_encoding(
         self,
         embeddings: torch.Tensor,
         input_ids: torch.Tensor,
         numeric_values: torch.Tensor,
     ) -> torch.Tensor:
-        """Apply soft/continuous encoding to numeric token positions.
+        """Apply soft discretization to numeric token positions.
 
         Parameters
         ----------
@@ -264,14 +414,26 @@ class RepresentationModelWrapper(nn.Module):
 
         # For a quantile token at position s, the code token is at position s-1.
         prev_ids = torch.roll(input_ids, shifts=1, dims=1)
-        code_ids = prev_ids[mask]
-        values = numeric_values[mask]
 
-        # Compute new embeddings in one vectorized call.
-        new_embeds = self.value_encoder(values, code_ids=code_ids)
+        # We perform value encoding only when we have per-code bin boundaries.
+        # If boundaries are missing for a code (e.g., an unseen code at inference),
+        # we skip numeric injection and leave the original embedding unchanged.
+        flat_pos = mask.nonzero(as_tuple=False)  # (n, 2) with columns (batch, seq)
+        code_ids_all = prev_ids[mask]  # (n,)
+        values_all = numeric_values[mask]  # (n,)
 
-        # Write back
-        modified[mask] = new_embeds.to(dtype=modified.dtype)
+        has_meta = self.value_encoder.n_boundaries_by_id.to(device=code_ids_all.device)[code_ids_all] > 0
+
+        if torch.any(has_meta):
+            pos = flat_pos[has_meta]
+            code_ids = code_ids_all[has_meta]
+            values = values_all[has_meta]
+
+            # Compute new embeddings in one vectorized call (fast code-id mode).
+            new_embeds = self.value_encoder(values, code_ids=code_ids)
+
+            # Write back only for codes with metadata.
+            modified[pos[:, 0], pos[:, 1]] = new_embeds.to(dtype=modified.dtype)
         return modified
 
     def get_input_embeddings(self):
@@ -391,7 +553,7 @@ def create_representation_model(
             temporal=temporal,
             time2vec_dim=int(kwargs.get("time2vec_dim", 64)),
             clip_sigma=float(kwargs.get("clip_sigma", 5.0)),
-            numeric_stats=kwargs.get("continuous_numeric_stats", None),
+            numeric_stats=kwargs.get("numeric_stats", None),
             numeric_loss_weight=float(kwargs.get("numeric_loss_weight", 1.0)),
         )
 

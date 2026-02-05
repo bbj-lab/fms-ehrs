@@ -5,7 +5,7 @@ group_id: patient_id
 
 options:
     day_stay_filter: !!bool true # keep only hospitalizations >=24h in duration
-    max_padded_len: !!int 1024
+    max_padded_len: !!int 4096
     quantizer: ventiles # 20 bins
     include_time_spacing_tokens: !!bool true
     fused_category_values: !!bool false
