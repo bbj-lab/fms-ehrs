@@ -31,7 +31,6 @@ parser.add_argument("--small_batch_sz", type=int, default=2**4)
 parser.add_argument("--big_batch_sz", type=int, default=2**12)
 parser.add_argument("--splits", nargs="*", default=["train", "val", "test"])
 parser.add_argument("--out_dir", type=pathlib.Path, default=None)
-parser.add_argument("--all_layers", action="store_true")
 parser.add_argument("--batch_num_start", type=int, default=None)
 parser.add_argument("--batch_num_end", type=int, default=None)
 args, unknowns = parser.parse_known_args()
@@ -76,7 +75,6 @@ model = AutoModelForCausalLM.from_pretrained(
     model_loc, torch_dtype=t.float16
 )  # in eval mode by default
 d = model.config.hidden_size
-h = model.config.num_hidden_layers
 model = model.to(device)
 
 # iterate over splits and run inference using model
@@ -88,26 +86,16 @@ for s in args.splits:
     for batch_num, big_batch in tqdm(
         enumerate(t.split(t.arange(n), args.big_batch_sz))
     ):
-        if args.batch_num_start is not None and batch_num < args.batch_num_start:
+        if (args.batch_num_start is not None and batch_num < args.batch_num_start) or (
+            args.batch_num_end is not None and batch_num >= args.batch_num_end
+        ):
             continue
-        if args.batch_num_end is not None and batch_num >= args.batch_num_end:
-            continue
-        features = (
-            np.empty((big_batch.size(0), tl_len, d, h + 1), dtype=np.float16)
-            if args.all_layers
-            else np.empty((big_batch.size(0), tl_len, d), dtype=np.float16)
-        )
+        features = np.empty((big_batch.size(0), tl_len, d), dtype=np.float16)
         for small_batch in t.split(big_batch, args.small_batch_sz):
-            batch = dataset[s]["input_ids"][small_batch]
+            batch = dataset[s]["input_ids"][small_batch].to(device)
             with t.inference_mode(), t.amp.autocast("cuda", dtype=t.float16):
-                x = model.forward(input_ids=batch.to(device), output_hidden_states=True)
-            feats = (
-                t.stack(tuple(hs.detach().to("cpu") for hs in x.hidden_states), dim=-1)
-                .numpy()
-                .astype(np.float16)
-                if args.all_layers
-                else x.hidden_states[-1].detach().to("cpu").numpy().astype(np.float16)
-            )
+                x = model.forward(input_ids=batch, output_hidden_states=True)
+            feats = x.hidden_states[-1].detach().to("cpu").numpy().astype(np.float16)
             first_stop_idx = t.argmax(
                 t.isin(batch, stop_tokens).int(), dim=1
             )  # or 0 if no stop token
@@ -118,11 +106,7 @@ for s in args.splits:
             # t.cuda.empty_cache()
         set_perms(np.save, compress=True)(
             out_dirs[s]
-            / "all-features{x}-{m}-batch{n}.npy".format(
-                x="-all-layers" if args.all_layers else "",
-                m=model_loc.stem,
-                n=batch_num,
-            ),
+            / "all-features-{m}-batch{n}.npy".format(m=model_loc.stem, n=batch_num),
             features,
         )
 
