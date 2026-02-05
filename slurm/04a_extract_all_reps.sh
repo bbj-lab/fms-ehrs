@@ -1,13 +1,12 @@
 #!/bin/bash
 
-#SBATCH --job-name=proc-all
+#SBATCH --job-name=xtract-all
 #SBATCH --output=./output/%A_%a-%x.stdout
-#SBATCH --partition=tier3q
-#SBATCH --cpus-per-task=5
-#SBATCH --mem=500GB
+#SBATCH --partition=gpudev
+#SBATCH --gres=gpu:1
 #SBATCH --time=24:00:00
-#SBATCH --array=0-5
-##SBATCH --dependency=afterok:4887053,4887863
+#SBATCH --array=0-5%1
+#SBATCH --mem=160G
 
 source preamble.sh
 
@@ -21,12 +20,12 @@ if ((SLURM_ARRAY_TASK_COUNT != ni * nj)); then
 fi
 
 data_dirs=(
-    /scratch/burkh4rt/data-mimic
-    /scratch/burkh4rt/data-ucmc
-)
-out_dirs=(
     "${hm}/data-mimic"
     "${hm}/data-ucmc"
+)
+out_dirs=(
+    "/scratch/burkh4rt/data-mimic"
+    "/scratch/burkh4rt/data-ucmc"
 )
 splits=(
     train
@@ -34,12 +33,13 @@ splits=(
     test
 )
 
-python3 ../fms_ehrs/scripts/process_all_trajectories.py \
+python3 ../fms_ehrs/scripts/extract_all_hidden_states.py \
     --data_dir "${data_dirs[$i]}" \
     --out_dir "${out_dirs[$i]}" \
-    --data_version V21 \
-    --model_loc "${hm}/mdls-archive/llama-med-4476655-hp-V21" \
-    --splits "${splits[$j]}" \
-    --all_layers
+    --data_version Y21_first_24h \
+    --model_loc "${hm}/mdls-archive/gemma-5635921-Y21" \
+    --small_batch_sz $((2 ** 5)) \
+    --big_batch_sz $((2 ** 10)) \
+    --splits "${splits[$j]}"
 
 source postscript.sh

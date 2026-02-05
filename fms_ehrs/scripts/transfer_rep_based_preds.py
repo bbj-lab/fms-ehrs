@@ -34,9 +34,10 @@ parser.add_argument(
 )
 parser.add_argument(
     "--classifier",
-    choices=["light_gbm", "logistic_regression_cv", "logistic_regression"],
+    choices=["light_gbm", "logistic_regression_cv", "logistic_regression", "lr_pca"],
     default="logistic_regression",
 )
+parser.add_argument("--k", type=int, default=25)
 parser.add_argument(
     "--outcomes",
     nargs="+",
@@ -119,13 +120,13 @@ for outcome in args.outcomes:
     match args.classifier:
         case "light_gbm":
             estimator = lgb.LGBMClassifier(
-                metric="auc",
-                scale_pos_weight=(ytrain == 0).sum() / (ytrain == 1).sum(),
-                random_state=42,
-                max_bin=100,
-                learning_rate=0.01,
-                num_leaves=8,
-                boosting="dart",
+                metric="auc"
+                # scale_pos_weight=(ytrain == 0).sum() / (ytrain == 1).sum(),
+                # random_state=42,
+                # max_bin=100,
+                # learning_rate=0.01,
+                # num_leaves=8,
+                # boosting="dart",
             )
             estimator.fit(
                 X=Xtrain,
@@ -150,6 +151,19 @@ for outcome in args.outcomes:
         case "logistic_regression":
             estimator = skl.pipeline.make_pipeline(
                 skl.preprocessing.StandardScaler(),
+                skl.linear_model.LogisticRegression(
+                    max_iter=10_000,
+                    n_jobs=-1,
+                    random_state=42,
+                    solver="newton-cholesky",
+                ),
+            )
+            estimator.fit(X=Xtrain, y=ytrain)
+
+        case "lr_pca":
+            estimator = skl.pipeline.make_pipeline(
+                skl.preprocessing.StandardScaler(),
+                skl.decomposition.PCA(n_components=args.k, random_state=42),
                 skl.linear_model.LogisticRegression(
                     max_iter=10_000,
                     n_jobs=-1,
