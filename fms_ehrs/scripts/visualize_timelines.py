@@ -28,12 +28,10 @@ logger.info("running {}".format(__file__))
 logger.log_env()
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--data_dir", type=pathlib.Path, default="../../data-ucmc")
-parser.add_argument("--data_version", type=str, default="V21")
+parser.add_argument("--data_dir", type=pathlib.Path, default="../../data-mimic")
+parser.add_argument("--data_version", type=str, default="Y21_first_24h")
 parser.add_argument(
-    "--model_loc",
-    type=pathlib.Path,
-    default="../../mdls-archive/llama-med-4476655-hp-V21",
+    "--model_loc", type=pathlib.Path, default="../../mdls-archive/gemma-5635921-Y21"
 )
 parser.add_argument(
     "--ids",
@@ -54,8 +52,8 @@ parser.add_argument(
         "21837764",
         "29761794",
         # ucmc
-        "645165754",
-        "632760687",
+        # "645165754",
+        # "632760687",
     ],
 )
 parser.add_argument(
@@ -63,20 +61,23 @@ parser.add_argument(
     type=str,
     nargs="*",
     default=[
-        "h2o-mean",
-        # "h2o-mean_log",
-        # "h2o-va-mean",
-        # "h2o-va-mean_log",
-        # "scissorhands-10",
-        # "scissorhands-20",
-        # "scissorhands-va-10",
-        # "scissorhands-va-20",
-        # "rollout-mean",
-        # "rollout-mean_log",
-        # "h2o-normed-mean",
-        # "h2o-normed-mean_log",
-        "information",
-        "all-jumps-all-layers",
+        "rel-imp-long_length_of_stay",
+        "rel-imp-same_admission_death",
+        "abs-imp-long_length_of_stay",
+        "abs-imp-same_admission_death",
+        # "importance-h2o-mean",
+        # "importance-h2o-mean_log",
+        # "importance-h2o-va-mean",
+        # "importance-h2o-va-mean_log",
+        # "importance-scissorhands-10",
+        # "importance-scissorhands-20",
+        # "importance-scissorhands-va-10",
+        # "importance-scissorhands-va-20",
+        # "importance-rollout-mean",
+        # "importance-rollout-mean_log",
+        # "importance-h2o-normed-mean",
+        # "importance-h2o-normed-mean_log",
+        # "information",
     ],
 )
 parser.add_argument("--out_dir", type=pathlib.Path, default="../../figs")
@@ -118,33 +119,12 @@ mets = {
     met: np.load(
         gzip.open(
             data_dirs["test"]
-            / (
-                "{met}-{mdl}.npy.gz"
-                if met.startswith("information")
-                else "importance-{met}-{mdl}.npy.gz"
-            ).format(met=met, mdl=model_loc.stem),
+            / "{met}-{mdl}.npy.gz".format(met=met, mdl=model_loc.stem),
             "rb",
         )
     )[tt.select("index").to_numpy().ravel()]
     for met in args.metrics
-    if not met.startswith("all-jumps")
 }
-
-if "all-jumps-all-layers" in args.metrics:
-    jumps_all = np.load(
-        gzip.open(
-            data_dirs["test"]
-            / "all-jumps-all-layers-{mdl}.npy.gz".format(mdl=model_loc.stem),
-            "rb",
-        )
-    )[tt.select("index").to_numpy().ravel()]
-    for i, jumps_i in enumerate(jumps_all.T):
-        mets[f"jumps-{i}"] = jumps_i.T
-    mets["jumps-all"] = np.sqrt(np.sum(np.square(jumps_all), axis=-1))
-
-if data_dir.stem == "data-ucmc" and "information" in mets.keys():
-    # manually fix issue with admission types
-    mets["information"][:, 5] = 0
 
 n_cols = 6
 n_rows = args.tl_len // n_cols

@@ -7,6 +7,7 @@ learn prototypes for multi-class classification outcomes
 import argparse
 import collections
 import pathlib
+import pickle
 
 import numpy as np
 import polars as pl
@@ -14,6 +15,7 @@ import sklearn as skl
 import sklvq
 
 from fms_ehrs.framework.logger import get_logger
+from fms_ehrs.framework.storage import fix_perms
 from fms_ehrs.framework.util import set_pd_options
 
 set_pd_options()
@@ -29,18 +31,18 @@ parser.add_argument("--data_version", type=str, default="Y21_first_24h")
 parser.add_argument(
     "--model_loc", type=pathlib.Path, default="../../mdls-archive/gemma-5635921-Y21"
 )
-parser.add_argument("--k", type=int, default=10)
+parser.add_argument("--k", type=int, default=25)
 parser.add_argument(
     "--outcomes",
     nargs="+",
     default=[
         "same_admission_death",
         "long_length_of_stay",
-        "ama_discharge",
-        "hospice_discharge",
+        # "ama_discharge",
+        # "hospice_discharge",
     ],
 )
-parser.add_argument("--save_preds", action="store_true")
+parser.add_argument("--save_params", action="store_true")
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -99,20 +101,28 @@ scaler = skl.pipeline.make_pipeline(
 )
 Xtrain_p = scaler.fit_transform(Xtrain)
 
-classes, ytrain_i = np.unique(ytrain, return_inverse=True)
+# classes, ytrain_i = np.unique(ytrain, return_inverse=True)
+# protoype_n_per_class = np.clip(
+#     [20 * (ytrain == c).sum() // len(ytrain) for c in classes], a_min=1, a_max=10
+# )
 
-model = sklvq.GMLVQ(
-    random_state=42,
-    solver_type="lbfgs",
-    prototype_n_per_class=np.clip(
-        [20 * (ytrain == c).sum() // len(ytrain) for c in classes], a_min=1, a_max=10
-    ),
-)
+model = sklvq.GMLVQ(random_state=42, solver_type="lbfgs", prototype_n_per_class=3)
 model.fit(Xtrain_p, ytrain)
+
+outcome = "long_length_of_stay"
+mdl = skl.mixture.GaussianMixture(n_components=1)
+flag = np.char.find(ytrain.astype(str), outcome) > -1
+bics = {
+    n: skl.mixture.GaussianMixture(n_components=n)
+    .fit(Xtrain[flag])
+    .bic(Xval[np.char.find(yval.astype(str), outcome) > -1])
+    for n in range(1, 11)
+}
+
+n_optimal = min(bics.keys(), key=bics.get)
 
 for v in versions:
     ytest = labels[v]["test"]
-    ytest_i = np.vectorize({v: i for i, v in enumerate(classes)}.__getitem__)(ytest)
     Xtest_p = scaler.transform(features[v]["test"])
     ytest_pred = model.predict(Xtest_p)
     logger.info(skl.metrics.classification_report(ytest, ytest_pred))
@@ -125,12 +135,17 @@ for v in versions:
         auc = skl.metrics.roc_auc_score(class_trues, class_preds)
         logger.info(f"{auc=:.3f}")
 
+# omega = model.get_omega()
+# protos = model.get_prototypes()
+# p_labels = model.prototypes_labels_
+# model.classes_
+# np.testing.assert_allclose(omega.T @ omega, model.lambda_)
 
-omega = model.get_omega()
-protos = model.get_prototypes()
-labels = [classes[pl] for pl in model.prototypes_labels_]
-np.testing.assert_allclose(omega.T @ omega, model.lambda_)
+if args.save_params:
+    with open(
+        data_dirs["orig"]["train"] / ("gmlvq-" + model_loc.stem + ".pkl"), "wb"
+    ) as fp:
+        pickle.dump({"scaler": scaler, "model": model}, fp)
+        fix_perms(fp)
 
 logger.info("---fin")
-
-np.vectorize(lambda x: x.contains(outcome).astype(int))

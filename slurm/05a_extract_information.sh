@@ -17,7 +17,7 @@ splits=(train val test)
 
 python3 ../fms_ehrs/scripts/extract_information.py \
     --data_dir "${data_dirs[$SLURM_ARRAY_TASK_ID]}" \
-    --data_version Y21 \
+    --data_version Y21_first_24h \
     --model_loc "${hm}/mdls-archive/gemma-5635921-Y21" \
     --batch_sz $((2 ** 5)) \
     --splits "${splits[@]}"
