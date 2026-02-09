@@ -95,7 +95,7 @@ for s in args.splits:
                 ),
                 -1,
                 batch[:, 1:].unsqueeze(-1),
-            )  # fixed indexing
+            )
             .squeeze(-1)  # batch_idx may be a singleton
             .cpu()
             .numpy()

@@ -88,7 +88,12 @@ for batch in tqdm.tqdm(itertools.batched(test_token_list, args.batch_size)):
         sampling_params=SamplingParams(
             max_tokens=args.max_len,
             n=args.n_samp,
-            stop_token_ids=[vocab("TL_END"), vocab("PAD"), vocab("TRUNC")],
+            stop_token_ids=[
+                vocab("TL_END"),
+                vocab("PAD"),
+                vocab("TRUNC"),
+                vocab("DSCG_expired"),
+            ],
             detokenize=False,
             seed=0,
             logprobs=-1,
