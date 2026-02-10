@@ -12,7 +12,6 @@ import pickle
 import numpy as np
 import polars as pl
 import sklearn as skl
-import sklvq
 
 from fms_ehrs.framework.logger import get_logger
 from fms_ehrs.framework.storage import fix_perms
@@ -31,7 +30,6 @@ parser.add_argument("--data_version", type=str, default="Y21_first_24h")
 parser.add_argument(
     "--model_loc", type=pathlib.Path, default="../../mdls-archive/gemma-5635921-Y21"
 )
-parser.add_argument("--k", type=int, default=25)
 parser.add_argument(
     "--outcomes",
     nargs="+",
@@ -90,62 +88,71 @@ for v in versions:
                 .ravel()
             )
 
-Xtrain = features["orig"]["train"]
+
+scaler = skl.discriminant_analysis.LinearDiscriminantAnalysis()
+Xtrain = scaler.fit_transform(features["orig"]["train"], labels["orig"]["train"])
 ytrain = labels["orig"]["train"]
-Xval = features["orig"]["val"]
+Xval = scaler.transform(features["orig"]["val"])
 yval = labels["orig"]["val"]
 
-scaler = skl.pipeline.make_pipeline(
-    skl.preprocessing.StandardScaler(),
-    skl.decomposition.PCA(n_components=args.k, random_state=42),
-)
-Xtrain_p = scaler.fit_transform(Xtrain)
 
-# classes, ytrain_i = np.unique(ytrain, return_inverse=True)
-# protoype_n_per_class = np.clip(
-#     [20 * (ytrain == c).sum() // len(ytrain) for c in classes], a_min=1, a_max=10
-# )
+models = dict()
+for outcome in args.outcomes + ["none"]:
+    Xto = Xtrain[np.char.find(ytrain.astype(str), outcome) > -1]
+    Xvo = Xval[np.char.find(yval.astype(str), outcome) > -1]
+    bics = {
+        n: skl.mixture.GaussianMixture(n_components=n, init_params="k-means++")
+        .fit(Xto)
+        .bic(Xvo)
+        for n in range(1, 20)
+    }
+    n_optimal = min(bics.keys(), key=bics.get)
+    models[outcome] = skl.mixture.GaussianMixture(
+        n_components=n_optimal, init_params="k-means++"
+    ).fit(Xto)
 
-model = sklvq.GMLVQ(random_state=42, solver_type="lbfgs", prototype_n_per_class=3)
-model.fit(Xtrain_p, ytrain)
-
-outcome = "long_length_of_stay"
-mdl = skl.mixture.GaussianMixture(n_components=1)
-flag = np.char.find(ytrain.astype(str), outcome) > -1
-bics = {
-    n: skl.mixture.GaussianMixture(n_components=n)
-    .fit(Xtrain[flag])
-    .bic(Xval[np.char.find(yval.astype(str), outcome) > -1])
-    for n in range(1, 11)
-}
-
-n_optimal = min(bics.keys(), key=bics.get)
 
 for v in versions:
-    ytest = labels[v]["test"]
-    Xtest_p = scaler.transform(features[v]["test"])
-    ytest_pred = model.predict(Xtest_p)
-    logger.info(skl.metrics.classification_report(ytest, ytest_pred))
-    ytest_probs = model.predict_proba(Xtest_p)
     for outcome in args.outcomes:
-        logger.info(v.upper() + " " + outcome.upper().ljust(79, "-"))
-        ix = np.char.find(model.classes_.astype(str), outcome) > -1
-        class_preds = ytest_probs[:, ix].sum(axis=1)
-        class_trues = np.char.find(ytest.astype(str), outcome) > -1
-        auc = skl.metrics.roc_auc_score(class_trues, class_preds)
-        logger.info(f"{auc=:.3f}")
+        n0 = np.sum(np.char.find(ytrain.astype(str), outcome) > -1)
+        n1 = np.sum(ytrain == "none")
+        prevalence = n0 / (n0 + n1)
+        Xtest = scaler.transform(features[v]["test"])
+        combined_model = skl.mixture.GaussianMixture(
+            n_components=models[outcome].n_components + models["none"].n_components
+        )
+        combined_model.weights_ = np.concatenate(
+            [
+                models[outcome].weights_ * prevalence,
+                models["none"].weights_ * (1 - prevalence),
+            ]
+        )
+        for att in ("means_", "covariances_", "precisions_", "precisions_cholesky_"):
+            setattr(
+                combined_model,
+                att,
+                np.concatenate(
+                    [getattr(models[outcome], att), getattr(models["none"], att)]
+                ),
+            )
+        combined_model.n_features_in_ = models[outcome].n_features_in_
+        component_labels = np.array(
+            [outcome] * models[outcome].n_components
+            + ["none"] * models["none"].n_components
+        )
+        component_preds = combined_model.predict_proba(Xtest)
+        ytest = labels[v]["test"]
+        yeo = np.char.find(ytest.astype(str), outcome) > -1
+        ypred_proba = component_preds[:, component_labels == outcome].sum(axis=1)
+        auc = skl.metrics.roc_auc_score(yeo, ypred_proba)
+        logger.info(f"{v=}, {outcome=}, {auc=:.3f}")
 
-# omega = model.get_omega()
-# protos = model.get_prototypes()
-# p_labels = model.prototypes_labels_
-# model.classes_
-# np.testing.assert_allclose(omega.T @ omega, model.lambda_)
 
 if args.save_params:
     with open(
-        data_dirs["orig"]["train"] / ("gmlvq-" + model_loc.stem + ".pkl"), "wb"
+        data_dirs["orig"]["train"] / ("lda-gmm-protos-" + model_loc.stem + ".pkl"), "wb"
     ) as fp:
-        pickle.dump({"scaler": scaler, "model": model}, fp)
+        pickle.dump({"scaler": scaler, "models": models}, fp)
         fix_perms(fp)
 
 logger.info("---fin")
