@@ -87,11 +87,12 @@ for batch in tqdm.tqdm(itertools.batched(test_token_list, args.batch_size)):
         prompts=[TokensPrompt(prompt_token_ids=x) for x in batch],
         sampling_params=SamplingParams(
             max_tokens=args.max_len,
+             allowed_token_ids=[
+                v for k, v in vocab.lookup.items() if not (k in ["PAD", "TRUNC"])
+            ],
             n=args.n_samp,
             stop_token_ids=[
                 vocab("TL_END"),
-                vocab("PAD"),
-                vocab("TRUNC"),
                 vocab("DSCG_expired"),
             ],
             detokenize=False,
@@ -99,7 +100,8 @@ for batch in tqdm.tqdm(itertools.batched(test_token_list, args.batch_size)):
             logprobs=-1,
         ),
     ):
-        check_01.append([vocab("TL_END") in out.token_ids for out in op.outputs])
+        logger.info(f"prompt_len={len(batch[0])} total_lens={[len(batch[0]) + len(out.token_ids) for out in op.outputs]}")
+        check_01.append([vocab("TL_END") in out.token_ids or vocab("DSCG_expired") in out.token_ids for out in op.outputs])
         M0.append(
             np.mean([vocab("DSCG_expired") in out.token_ids for out in op.outputs])
         )
@@ -130,16 +132,17 @@ for batch in tqdm.tqdm(itertools.batched(test_token_list, args.batch_size)):
         prompts=[TokensPrompt(prompt_token_ids=x) for x in batch],
         sampling_params=SamplingParams(
             allowed_token_ids=[
-                v for k, v in vocab.lookup.items() if k != "DSCG_expired"
+                v for k, v in vocab.lookup.items() if not (k in ["PAD", "TRUNC", "DSCG_expire"])
             ],
             max_tokens=args.max_len,
             n=args.n_samp,
-            stop_token_ids=[vocab("TL_END"), vocab("PAD"), vocab("TRUNC")],
+            stop_token_ids=[vocab("TL_END")],
             detokenize=False,
             seed=0,
             logprobs=-1,
         ),
     ):
+        logger.info(f"prompt_len={len(batch[0])} total_lens={[len(batch[0]) + len(out.token_ids) for out in op.outputs]}")
         check_2.append([vocab("TL_END") in out.token_ids for out in op.outputs])
         M2.append(
             np.mean(
