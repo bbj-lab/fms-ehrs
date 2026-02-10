@@ -132,7 +132,7 @@ for batch in tqdm.tqdm(itertools.batched(test_token_list, args.batch_size)):
         prompts=[TokensPrompt(prompt_token_ids=x) for x in batch],
         sampling_params=SamplingParams(
             allowed_token_ids=[
-                v for k, v in vocab.lookup.items() if not (k in ["PAD", "TRUNC", "DSCG_expire"])
+                v for k, v in vocab.lookup.items() if not (k in ["PAD", "TRUNC", "DSCG_expired"])
             ],
             max_tokens=args.max_len,
             n=args.n_samp,
