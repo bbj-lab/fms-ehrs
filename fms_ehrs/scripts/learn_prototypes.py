@@ -156,3 +156,10 @@ if args.save_params:
         fix_perms(fp)
 
 logger.info("---fin")
+
+"""
+[2026-02-10T16:20:56CST] v='orig', outcome='same_admission_death', auc=0.868
+[2026-02-10T16:20:57CST] v='orig', outcome='long_length_of_stay', auc=0.751
+[2026-02-10T16:20:58CST] v='new', outcome='same_admission_death', auc=0.842
+[2026-02-10T16:21:00CST] v='new', outcome='long_length_of_stay', auc=0.651
+"""

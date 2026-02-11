@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=5
 #SBATCH --mem=500GB
 #SBATCH --time=24:00:00
-#SBATCH --array=1
+#SBATCH --array=0-1
 
 source preamble.sh
 
@@ -24,6 +24,6 @@ python3 ../fms_ehrs/scripts/process_all_hidden_states.py \
     --out_dir "${out_dirs[$SLURM_ARRAY_TASK_ID]}" \
     --data_version Y21_first_24h \
     --model_loc "${hm}/mdls-archive/gemma-5635921-Y21" \
-    --gmlvq_dir "${hm}/data-mimic"
+    --proto_dir "${hm}/data-mimic"
 
 source postscript.sh

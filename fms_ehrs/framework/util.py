@@ -262,7 +262,6 @@ if __name__ == "__main__":
     tms = [np.array([0] * 3 + [1] * 3 + [2] * 3 + [3])]
     inf = np.array([0] * 3 + [3, 0, 0] + [2] * 3 + [1]).reshape(1, -1)
     print(redact_tokens_times(tks, tms, inf, k=1))
-    print(redact_tokens_times(tks, tms, inf, k=1, aggregation="perplexity"))
     print(redact_tokens_times(tks, tms, inf, k=1, method="random"))
 
     tms_unq, idx = np.unique(tms, return_inverse=True)
