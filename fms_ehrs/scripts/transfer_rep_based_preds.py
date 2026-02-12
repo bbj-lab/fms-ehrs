@@ -120,11 +120,13 @@ for outcome in args.outcomes:
     match args.classifier:
         case "light_gbm":
             estimator = lgb.LGBMClassifier(
-                metric="auc"
+                metric="auc",
                 # scale_pos_weight=(ytrain == 0).sum() / (ytrain == 1).sum(),
                 # random_state=42,
                 # max_bin=100,
-                # learning_rate=0.01,
+                learning_rate=0.01,  # default: 0.1
+                num_iterations=3_000,  # default: 100
+                num_leaves=63,  # default: 31
                 # num_leaves=8,
                 # boosting="dart",
             )
