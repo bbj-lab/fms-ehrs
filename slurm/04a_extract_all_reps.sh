@@ -2,10 +2,10 @@
 
 #SBATCH --job-name=xtract-all
 #SBATCH --output=./output/%A_%a-%x.stdout
-#SBATCH --partition=gpudev
+#SBATCH --partition=gpuq
 #SBATCH --gres=gpu:1
 #SBATCH --time=24:00:00
-#SBATCH --array=0-5%1
+#SBATCH --array=0-5
 #SBATCH --mem=160G
 
 source preamble.sh
@@ -36,7 +36,7 @@ splits=(
 python3 ../fms_ehrs/scripts/extract_all_hidden_states.py \
     --data_dir "${data_dirs[$i]}" \
     --out_dir "${out_dirs[$i]}" \
-    --data_version Y21_first_24h \
+    --data_version Y21_icu24_first_24h \
     --model_loc "${hm}/mdls-archive/gemma-5635921-Y21" \
     --small_batch_sz $((2 ** 5)) \
     --big_batch_sz $((2 ** 10)) \

@@ -78,11 +78,11 @@ def diff0(arr: np.ndarray, axis=0):
     )
 
 
-def get_importances_1(X: np.ndarray, category: str, testing=True):
+def get_importances_1(X: np.ndarray, category: str):
     Xt = X[: np.argmin(isf.all(axis=1))] if not (isf := np.isfinite(X)).all() else X
     Xt = scaler.transform(Xt)  # apply LDA
     class_protos = models[category].means_  # these were learned in the LDA space
-    class_precisions_chol = models[category].precisions_cholesky_
+    class_precisions = models[category].precisions_
     class_memberships = models[category].predict_proba(Xt)
     closest_class_proto = proto_trees[category].query(Xt)[-1]
     Xt1 = np.zeros_like(Xt)
@@ -94,37 +94,14 @@ def get_importances_1(X: np.ndarray, category: str, testing=True):
     rel_gmm = np.zeros(shape=(len(Xt), len(class_protos)))
     for i in range(models[category].n_components):
         p = class_protos[i]
-        abs_importances[:, i] = np.dot(dXt, p) / (np.linalg.norm(p) + eps)
+        abs_importances[:, i] = (dXt @ p) / (np.linalg.norm(p) + eps)
         rel_importances[:, i] = np.einsum("ij,ij->i", dXt, p - Xt1) / (
             np.linalg.norm(p - Xt1, axis=1) + eps
         )
-        Lt = class_precisions_chol[i].T
-        # inv_cov = L @ L.T
-        # so np.dot(L.T @ x, L.T @ y) = (x.T @ L) @ L.T @ y = x.T @ inv_cov @ y
-        LdXt = np.einsum("jk,nk->nj", Lt, dXt)
-        abs_gmm[:, i] = np.dot(LdXt, Lt @ p) / (np.linalg.norm(Lt @ p) + eps)
-        LpXt1 = np.einsum("jk,nk->nj", Lt, p - Xt1)
-        rel_gmm[:, i] = np.einsum("ij,ij->i", LdXt, LpXt1) / (
-            np.linalg.norm(LpXt1, axis=1) + eps
-        )
-    if testing:
-        np.testing.assert_approx_equal(Lt.T @ Lt, models[category].precisions_[i])
-        np.testing.assert_approx_equal(
-            abs_importances[0, -1], np.dot(Xt[0], p) / (np.linalg.norm(p) + eps)
-        )
-        np.testing.assert_approx_equal(abs_importances[0, -1], rel_importances[0, -1])
-        np.testing.assert_approx_equal(
-            rel_importances[1, -1],
-            np.dot(Xt[1] - Xt[0], p - Xt[0]) / (np.linalg.norm(p - Xt[0]) + eps),
-        )
-        np.testing.assert_approx_equal(
-            abs_gmm[0, -1], np.dot(Lt @ Xt[0], Lt @ p) / (np.linalg.norm(Lt @ p) + eps)
-        )
-        np.testing.assert_approx_equal(abs_gmm[0, -1], rel_gmm[0, -1])
-        np.testing.assert_approx_equal(
-            rel_gmm[1, -1],
-            np.dot(Lt @ (Xt[1] - Xt[0]), Lt @ (p - Xt[0]))
-            / (np.linalg.norm(Lt @ (p - Xt[0])) + eps),
+        S = class_precisions[i]
+        abs_gmm[:, i] = (dXt @ S @ p) / (np.sqrt(np.dot(p, S @ p)) + eps)
+        rel_gmm[:, i] = np.einsum("ij,ij->i", dXt @ S, p - Xt1) / (
+            np.sqrt(np.einsum("ij,ij->i", (p - Xt1) @ S, p - Xt1)) + eps
         )
     abs_importances = abs_importances[np.arange(len(Xt)), closest_class_proto]
     rel_importances = rel_importances[np.arange(len(Xt)), closest_class_proto]
@@ -174,37 +151,19 @@ def run_category(category):
         ais_gmm.append(ag)
         ris_gmm.append(rg)
 
-    set_perms(np.save, compress=True)(
-        out_dir
-        / f"{args.data_version}-tokenized"
-        / "test"
-        / "abs-imp-{c}-{m}.npy.gz".format(c=category, m=model_loc.stem),
-        np.concatenate(ais),
-    )
-
-    set_perms(np.save, compress=True)(
-        out_dir
-        / f"{args.data_version}-tokenized"
-        / "test"
-        / "rel-imp-{c}-{m}.npy.gz".format(c=category, m=model_loc.stem),
-        np.concatenate(ris),
-    )
-
-    set_perms(np.save, compress=True)(
-        out_dir
-        / f"{args.data_version}-tokenized"
-        / "test"
-        / "abs-gmm-{c}-{m}.npy.gz".format(c=category, m=model_loc.stem),
-        np.concatenate(ais_gmm),
-    )
-
-    set_perms(np.save, compress=True)(
-        out_dir
-        / f"{args.data_version}-tokenized"
-        / "test"
-        / "rel-gmm-{c}-{m}.npy.gz".format(c=category, m=model_loc.stem),
-        np.concatenate(ris_gmm),
-    )
+    for met, lst in {
+        "abs-imp": ais,
+        "rel-imp": ris,
+        "abs-gmm": ais_gmm,
+        "rel-gmm": ris_gmm,
+    }.items():
+        set_perms(np.save, compress=True)(
+            out_dir
+            / f"{args.data_version}-tokenized"
+            / "test"
+            / "{met}-{c}-{m}.npy.gz".format(met=met, c=category, m=model_loc.stem),
+            np.concatenate(lst),
+        )
 
 
 for outcome in args.outcomes:

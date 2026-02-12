@@ -21,8 +21,8 @@ samp=(
 
 python3 ../fms_ehrs/scripts/process_information.py \
     --data_dir "${hm}/data-mimic" \
-    --data_version "V21" \
-    --model_loc "${hm}/mdls-archive/llama-med-4476655-hp-V21" \
+    --data_version Y21_icu24_first_24h \
+    --model_loc "${hm}/mdls-archive/gemma-5635921-Y21" \
     --out_dir "${hm}/figs" \
     --samp "${samp[@]}" \
     --emit_json True \
