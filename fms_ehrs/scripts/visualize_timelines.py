@@ -39,27 +39,27 @@ parser.add_argument(
     nargs="*",
     default=[
         # mimic same admission death
-        "20369918",
-        "26415816",
-        "23982173",
-        "24566492",
-        "21278890",
-        "28693413",
-        "27490197",
-        "24067321",
-        "23568289",
-        "27658396"
+        "22852565",
+        "23245888",
+        "28068609",
+        "20396983",
+        "20277188",
+        "22089767",
+        "25791428",
+        "28823197",
+        "26385365",
+        "22239080",
         # mimic long length of stay
-        "25988718",
-        "28013522",
-        "27479979",
-        "28361394",
-        "25031930",
-        "22201479",
-        "21794719",
-        "26490173",
-        "23576170",
-        "20645390",
+        "20911957",
+        "24272032",
+        "26820402",
+        "24092195",
+        "24060117",
+        "25523261",
+        "21177482",
+        "24481104",
+        "25674382",
+        "25833965",
     ],
 )
 parser.add_argument(
@@ -67,12 +67,12 @@ parser.add_argument(
     type=str,
     nargs="*",
     default=[
-        "rel-imp-long_length_of_stay",
-        "rel-imp-same_admission_death",
+        # "rel-imp-long_length_of_stay",
+        # "rel-imp-same_admission_death",
         "abs-imp-long_length_of_stay",
         "abs-imp-same_admission_death",
-        "rel-gmm-long_length_of_stay",
-        "rel-gmm-same_admission_death",
+        # "rel-gmm-long_length_of_stay",
+        # "rel-gmm-same_admission_death",
         "abs-gmm-long_length_of_stay",
         "abs-gmm-same_admission_death",
         # "importance-h2o-mean",
@@ -87,11 +87,12 @@ parser.add_argument(
         # "importance-rollout-mean_log",
         # "importance-h2o-normed-mean",
         # "importance-h2o-normed-mean_log",
-        # "information",
+        "information",
     ],
 )
 parser.add_argument("--out_dir", type=pathlib.Path, default="../../figs")
 parser.add_argument("--tl_len", type=int, default=300)
+parser.add_argument("--ignore_prefix", type=int, default=5)
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -135,6 +136,11 @@ mets = {
     )[tt.select("index").to_numpy().ravel()]
     for met in args.metrics
 }
+if args.ignore_prefix > 0:
+    for k in mets.keys():
+        mets[k][:, : args.ignore_prefix] = 0
+
+mets["abs-gmm-mort-x-info"] = mets["abs-gmm-same_admission_death"] * mets["information"]
 
 n_cols = 6
 n_rows = args.tl_len // n_cols

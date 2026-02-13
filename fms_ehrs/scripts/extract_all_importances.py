@@ -11,7 +11,6 @@ import typing
 
 import numpy as np
 import torch as t
-import torch.distributed as dist
 from datasets import load_dataset
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM
@@ -28,13 +27,11 @@ logger.log_env()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data_dir", type=pathlib.Path, default="../../data-mimic")
-parser.add_argument("--data_version", type=str, default="W++")
+parser.add_argument("--data_version", type=str, default="Y21_icu24_first_24h")
 parser.add_argument(
-    "--model_loc",
-    type=pathlib.Path,
-    default="../../mdls-archive/llama-med-60358922_1-hp-W++",
+    "--model_loc", type=pathlib.Path, default="../../mdls-archive/gemma-5635921-Y21"
 )
-parser.add_argument("--batch_size", type=int, default=64)
+parser.add_argument("--batch_size", type=int, default=8)
 parser.add_argument("--batch_num_start", type=int, default=None)
 parser.add_argument("--batch_num_end", type=int, default=None)
 parser.add_argument("--splits", nargs="*", default=["train", "val", "test"])
@@ -71,13 +68,7 @@ data_dir, model_loc = map(
     lambda d: pathlib.Path(d).expanduser().resolve(), (args.data_dir, args.model_loc)
 )
 
-# prepare parallelism
-is_parallel = t.cuda.device_count() > 1
-if is_parallel:
-    dist.init_process_group(backend="nccl")
-    rank = dist.get_rank()
-else:
-    rank = 0
+rank = 0
 device = t.device(f"cuda:{rank}")
 t.cuda.set_device(device)
 
@@ -103,8 +94,6 @@ wts = np.stack(
 )  # num_heads × d_vals × d
 
 model = model.to(device)
-if is_parallel:
-    model = t.nn.parallel.DistributedDataParallel(model, device_ids=[rank])
 
 dataset = (
     load_dataset(
@@ -132,14 +121,14 @@ for s in args.splits:
         attns = np.stack(
             [_.cpu() for _ in x.attentions]
         )  # n_layers × batch_size × num_heads × sequence_length × sequence_length
-        vals = np.stack(
-            [_[1].cpu() for _ in x.past_key_values]
-        )  # n_layers × batch_size × num_heads × sequence_length × d_vals
-        # Llama3 uses grouped query attention
-        # see, https://www.ibm.com/think/topics/grouped-query-attention
-        n_groups = attns.shape[2] // vals.shape[2]
-        if n_groups > 1:
-            vals = np.repeat(vals, repeats=n_groups, axis=2)
+        if model.config.model_type.startswith("llama"):
+            vals = np.stack([_[1].cpu() for _ in x.past_key_values])
+            # n_layers × batch_size × num_heads × sequence_length × d_vals
+            # Llama3 uses grouped query attention
+            # see, https://www.ibm.com/think/topics/grouped-query-attention
+            n_groups = attns.shape[2] // vals.shape[2]
+            if n_groups > 1:
+                vals = np.repeat(vals, repeats=n_groups, axis=2)
         first_stop_idx = t.argmax(
             t.isin(batch, stop_tokens.to(device)).int(), dim=1, keepdim=True
         )  # or 0 if no stop token

@@ -26,11 +26,4 @@ python3 ../fms_ehrs/scripts/process_all_hidden_states.py \
     --model_loc "${hm}/mdls-archive/gemma-5635921-Y21" \
     --proto_dir "${hm}/data-mimic"
 
-python3 ../fms_ehrs/scripts/process_all_hidden_states.py \
-    --data_dir "${data_dirs[$SLURM_ARRAY_TASK_ID]}" \
-    --out_dir "${out_dirs[$SLURM_ARRAY_TASK_ID]}" \
-    --data_version Y21_unfused_icu24_first_24h \
-    --model_loc "${hm}/mdls-archive/gemma-5687290-Y21_unfused" \
-    --proto_dir "${hm}/data-mimic"
-
 source postscript.sh
