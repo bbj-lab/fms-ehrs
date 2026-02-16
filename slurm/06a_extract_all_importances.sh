@@ -13,7 +13,11 @@ data_dirs=(
     "${hm}/data-mimic"
     "${hm}/data-ucmc"
 )
-splits=("test")
+splits=(
+    "train"
+    "val"
+    "test"
+)
 metrics=("h2o-mean")
 
 python3 ../fms_ehrs/scripts/extract_all_importances.py \

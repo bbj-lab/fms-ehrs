@@ -14,7 +14,7 @@ import polars as pl
 
 from fms_ehrs.framework.logger import get_logger
 from fms_ehrs.framework.storage import set_perms
-from fms_ehrs.framework.util import redact_tokens_times
+from fms_ehrs.framework.util import redact_eventwise
 from fms_ehrs.framework.vocabulary import Vocabulary
 
 logger = get_logger()
@@ -78,7 +78,7 @@ for s in splits:
     max_pad = len(tkn_icu[0])
 
     if args.method is not None and args.method != "none":
-        tkn_new, tms_new = redact_tokens_times(
+        tkn_new, tms_new = redact_eventwise(
             tks_arr=tkn_icu,
             tms_arr=tms_icu,
             inf_arr=inf_icu,

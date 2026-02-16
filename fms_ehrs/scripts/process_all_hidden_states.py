@@ -27,7 +27,8 @@ parser.add_argument(
 )
 parser.add_argument("--out_dir", type=pathlib.Path, default="../../data-mimic")
 parser.add_argument("--proto_dir", type=pathlib.Path, default="../../data-mimic")
-parser.add_argument("--data_version", type=str, default="Y21_first_24h")
+parser.add_argument("--data_version", type=str, default="Y21_icu24_first_24h")
+parser.add_argument("--split", choices=["train", "val", "test"], default="test")
 parser.add_argument(
     "--model_loc", type=pathlib.Path, default="../../mdls-archive/gemma-5635921-Y21"
 )
@@ -133,7 +134,7 @@ def process_shard(f, category):
 
 def run_category(category):
     featfiles = sorted(
-        (data_dir / f"{args.data_version}-tokenized" / "test").glob(
+        (data_dir / f"{args.data_version}-tokenized" / args.split).glob(
             "all-features-{m}-batch*.npy.gz".format(m=model_loc.stem)
         ),
         key=lambda s: int(s.stem.strip(".npy").split("-batch")[-1]),
@@ -160,7 +161,7 @@ def run_category(category):
         set_perms(np.save, compress=True)(
             out_dir
             / f"{args.data_version}-tokenized"
-            / "test"
+            / args.split
             / "{met}-{c}-{m}.npy.gz".format(met=met, c=category, m=model_loc.stem),
             np.concatenate(lst),
         )
