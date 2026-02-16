@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 
 """
-Load timelines and a metric on tokens, and redact tokens according to the metric and method;
+Load timelines and a metric on tokens, and redact tokens from the events
+according to the metric and method;
 save results as a new data version
 """
 
@@ -28,7 +29,9 @@ parser.add_argument(
     "--model_loc", type=pathlib.Path, default="../../mdls-archive/gemma-5635921-Y21"
 )
 parser.add_argument(
-    "--method", choices=["top", "bottom", "random", "none"], default="none"
+    "--method",
+    choices=["top", "bottom", "random", "none", "top_abs", "btm_abs"],
+    default="none",
 )
 parser.add_argument("--metric", default="information")
 parser.add_argument("--pct", type=int, default=10)
@@ -80,11 +83,12 @@ for s in splits:
     tkn_all = tto.select("tokens").to_series().to_list()
     paded_len = len(tkn[0])
     n_redacted = []
+    seq_lens = []
 
     for i in range(len(tto)):
         end = np.searchsorted(tkn[i] == pad_tkn, 1)
         elen = end - args.prefix_len
-        n_to_drop = int(elen * args.pct / 100)
+        n_to_drop = int(elen * args.pct / 100) if args.method != "none" else 0
 
         pre_tk = tkn[i][: args.prefix_len]
         pre_tm = tms[i][: args.prefix_len]
@@ -93,16 +97,19 @@ for s in splits:
         evt_tm = tms[i][args.prefix_len : end]
         evt_mt = met[i][args.prefix_len : end]
 
-        asrt = np.argsort(evt_mt)
         match args.method:
             case "top":
-                to_drop = asrt[::-1][:n_to_drop]
+                to_drop = np.argsort(evt_mt)[::-1][:n_to_drop]
             case "bottom":
-                to_drop = asrt[:n_to_drop]
+                to_drop = np.argsort(evt_mt)[:n_to_drop]
             case "random":
-                to_drop = rng.choice(asrt, size=n_to_drop, replace=False)
+                to_drop = rng.choice(len(evt_mt), size=n_to_drop, replace=False)
             case "none":
                 to_drop = np.array([], dtype=int)
+            case "top_abs":
+                to_drop = np.argsort(np.abs(evt_mt))[::-1][:n_to_drop]
+            case "btm_abs":
+                to_drop = np.argsort(np.abs(evt_mt))[:n_to_drop]
 
         tkn[i] = np.concatenate(
             [
@@ -119,15 +126,32 @@ for s in splits:
 
         assert len(tkn[i]) == paded_len
         n_redacted.append(n_to_drop)
+        seq_lens.append(end - n_to_drop)
 
-    tto = tto.replace({"padded": tkn, "times": tms, "tokens": tkn_all})
+    tto = tto.with_columns(
+        padded=pl.Series(tkn.tolist()).cast(pl.List(pl.Int64)),
+        times=pl.Series(tms.tolist()).cast(pl.List(pl.Datetime("ms"))),
+        tokens=pl.Series(tkn_all),
+        seq_len=pl.Series(seq_lens),
+    )
     set_perms(tto.write_parquet)(d_out / "tokens_timelines_outcomes.parquet")
 
     set_perms(
         pl.read_parquet(d_in / "tokens_timelines.parquet")
-        .replace({"padded": tkn, "times": tms, "tokens": tkn_all})
+        .with_columns(
+            padded=pl.Series(tkn.tolist()).cast(pl.List(pl.Int64)),
+            times=pl.Series(tms.tolist()).cast(pl.List(pl.Datetime("ms"))),
+            tokens=pl.Series(tkn_all),
+            seq_len=pl.Series(seq_lens),
+        )
         .write_parquet
     )(d_out / "tokens_timelines.parquet")
+
+    logger.info(
+        "Created version {} split {} redacting {:.2f} tokens on average".format(
+            new_version, s, np.mean(n_redacted)
+        )
+    )
 
 
 logger.info("---fin")
