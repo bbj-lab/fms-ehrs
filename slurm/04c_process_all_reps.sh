@@ -19,11 +19,13 @@ out_dirs=(
     "${hm}/data-ucmc"
 )
 
-python3 ../fms_ehrs/scripts/process_all_hidden_states.py \
-    --data_dir "${data_dirs[$SLURM_ARRAY_TASK_ID]}" \
-    --out_dir "${out_dirs[$SLURM_ARRAY_TASK_ID]}" \
-    --data_version Y21_icu24_first_24h \
-    --model_loc "${hm}/mdls-archive/gemma-5635921-Y21" \
-    --proto_dir "${hm}/data-mimic"
-
+for split in train val test; do
+    python3 ../fms_ehrs/scripts/process_all_hidden_states.py \
+        --data_dir "${data_dirs[$SLURM_ARRAY_TASK_ID]}" \
+        --out_dir "${out_dirs[$SLURM_ARRAY_TASK_ID]}" \
+        --data_version Y21_icu24_first_24h \
+        --model_loc "${hm}/mdls-archive/gemma-5635921-Y21" \
+        --proto_dir "${hm}/data-mimic" \
+        --split "$split"
+done
 source postscript.sh

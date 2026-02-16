@@ -40,7 +40,7 @@ pcts=(
 )
 fracs=(0.1 0.2 0.3 0.4)
 
-python3 ../fms_ehrs/scripts/redact_timelines.py \
+python3 ../fms_ehrs/scripts/redact_timelines_eventwise.py \
     --data_dir "${data_dirs[$i]}" \
     --data_version "W++_first_24h" \
     --model_loc "${hm}/mdls-archive/llama-med-60358922_1-hp-W++" \
