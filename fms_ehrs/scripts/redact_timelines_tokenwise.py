@@ -55,7 +55,7 @@ pad_tkn = vocab("PAD")
 
 new_version = (
     args.data_version.split("_first_24h")[0]
-    + f"_red_{args.method}_{args.pct}pct-{model_loc.stem}"
+    + f"_red_{args.metric}_{args.method}{args.pct}pct-{model_loc.stem}"
     + ("_first_24h" if args.data_version.endswith("_first_24h") else "")
 )
 

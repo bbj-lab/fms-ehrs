@@ -2,34 +2,27 @@
 
 #SBATCH --job-name=xtract-reps
 #SBATCH --output=./output/%A_%a-%x.stdout
-#SBATCH --partition=gpuq
-#SBATCH --gres=gpu:1
-#SBATCH --time=24:00:00
-#SBATCH --array=0-431
+#SBATCH --partition=tier2q
+#SBATCH --mem=10GB
+#SBATCH --time=1:00:00
+#SBATCH --array=0-215
 
 source preamble.sh
 
-ni=2
-nj=6
-nk=4
-nm=9
+ni=6
+nj=4
+nk=9
 i=$((SLURM_ARRAY_TASK_ID % ni))
-jkm=$((SLURM_ARRAY_TASK_ID / ni))
-j=$((jkm % nj))
-km=$((jkm / nj))
-k=$((km % nk))
-m=$((km / nk))
+jk=$((SLURM_ARRAY_TASK_ID / ni))
+j=$((jk % nj))
+k=$((jk / nj))
 
-if ((SLURM_ARRAY_TASK_COUNT != ni * nj * nk * nm)); then
+if ((SLURM_ARRAY_TASK_COUNT != ni * nj * nk)); then
     echo "Warning:"
     echo "SLURM_ARRAY_TASK_COUNT=$SLURM_ARRAY_TASK_COUNT"
-    echo "ni*nj*nk*nm=$((ni * nj * nk * nm))"
+    echo "ni*nj*nk=$((ni * nj * nk))"
 fi
 
-data_dirs=(
-    "${hm}/data-mimic"
-    "${hm}/data-ucmc"
-)
 methods=(
     none
     top
@@ -55,14 +48,23 @@ metrics=(
     rel-gmm-long_length_of_stay
     rel-imp-long_length_of_stay
 )
+outcomes=(
+    "same_admission_death"
+    "long_length_of_stay"
+    "ama_discharge"
+    "hospice_discharge"
+)
 
 mdl=gemma-5635921-Y21
-tgt="Y21_icu24_red_${metrics[$m]}_${methods[$j]}${pcts[$k]}pct-${mdl}_first_24h"
+tgt="Y21_icu24_red_${metrics[$k]}_${methods[$i]}${pcts[$j]}pct-${mdl}_first_24h"
 
-python3 ../fms_ehrs/scripts/extract_hidden_states.py \
-    --data_dir "${data_dirs[$i]}" \
+python3 ../fms_ehrs/scripts/transfer_rep_based_preds.py \
+    --data_dir_orig "${hm}/data-mimic" \
+    --data_dir_new "${hm}/data-ucmc" \
     --data_version "${tgt}" \
     --model_loc "${hm}/mdls-archive/${mdl}" \
-    --batch_sz $((2 ** 5))
+    --classifier logistic_regression \
+    --outcomes "${outcomes[@]}" \
+    --save_preds
 
 source postscript.sh
