@@ -10,7 +10,7 @@
 source preamble.sh
 
 ni=2
-nj=4
+nj=6
 nk=4
 nm=9
 i=$((SLURM_ARRAY_TASK_ID % ni))
