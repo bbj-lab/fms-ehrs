@@ -1,10 +1,10 @@
 #!/bin/bash
 
-#SBATCH --job-name=xtract-reps
+#SBATCH --job-name=xfer-reps
 #SBATCH --output=./output/%A_%a-%x.stdout
 #SBATCH --partition=tier2q
-#SBATCH --mem=10GB
-#SBATCH --time=1:00:00
+#SBATCH --mem=20GB
+#SBATCH --time=4:00:00
 #SBATCH --array=0-215
 
 source preamble.sh
@@ -63,7 +63,7 @@ python3 ../fms_ehrs/scripts/transfer_rep_based_preds.py \
     --data_dir_new "${hm}/data-ucmc" \
     --data_version "${tgt}" \
     --model_loc "${hm}/mdls-archive/${mdl}" \
-    --classifier logistic_regression \
+    --classifier light_gbm \
     --outcomes "${outcomes[@]}" \
     --save_preds
 

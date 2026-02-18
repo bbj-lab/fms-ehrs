@@ -1,10 +1,11 @@
 #!/bin/bash
 
 #SBATCH --job-name=cf-perf-data
-#SBATCH --output=./output/%j-%x.stdout
+#SBATCH --output=./output/%A_%a-%x.stdout
 #SBATCH --partition=tier2q
 #SBATCH --cpus-per-task=5
-#SBATCH --time=1:00:00
+#SBATCH --time=4:00:00
+#SBATCH --array=0-8
 
 source preamble.sh
 
@@ -40,21 +41,21 @@ metrics=(
 outcomes=(
     "same_admission_death"
     "long_length_of_stay"
-    "ama_discharge"
-    "hospice_discharge"
+    # "ama_discharge"
+    # "hospice_discharge"
 )
 
 mdl=gemma-5635921-Y21
+metric="${metrics[$SLURM_ARRAY_TASK_ID]}"
 
 for d in "${data_dirs[@]}"; do
     versions=("Y21_icu24_red_information_none10pct-${mdl}_first_24h")
     handles=("original")
-    for metric in "${metrics[@]}"; do
-        for method in "${methods[@]:1}"; do
-            for pct in "${pcts[@]}"; do
-                versions+=("Y21_icu24_red_${metric}_${method}${pct}pct-${mdl}_first_24h")
-                handles+=("${metric}_${method}${pct}pct")
-            done
+
+    for method in "${methods[@]:1}"; do
+        for pct in "${pcts[@]}"; do
+            versions+=("Y21_icu24_red_${metric}_${method}${pct}pct-${mdl}_first_24h")
+            handles+=("${metric}_${method}${pct}pct")
         done
     done
 
@@ -67,5 +68,4 @@ for d in "${data_dirs[@]}"; do
         --model_loc "${hm}/mdls-archive/${mdl}" \
         --out_dir "${hm}/figs" \
         --outcomes "${outcomes[@]}"
-
 done

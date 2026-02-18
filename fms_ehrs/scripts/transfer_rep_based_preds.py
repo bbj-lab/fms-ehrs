@@ -37,7 +37,6 @@ parser.add_argument(
     choices=["light_gbm", "logistic_regression_cv", "logistic_regression", "lr_pca"],
     default="logistic_regression",
 )
-parser.add_argument("--k", type=int, default=25)
 parser.add_argument(
     "--outcomes",
     nargs="+",
@@ -153,19 +152,6 @@ for outcome in args.outcomes:
         case "logistic_regression":
             estimator = skl.pipeline.make_pipeline(
                 skl.preprocessing.StandardScaler(),
-                skl.linear_model.LogisticRegression(
-                    max_iter=10_000,
-                    n_jobs=-1,
-                    random_state=42,
-                    solver="newton-cholesky",
-                ),
-            )
-            estimator.fit(X=Xtrain, y=ytrain)
-
-        case "lr_pca":
-            estimator = skl.pipeline.make_pipeline(
-                skl.preprocessing.StandardScaler(),
-                skl.decomposition.PCA(n_components=args.k, random_state=42),
                 skl.linear_model.LogisticRegression(
                     max_iter=10_000,
                     n_jobs=-1,
