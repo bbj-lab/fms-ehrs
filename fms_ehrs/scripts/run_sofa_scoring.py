@@ -61,7 +61,7 @@ logger.info(f"Created frame with {len(sofa_df)=}")
 logger.info(f"SOFA >= 2 for: {len(sofa_df.loc[lambda x: x.sofa_total >= 2])}")
 
 
-set_perms(sofa_df.to_parquet)(out_loc := data_dir.joinpath("clif_sofa.parquet"))
+set_perms(sofa_df.to_parquet)(out_loc := data_dir / "clif_sofa.parquet")
 logger.info(f"Saved frame to {out_loc}.")
 
 

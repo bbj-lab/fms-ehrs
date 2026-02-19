@@ -40,13 +40,13 @@ data_dir, out_dir, *models = map(
     lambda d: pathlib.Path(d).expanduser().resolve(),
     (args.data_dir, args.out_dir, *args.models),
 )
-data_dir_test = data_dir.joinpath(f"{args.data_version}-tokenized", "test")
+data_dir_test = data_dir / f"{args.data_version}-tokenized" / "test"
 outcomes = ("same_admission_death", "long_length_of_stay", "icu_admission", "imv_event")
 
 results = collections.OrderedDict()
 for m in models:
     with open(
-        data_dir_test.joinpath(args.classifier + "-preds-" + m.stem + ".pkl"), "rb"
+        data_dir_test / (args.classifier + "-preds-" + m.stem + ".pkl"), "rb"
     ) as fp:
         results[m.stem] = pickle.load(fp)
         fix_perms(fp)
@@ -59,13 +59,13 @@ for outcome in outcomes:
             "y_score": v["predictions"][outcome],
         }
     plot_calibration_curve(
-        named_results, savepath=out_dir.joinpath(f"cal-{outcome}-{data_dir.stem}.pdf")
+        named_results, savepath=out_dir / f"cal-{outcome}-{data_dir.stem}.pdf"
     )
     plot_roc_curve(
-        named_results, savepath=out_dir.joinpath(f"roc-{outcome}-{data_dir.stem}.pdf")
+        named_results, savepath=out_dir / f"roc-{outcome}-{data_dir.stem}.pdf"
     )
     plot_precision_recall_curve(
-        named_results, savepath=out_dir.joinpath(f"pr-{outcome}-{data_dir.stem}.pdf")
+        named_results, savepath=out_dir / f"pr-{outcome}-{data_dir.stem}.pdf"
     )
 
 logger.info("---fin")

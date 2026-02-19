@@ -5,12 +5,16 @@ for a list of models, collect predictions and compare performance
 """
 
 import argparse
+import gzip
 import pathlib
+import pickle
 
+import numpy as np
+import pandas as pd
 import polars as pl
-import statsmodels.formula.api as smf
 
-from fms_ehrs.framework.logger import get_logger, log_classification_metrics
+from fms_ehrs.framework.logger import get_logger
+from fms_ehrs.framework.tokenizer import Tokenizer21
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
@@ -18,190 +22,148 @@ logger.log_env()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data_dir", type=pathlib.Path, default="../../data-mimic")
-parser.add_argument("--data_version", type=str, default="V21")
+parser.add_argument("--data_version", type=str, default="Y21_icu24_first_24h")
+parser.add_argument("--proto_dir", type=pathlib.Path, default="../../data-mimic")
 parser.add_argument("--out_dir", type=pathlib.Path, default="../../figs")
 parser.add_argument(
+    "--model_loc", type=pathlib.Path, default="../../mdls-archive/gemma-5635921-Y21"
+)
+parser.add_argument(
     "--outcomes",
+    nargs="+",
+    default=[
+        "same_admission_death",
+        "long_length_of_stay",
+        # "ama_discharge",
+        # "hospice_discharge",
+    ],
+)
+parser.add_argument(
+    "--metrics",
     type=str,
     nargs="*",
-    default=["same_admission_death", "long_length_of_stay"],
+    default=[
+        "rel-imp-long_length_of_stay",
+        "rel-imp-same_admission_death",
+        "abs-imp-long_length_of_stay",
+        "abs-imp-same_admission_death",
+        "rel-gmm-long_length_of_stay",
+        "rel-gmm-same_admission_death",
+        "abs-gmm-long_length_of_stay",
+        "abs-gmm-same_admission_death",
+        # "importance-h2o-mean",
+        # "importance-h2o-mean_log",
+        # "importance-h2o-va-mean",
+        # "importance-h2o-va-mean_log",
+        # "importance-scissorhands-10",
+        # "importance-scissorhands-20",
+        # "importance-scissorhands-va-10",
+        # "importance-scissorhands-va-20",
+        # "importance-rollout-mean",
+        # "importance-rollout-mean_log",
+        # "importance-h2o-normed-mean",
+        # "importance-h2o-normed-mean_log",
+        # "information",
+    ],
 )
+parser.add_argument("--ignore_prefix", type=int, default=5)
+parser.add_argument("--truncate_at", type=int, default=300)
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
     logger.info(f"{k}: {v}")
 
-data_dir, out_dir = map(
-    lambda d: pathlib.Path(d).expanduser().resolve(), (args.data_dir, args.out_dir)
+data_dir, out_dir, proto_dir, model_loc = map(
+    lambda d: pathlib.Path(d).expanduser().resolve(),
+    (args.data_dir, args.out_dir, args.proto_dir, args.model_loc),
 )
 
 # load and prep data
 splits = ("train", "val", "test")
-data_dirs = {s: data_dir.joinpath(f"{args.data_version}-tokenized", s) for s in splits}
-
-tto_train = (
-    pl.read_parquet(data_dirs["train"].joinpath("tokens_timelines_outcomes.parquet"))
-    .with_columns(s_len=pl.min_horizontal("seq_len", 1024))
-    .cast({out: int for out in args.outcomes})
-    .to_pandas()
-)
-tto_test = (
-    pl.read_parquet(data_dirs["test"].joinpath("tokens_timelines_outcomes.parquet"))
-    .with_columns(s_len=pl.min_horizontal("seq_len", 1024))
-    .cast({out: int for out in args.outcomes})
-    .to_pandas()
-)
-for out in args.outcomes:
-    print(out)
-    lm_len = smf.logit(f"{out} ~ s_len", data=tto_train).fit()
-    logger.info(lm_len.summary())
-    preds = lm_len.predict(tto_test)
-    log_classification_metrics(y_true=tto_test[out], y_score=preds, logger=logger)
+data_dirs = {s: data_dir / f"{args.data_version}-tokenized" / s for s in splits}
 
 
-""" query raw tables
-"""
+tt = pl.scan_parquet(data_dirs["train"] / "tokens_timelines.parquet")
 
-df = pl.read_csv(
-    "/gpfs/data/bbj-lab/code/divergence/physionet.org/files/mimiciv/2.2/hosp/admissions.csv.gz"
+tkzr = Tokenizer21(
+    data_dir=data_dirs["train"],
+    vocab_path=data_dirs["train"] / "vocab.gzip",
+    config_file=data_dirs["train"] / "config.yaml",
 )
 
-with pl.Config(tbl_rows=-1):
-    df.group_by("race").len().with_columns(
-        pct=pl.col("len") / pl.col("len").sum()
-    ).sort("len", descending=True)
 
-with pl.Config(tbl_rows=-1):
-    df.with_columns(
-        prefix=pl.col("race")
-        .str.replace(r"[-/]", "-")
-        .str.split("-")
-        .list.first()
-        .str.strip_chars()
-        .replace(
-            {
-                "HISPANIC OR LATINO": "HISPANIC",
-                "UNABLE TO OBTAIN": "UNKNOWN",
-                "PATIENT DECLINED TO ANSWER": "UNKNOWN",
-                "PORTUGUESE": "WHITE",
-                "AMERICAN INDIAN": "OTHER",
-                "MULTIPLE RACE": "OTHER",
-                "SOUTH AMERICAN": "OTHER",
-                "NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER": "OTHER",
-            }
+mets = {
+    met: np.load(
+        gzip.open(
+            data_dirs["test"]
+            / "{met}-{mdl}.npy.gz".format(met=met, mdl=model_loc.stem),
+            "rb",
         )
-    ).group_by("prefix").len().with_columns(
-        pct=pl.col("len") / pl.col("len").sum()
-    ).sort("len", descending=True)
-
-
-"""
-"""
-
-# df = pl.read_parquet(
-#     "/gpfs/data/bbj-lab/users/burkh4rt/data-raw/mimic-2.1.0/clif_respiratory_support.parquet"
-# )
-#
-# df = pl.scan_csv("/gpfs/data/bbj-lab/users/burkh4rt/mimiciv-3.1/icu/chartevents.csv.gz")
-#
-# df.head(1000).collect()
-
-
-# import time
-
-# def test1():
-#     start = time.perf_counter()
-#     pl.scan_csv(
-#         "/gpfs/data/bbj-lab/users/burkh4rt/mimiciv-3.1/icu/chartevents.csv.gz"
-#     ).head(1000).collect()
-#     end = time.perf_counter()
-#     return f"Elapsed: {end - start:.6f} seconds"
-#
-#
-# def test2():
-#     start = time.perf_counter()
-#     pl.scan_csv(
-#         "/gpfs/data/bbj-lab/users/burkh4rt/mimiciv-3.1/icu/chartevents.csv.gz",
-#         n_rows=1000,
-#     ).collect()
-#     end = time.perf_counter()
-#     return f"Elapsed: {end - start:.6f} seconds"
-#
-#
-# print(test1())
-# print(test2())
-
-hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt/")
-
-for version in ["mimic-meds-ihlee", "mimic-meds-ed-ihlee"]:
-    pl.scan_parquet(
-        [hm / version / "train/*.parquet", hm / version / "test/*.parquet"]
-    ).sink_parquet(hm / "data-raw" / version / "meds.parquet")
-
-for version, designator in {
-    "mimic-meds-ihlee": "raw-meds",
-    "mimic-meds-ed-ihlee": "raw-meds-ed",
-}.items():
-    df = pl.scan_parquet(hm / "data-raw" / version / "meds.parquet")
-    df.join(
-        df.select(pl.col("subject_id").unique())
-        .collect()
-        .sample(fraction=0.01, with_replacement=False, seed=42)
-        .lazy(),
-        on="subject_id",
-        validate="m:1",
-        how="inner",
-    ).sink_parquet(hm / "development-sample-21" / designator / "dev/meds.parquet")
-
-
-for designator in ["raw-meds", "raw-meds-ed"]:
-    print(designator)
-    with pl.Config(tbl_rows=-1):
-        print(
-            pl.read_parquet(
-                hm / "development-sample-21" / designator / "dev" / "meds.parquet"
-            )
-            .select(pl.col("code").str.split("//").list[0])
-            .to_series()
-            .value_counts()
-            .sort("count", descending=True)
-        )
-
-
-df = pl.read_csv(hm / "mimiciv-3.1" / "hosp/admissions.csv.gz").join(
-    pl.read_csv(hm / "mimiciv-3.1" / "hosp/patients.csv.gz"),
-    on="subject_id",
-    validate="m:1",
-)
-print(df.filter(pl.col("hospitalization_id") == 26886976))
-
-df_asmt = pl.read_parquet(hm / "data-raw/mimic-2.1.0/clif_patient_assessments.parquet")
-with pl.Config(tbl_rows=-1):
-    print(
-        df_asmt.filter(pl.col("hospitalization_id") == "26886976").sort("recorded_dttm")
     )
+    for met in args.metrics
+}
+if args.ignore_prefix > 0:
+    for k in mets.keys():
+        mets[k][:, : args.ignore_prefix] = 0
+if args.truncate_at > 0:
+    for k in mets.keys():
+        mets[k][:, args.truncate_at :] = 0
 
+with open(
+    proto_dir
+    / (args.data_version + "-tokenized")
+    / "train"
+    / ("lda-gmm-protos-" + model_loc.stem + ".pkl"),
+    "rb",
+) as fp:
+    pkl = pickle.load(fp)
+    scaler = pkl["scaler"]
+    models = pkl["models"]
 
-df_asmt_train = pl.read_parquet(
-    hm / "data-mimic/W21/train/clif_patient_assessments.parquet"
+reps = np.load(data_dirs["test"] / "features-{m}.npy".format(m=model_loc.stem))
+tto = pl.read_parquet(
+    data_dirs["test"] / "tokens_timelines_outcomes.parquet"
+).with_columns(
+    **{
+        f"wt_md_{outcome}": models[outcome].predict_proba(scaler.transform(reps))[
+            :, np.argmax(models[outcome].weights_)
+        ]
+        for outcome in args.outcomes
+    },
+    **{
+        metric.replace("-", "_") + "q99": (
+            (x := mets[metric]) > np.quantile(x[x > 0], 0.99)
+        ).sum(axis=1)
+        for metric in args.metrics
+    },
 )
-rass = df_asmt_train.filter(
-    (pl.col("assessment_category") == "RASS") & pl.col("numerical_value").is_in([-3])
-).rename({"recorded_dttm": "rass_dttm"})
 
-cam = df_asmt_train.filter(
-    pl.col("assessment_category").str.starts_with("cam_")
-).rename({"recorded_dttm": "cam_dttm"})
+for outcome in args.outcomes:
+    with pl.Config(tbl_rows=-1, tbl_width_chars=200, fmt_str_lengths=100):
+        print(outcome)
+        print(
+            top10 := tto.filter(outcome).filter(pl.col("wt_md_" + outcome) > 0.9)
+            .sort("abs_gmm_" + outcome + "q99", descending=True)
+            .head(10)
+        )
+        print(top10.select("hospitalization_id").to_series().to_list())
 
-cam_after_rass = (
-    rass.join(cam, on="hospitalization_id")
-    .filter(pl.col("rass_dttm") <= pl.col("cam_dttm"))
-    .filter(pl.col("rass_dttm") + pl.duration(minutes=15) >= pl.col("cam_dttm"))
-    .select(pl.col("rass_dttm").unique())
-)
-
-print("{:.2f}".format(len(cam_after_rass) / len(rass)))
-
-
-# with pl.Config(tbl_rows=-1):
-#     print(rass.group_by("numerical_value").len().sort("numerical_value"))
+# with pl.Config(tbl_rows=-1, tbl_width_chars=200, fmt_str_lengths=100):
+#     print(
+#         tt.select(
+#             pl.col("tokens")
+#             .explode()
+#             .replace_strict(tkzr.vocab.reverse, return_dtype=pl.String)
+#         )
+#         .with_columns(
+#             pairs=pl.concat_str(
+#                 [pl.col("tokens"), pl.col("tokens").shift(-1)], separator=","
+#             )
+#         )
+#         .filter(pl.col("tokens") != "TL_END")
+#         .group_by("pairs")
+#         .len()
+#         .sort("len", descending=True)
+#         .head(100)
+#         .collect()
+#     )
