@@ -34,6 +34,7 @@ parser.add_argument(
     default="none",
 )
 parser.add_argument("--metric", default="information")
+parser.add_argument("--x_infm", action="store_true")
 parser.add_argument("--pct", type=int, default=10)
 parser.add_argument("--prefix_len", type=int, default=6)
 args, unknowns = parser.parse_known_args()
@@ -55,7 +56,9 @@ pad_tkn = vocab("PAD")
 
 new_version = (
     args.data_version.split("_first_24h")[0]
-    + f"_red_{args.metric}_{args.method}{args.pct}pct-{model_loc.stem}"
+    + f"_red_{args.metric}"
+    + ("-x-infm" if args.x_infm else "")
+    + f"_{args.method}{args.pct}pct-{model_loc.stem}"
     + ("_first_24h" if args.data_version.endswith("_first_24h") else "")
 )
 
@@ -77,6 +80,13 @@ for s in splits:
             mode="rb",
         )
     )
+    if args.x_infm:
+        infm = np.load(
+            gzip.open(
+                d_in / "information-{mdl}.npy.gz".format(mdl=model_loc.stem), mode="rb"
+            )
+        )
+        met *= infm
 
     tkn = tto.select("padded").to_series().to_numpy()
     tms = tto.select("times").to_series().to_numpy()
