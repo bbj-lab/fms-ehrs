@@ -2,7 +2,7 @@
 
 #SBATCH --job-name=cf-perf-data
 #SBATCH --output=./output/%A_%a-%x.stdout
-#SBATCH --partition=tier2q
+#SBATCH --partition=tier3q
 #SBATCH --cpus-per-task=5
 #SBATCH --time=4:00:00
 #SBATCH --array=0-8
@@ -67,5 +67,8 @@ for d in "${data_dirs[@]}"; do
         --baseline_handle "original" \
         --model_loc "${hm}/mdls-archive/${mdl}" \
         --out_dir "${hm}/figs" \
-        --outcomes "${outcomes[@]}"
+        --outcomes "${outcomes[@]}" \
+        --classifier light_gbm \
+        --suffix light_gbm \
+        --n_bootstrap_samples 1000
 done

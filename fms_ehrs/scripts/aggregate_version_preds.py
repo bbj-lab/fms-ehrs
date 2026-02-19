@@ -60,6 +60,7 @@ parser.add_argument(
     nargs="*",
     default=["same_admission_death", "long_length_of_stay"],
 )
+parser.add_argument("--n_bootstrap_samples", type=int, default=1000)
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -132,7 +133,7 @@ for outcome in args.outcomes:
         cis = bootstrap_ci(
             res["y_true"],
             res["y_score"],
-            n_samples=10_0,
+            n_samples=args.n_bootstrap_samples,
             objs=("roc_auc", "pr_auc", "brier"),
         )
         for k, v in cis.items():
@@ -162,6 +163,7 @@ for outcome in args.outcomes:
                 res["y_true"],
                 res["y_score"],
                 named_results[args.baseline_handle]["y_score"],
+                n_samples=args.n_bootstrap_samples,
             )
             p_tbl.loc[name] = {f"{k}-p": v for k, v in pvals.items()}
 
