@@ -49,9 +49,9 @@ new_data = (
 
 splits = ("train", "val", "test")
 for s in splits:
-    dir_out = data_dir_out.joinpath(args.data_version, s)
+    dir_out = data_dir_out / args.data_version / s
     collated = (
-        pl.scan_parquet(dir_out.joinpath("clif_hospitalization.parquet"))
+        pl.scan_parquet(dir_out / "clif_hospitalization.parquet")
         .select(
             "patient_id",
             "hospitalization_id",
@@ -67,7 +67,7 @@ for s in splits:
     if (i := collated.shape[0] - collated.select("new_idx").n_unique()) > 0:
         logger.info(f"Detected {i} overlapping hospitalization(s).")
     set_perms(collated.drop("new_idx")).write_parquet(
-        dir_out.joinpath(args.new_data_name + ".parquet")
+        dir_out / (args.new_data_name + ".parquet")
     )
 
 logger.info("---fin")

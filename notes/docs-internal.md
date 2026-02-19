@@ -1,9 +1,9 @@
 ## Tokenization intro (internal)
 
--   Our tokenizer operates on raw clif data that lives in parquet files. I've
-    placed a small development sample in
-    `/gpfs/data/bbj-lab/users/burkh4rt/development-sample` and fixed permissions
-    so you (a person in the `cri-bbj_lab` group) should have full r/w/x access:
+- Our tokenizer operates on raw clif data that lives in parquet files. I've
+  placed a small development sample in
+  `/gpfs/data/bbj-lab/users/burkh4rt/development-sample` and fixed permissions so
+  you (a person in the `cri-bbj_lab` group) should have full r/w/x access:
 
           ```
           /gpfs/data/bbj-lab/users/burkh4rt/development-sample
@@ -23,8 +23,8 @@
     Each of these tables corresponds to the the CLIF-2.0.0 schema --
     ![](./img/clif-tables.png)
 
--   The first thing we do to this data is create a train/val/test split. On
-    randi, we can run
+- The first thing we do to this data is create a train/val/test split. On randi,
+  we can run
 
           ```sh
           systemd-run --scope --user tmux new -s t3q
@@ -122,7 +122,7 @@
                   └── clif_vitals.parquet
           ```
 
--   Next we're prepared to do our actual tokenization, with the call:
+- Next we're prepared to do our actual tokenization, with the call:
 
             ```sh
             python3 /src/fms_ehrs/scripts/tokenize_train_val_test_split.py \
@@ -207,8 +207,8 @@
     training split always holds the corresponding `vocab.gzip`
     [vocabulary object](./fms_ehrs/framework/vocabulary.py).
 
--   We can also open an interactive session with `python3 -i` and play around a
-    bit with the [tokenizer object](./fms_ehrs/framework/tokenizer.py) directly:
+- We can also open an interactive session with `python3 -i` and play around a bit
+  with the [tokenizer object](./fms_ehrs/framework/tokenizer.py) directly:
 
           ```py
           import pathlib
@@ -218,7 +218,7 @@
           hm = pathlib.Path("/gpfs/data/bbj-lab/users/burkh4rt")
 
           tkzr = ClifTokenizer(
-              data_dir=hm.joinpath("development-sample", "split", "train"),
+              data_dir=hm / "development-sample" / "split" / "train",
               max_padded_len=1024,
               day_stay_filter=True,
               drop_nulls_nans=True,
@@ -227,12 +227,11 @@
           ```
 
     At this point, calling:
-
-    -   `tt` will show a dataframe with columns `hospitalization_id`, `tokens`,
-        and `times`.
-    -   `tkzr.print_aux()` will show all the "auxiliary information" on learned
-        decile cutoff points.
-    -   `tkzr.tbl` will show a dictionary of processed clif tables.
-    -   `tkzr.vocab.lookup` will show the lookup dictionary for our learned
-        vocabulary object. This just maps tokens to integers.
-    -   `summarize(tkzr, tt)` will give you some more readouts.
+    - `tt` will show a dataframe with columns `hospitalization_id`, `tokens`, and
+      `times`.
+    - `tkzr.print_aux()` will show all the "auxiliary information" on learned
+      decile cutoff points.
+    - `tkzr.tbl` will show a dictionary of processed clif tables.
+    - `tkzr.vocab.lookup` will show the lookup dictionary for our learned
+      vocabulary object. This just maps tokens to integers.
+    - `summarize(tkzr, tt)` will give you some more readouts.

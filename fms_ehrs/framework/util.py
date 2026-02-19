@@ -87,7 +87,7 @@ def collate_events_info(
     return info_agg, times_idx
 
 
-def redact_tokens_times(
+def redact_eventwise(
     tks_arr: typing.List[np.ndarray],
     tms_arr: typing.List[np.ndarray],
     met_arr: np.ndarray,
@@ -261,9 +261,8 @@ if __name__ == "__main__":
     tks = [np.arange(10)]
     tms = [np.array([0] * 3 + [1] * 3 + [2] * 3 + [3])]
     inf = np.array([0] * 3 + [3, 0, 0] + [2] * 3 + [1]).reshape(1, -1)
-    print(redact_tokens_times(tks, tms, inf, k=1))
-    print(redact_tokens_times(tks, tms, inf, k=1, aggregation="perplexity"))
-    print(redact_tokens_times(tks, tms, inf, k=1, method="random"))
+    print(redact_eventwise(tks, tms, inf, k=1))
+    print(redact_eventwise(tks, tms, inf, k=1, method="random"))
 
     tms_unq, idx = np.unique(tms, return_inverse=True)
     result = np.zeros(shape=tms_unq.shape)

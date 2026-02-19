@@ -919,7 +919,6 @@ dependencies = [
     { name = "scikit-learn" },
     { name = "scipy" },
     { name = "seaborn" },
-    { name = "sklvq" },
     { name = "statsmodels" },
     { name = "torch" },
     { name = "tqdm" },
@@ -952,7 +951,6 @@ requires-dist = [
     { name = "scikit-learn", specifier = ">=1.2,<1.7" },
     { name = "scipy", specifier = ">=1.15" },
     { name = "seaborn", specifier = ">=0.13.2" },
-    { name = "sklvq", specifier = "==0.1.2" },
     { name = "statsmodels", specifier = ">=0.14" },
     { name = "torch", specifier = ">=2.8,<2.10" },
     { name = "tqdm", specifier = ">=4.67" },
@@ -4027,20 +4025,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/94/e7/b2c673351809dca68a0e064b6af791aa332cf192da575fd474ed7d6f16a2/six-1.17.0.tar.gz", hash = "sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81", size = 34031, upload-time = "2024-12-04T17:35:28.174Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274", size = 11050, upload-time = "2024-12-04T17:35:26.475Z" },
-]
-
-[[package]]
-name = "sklvq"
-version = "0.1.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy" },
-    { name = "scikit-learn" },
-    { name = "scipy" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/39/30/8cae27a28b270873c37e11d297bb5a9047a5e32d1b786aba1157b4052322/sklvq-0.1.2.tar.gz", hash = "sha256:f3e9eabcf4359ed83a7b2ecf9dd6fd1e21ea777b8291700fe0718ac82664fa5e", size = 39524, upload-time = "2021-02-16T18:58:08.256Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f4/d3/aa944bbce099f5d6f06aabc2c609cb3811e2cf690f6faf310af732e5caec/sklvq-0.1.2-py3-none-any.whl", hash = "sha256:8a95ed8f8a1a9ee0e0aa833a582bcc071b717cfab49936f13274767ca0f70c5f", size = 71441, upload-time = "2021-02-16T18:58:06.731Z" },
 ]
 
 [[package]]

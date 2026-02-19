@@ -60,12 +60,12 @@ data_dir, out_dir, model_loc = map(
     lambda d: pathlib.Path(d).expanduser().resolve(),
     (args.data_dir, args.out_dir, args.model_loc),
 )
-test_dir = data_dir.joinpath(f"{args.data_version}-tokenized", "test")
+test_dir = data_dir / f"{args.data_version}-tokenized" / "test"
 
-inf_arr = np.load(test_dir.joinpath(f"log_probs-{model_loc.stem}.npy")) / -np.log(2)
-if (f := test_dir.joinpath("tokens_timelines_outcomes.parquet")).exists():
+inf_arr = np.load(test_dir / f"log_probs-{model_loc.stem}.npy") / -np.log(2)
+if (f := test_dir / "tokens_timelines_outcomes.parquet").exists():
     tt = pl.scan_parquet(f)
-elif (f := test_dir.joinpath("tokens_timelines.parquet")).exists():
+elif (f := test_dir / "tokens_timelines.parquet").exists():
     tt = pl.scan_parquet(f)
 else:
     raise FileNotFoundError("Check tokens_timelines* file.")
@@ -126,7 +126,7 @@ assert len(jumps) == len(infos) == len(tks_arr)
 tt_events = tt.with_columns(
     event_infos=pl.Series(infos), event_jumps=pl.Series(jumps)
 ).collect()
-tt_events.write_parquet((test_dir.joinpath("tokens_timelines_outcomes_events.parquet")))
+tt_events.write_parquet(test_dir / "tokens_timelines_outcomes_events.parquet")
 
 df_e = pd.DataFrame(
     {"total_jump": itertools.chain(*jumps), "information": itertools.chain(*infos)}
@@ -143,10 +143,9 @@ ax.set_title("Total jump vs. Information (Eventwise)")
 ax.set_xlabel("information")
 ax.set_ylabel("total_jump")
 set_perms(plt.savefig)(
-    out_dir.joinpath(
-        "jumps-vs-infm-{agg}-{m}-{d}.png".format(
-            agg=args.aggregation, m=model_loc.stem, d=data_dir.stem
-        )
+    out_dir
+    / "jumps-vs-infm-{agg}-{m}-{d}.png".format(
+        agg=args.aggregation, m=model_loc.stem, d=data_dir.stem
     ),
     bbox_inches="tight",
     dpi=600,
@@ -167,10 +166,9 @@ ax.set_title("Total jump vs. Information (Informative events)")
 ax.set_xlabel("information")
 ax.set_ylabel("total_jump")
 set_perms(plt.savefig)(
-    out_dir.joinpath(
-        "jumps-vs-infm-{agg}-{m}-{d}-he.png".format(
-            agg=args.aggregation, m=model_loc.stem, d=data_dir.stem
-        )
+    out_dir
+    / "jumps-vs-infm-{agg}-{m}-{d}-he.png".format(
+        agg=args.aggregation, m=model_loc.stem, d=data_dir.stem
     ),
     bbox_inches="tight",
     dpi=600,

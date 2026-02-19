@@ -72,7 +72,7 @@ if args.waterfall:
     processed = resp_support.waterfall()
     processed.validate()
     set_perms(processed.df.to_parquet)(
-        data_dir.joinpath("clif_respiratory_support_processed.parquet")
+        data_dir / "clif_respiratory_support_processed.parquet"
     )
 
 
@@ -151,7 +151,7 @@ if args.convert_doses_continuous:
     )
 
     co.medication_admin_continuous.df_converted.to_parquet(
-        data_dir.joinpath("clif_medication_admin_continuous_converted.parquet")
+        data_dir / "clif_medication_admin_continuous_converted.parquet"
     )
 
 if args.convert_doses_intermittent:
@@ -244,7 +244,7 @@ if args.convert_doses_intermittent:
     )
 
     co.medication_admin_intermittent.df_converted.to_parquet(
-        data_dir.joinpath("clif_medication_admin_intermittent_converted.parquet")
+        data_dir / "clif_medication_admin_intermittent_converted.parquet"
     )
 
 logger.info("---fin")

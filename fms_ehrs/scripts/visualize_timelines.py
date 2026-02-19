@@ -38,22 +38,28 @@ parser.add_argument(
     type=str,
     nargs="*",
     default=[
-        # mimic
-        "27416443",
-        "29161299",
-        "28311451",
-        "23636379",
-        "21294017",
-        "27323869",
-        "24116026",
-        "25523459",
-        "29835765",
-        "27854643",
-        "21837764",
-        "29761794",
-        # ucmc
-        # "645165754",
-        # "632760687",
+        # mimic same admission death
+        "22852565",
+        "23245888",
+        "28068609",
+        "20396983",
+        "20277188",
+        "22089767",
+        "25791428",
+        "28823197",
+        "26385365",
+        "22239080",
+        # mimic long length of stay
+        "20911957",
+        "24272032",
+        "26820402",
+        "24092195",
+        "24060117",
+        "25523261",
+        "21177482",
+        "24481104",
+        "25674382",
+        "25833965",
     ],
 )
 parser.add_argument(
@@ -61,10 +67,14 @@ parser.add_argument(
     type=str,
     nargs="*",
     default=[
-        "rel-imp-long_length_of_stay",
-        "rel-imp-same_admission_death",
+        # "rel-imp-long_length_of_stay",
+        # "rel-imp-same_admission_death",
         "abs-imp-long_length_of_stay",
         "abs-imp-same_admission_death",
+        # "rel-gmm-long_length_of_stay",
+        # "rel-gmm-same_admission_death",
+        "abs-gmm-long_length_of_stay",
+        "abs-gmm-same_admission_death",
         # "importance-h2o-mean",
         # "importance-h2o-mean_log",
         # "importance-h2o-va-mean",
@@ -77,11 +87,12 @@ parser.add_argument(
         # "importance-rollout-mean_log",
         # "importance-h2o-normed-mean",
         # "importance-h2o-normed-mean_log",
-        # "information",
+        "information",
     ],
 )
 parser.add_argument("--out_dir", type=pathlib.Path, default="../../figs")
 parser.add_argument("--tl_len", type=int, default=300)
+parser.add_argument("--ignore_prefix", type=int, default=5)
 args, unknowns = parser.parse_known_args()
 
 for k, v in vars(args).items():
@@ -96,38 +107,13 @@ fix_perms(out_dir)
 
 # load and prep data
 splits = ("train", "val", "test")
-data_dirs = {s: data_dir.joinpath(f"{args.data_version}-tokenized", s) for s in splits}
+data_dirs = {s: data_dir / f"{args.data_version}-tokenized" / s for s in splits}
 
-vocab = Vocabulary().load(data_dirs["train"].joinpath("vocab.gzip"))
+vocab = Vocabulary().load(data_dirs["train"] / "vocab.gzip")
 
-# lookup = dict(
-#     enumerate(
-#         pl.scan_parquet(data_dirs["test"].joinpath("tokens_timelines.parquet"))
-#         .select("hospitalization_id")
-#         .collect()
-#         .to_series()
-#         .to_list()
-#     )
-# )
-
-# infm = np.load(
-#     gzip.open(
-#         data_dirs["test"].joinpath(
-#             ("information-{mdl}.npy.gz").format(mdl=model_loc.stem)
-#         ),
-#         "rb",
-#     )
-# )[:, 7:300]
-
-# [
-#     lookup[i]
-#     for i in np.argsort(np.max(infm, axis=1) * np.isfinite(infm[:, 299 - 7]))[::-1][:50]
-# ]
-
-# np.random.default_rng().choice(list(lookup.values()), size=50, replace=False).tolist()
 
 tt = (
-    pl.scan_parquet(data_dirs["test"].joinpath("tokens_timelines.parquet"))
+    pl.scan_parquet(data_dirs["test"] / "tokens_timelines.parquet")
     .with_row_index()
     .filter(pl.col("hospitalization_id").is_in(args.ids))
     .with_columns(
@@ -143,44 +129,19 @@ tt = (
 mets = {
     met: np.load(
         gzip.open(
-<<<<<<< HEAD
-            data_dirs["test"].joinpath(
-                (
-                    "{met}-{mdl}.npy.gz"
-                    if met.startswith("information")
-                    else "importance-{met}-{mdl}.npy.gz"
-                ).format(met=met, mdl=model_loc.stem)
-            ),
-=======
             data_dirs["test"]
             / "{met}-{mdl}.npy.gz".format(met=met, mdl=model_loc.stem),
->>>>>>> dev
             "rb",
         )
     )[tt.select("index").to_numpy().ravel()]
     for met in args.metrics
 }
+if args.ignore_prefix > 0:
+    for k in mets.keys():
+        mets[k][:, : args.ignore_prefix] = 0
 
-<<<<<<< HEAD
-if "all-jumps-all-layers" in args.metrics:
-    jumps_all = np.load(
-        gzip.open(
-            data_dirs["test"].joinpath(
-                "all-jumps-all-layers-{mdl}.npy.gz".format(mdl=model_loc.stem)
-            ),
-            "rb",
-        )
-    )[tt.select("index").to_numpy().ravel()]
-    for i, jumps_i in enumerate(jumps_all.T):
-        mets[f"jumps-{i}"] = jumps_i.T
-    mets["jumps-all"] = np.sqrt(np.sum(np.square(jumps_all),axis=-1))
+mets["abs-gmm-mort-x-info"] = mets["abs-gmm-same_admission_death"] * mets["information"]
 
-if data_dir.stem == "data-ucmc" and "information" in mets.keys():
-    # manually fix issue with admission types
-    mets["information"][:, 5] = 0
-
-=======
->>>>>>> dev
 n_cols = 6
 n_rows = args.tl_len // n_cols
 max_len = n_rows * n_cols
@@ -204,10 +165,9 @@ for i, hid in tq.tqdm(
         imshow_text(
             values=v[i, :max_len].reshape((-1, n_cols)),
             text=tl[:max_len].reshape((-1, n_cols)),
-            savepath=out_dir.joinpath(
-                "tls-{sid}-{met}-{dv}-{mv}.pdf".format(
-                    sid=hid, met=k, dv=args.data_version, mv=model_loc.stem
-                )
+            savepath=out_dir
+            / "tls-{sid}-{met}-{dv}-{mv}.pdf".format(
+                sid=hid, met=k, dv=args.data_version, mv=model_loc.stem
             ),
             autosize=False,
             zmin=v[i, :max_len].min(),
