@@ -5,14 +5,14 @@
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:1
 #SBATCH --time=24:00:00
-#SBATCH --array=0-431
+#SBATCH --array=0-47
 
 source preamble.sh
 
 ni=2
 nj=6
 nk=4
-nm=9
+nm=1
 i=$((SLURM_ARRAY_TASK_ID % ni))
 jkm=$((SLURM_ARRAY_TASK_ID / ni))
 j=$((jkm % nj))
@@ -45,15 +45,16 @@ pcts=(
     40
 )
 metrics=(
-    information
-    abs-gmm-same_admission_death
-    abs-imp-same_admission_death
-    rel-gmm-same_admission_death
-    rel-imp-same_admission_death
-    abs-gmm-long_length_of_stay
-    abs-imp-long_length_of_stay
-    rel-gmm-long_length_of_stay
-    rel-imp-long_length_of_stay
+    # information
+    # abs-gmm-same_admission_death
+    # abs-imp-same_admission_death
+    # rel-gmm-same_admission_death
+    # rel-imp-same_admission_death
+    # abs-gmm-long_length_of_stay
+    # abs-imp-long_length_of_stay
+    # rel-gmm-long_length_of_stay
+    # rel-imp-long_length_of_stay
+    importance-h2o-mean
 )
 
 mdl=gemma-5635921-Y21

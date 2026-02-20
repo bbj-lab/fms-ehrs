@@ -38,15 +38,16 @@ pcts=(
     40
 )
 metrics=(
-    information
-    abs-gmm-same_admission_death
-    abs-imp-same_admission_death
-    rel-gmm-same_admission_death
-    rel-imp-same_admission_death
-    abs-gmm-long_length_of_stay
-    abs-imp-long_length_of_stay
-    rel-gmm-long_length_of_stay
-    rel-imp-long_length_of_stay
+    # information
+    # abs-gmm-same_admission_death
+    # abs-imp-same_admission_death
+    # rel-gmm-same_admission_death
+    # rel-imp-same_admission_death
+    # abs-gmm-long_length_of_stay
+    # abs-imp-long_length_of_stay
+    # rel-gmm-long_length_of_stay
+    # rel-imp-long_length_of_stay
+    importance-h2o-mean
 )
 outcomes=(
     "same_admission_death"

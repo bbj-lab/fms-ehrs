@@ -40,13 +40,13 @@ parser.add_argument(
     nargs="*",
     default=[
         "h2o-mean",
+        "h2o-mean-10",
+        "h2o-mean-20",
         "h2o-mean_log",
         "h2o-va-mean",
+        "h2o-va-mean-10",
+        "h2o-va-mean-20",
         "h2o-va-mean_log",
-        "scissorhands-10",
-        "scissorhands-20",
-        "scissorhands-va-10",
-        "scissorhands-va-20",
         "rollout-mean",
         "rollout-mean_log",
         "h2o-normed-mean",
@@ -142,13 +142,13 @@ for s in args.splits:
                     metrics[met][batch_idx] = token_importance(
                         attentions=attns, values=vals, aggregation=met.split("-")[-1]
                     ).astype(np.float32)
-                case "scissorhands-10" | "scissorhands-20":
+                case "h2o-mean-10" | "h2o-mean-20":
                     metrics[met][batch_idx] = token_importance(
                         attentions=attns,
                         window=int(met.split("-")[-1]),
                         aggregation="mean",
                     ).astype(np.float32)
-                case "scissorhands-va-10" | "scissorhands-va-20":
+                case "h2o-va-mean-10" | "h2o-va-mean-20":
                     metrics[met][batch_idx] = token_importance(
                         attentions=attns,
                         values=vals,
