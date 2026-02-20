@@ -67,22 +67,18 @@ parser.add_argument(
     type=str,
     nargs="*",
     default=[
-        # "rel-imp-long_length_of_stay",
-        # "rel-imp-same_admission_death",
+        "rel-imp-long_length_of_stay",
+        "rel-imp-same_admission_death",
         "abs-imp-long_length_of_stay",
         "abs-imp-same_admission_death",
-        # "rel-gmm-long_length_of_stay",
-        # "rel-gmm-same_admission_death",
+        "rel-gmm-long_length_of_stay",
+        "rel-gmm-same_admission_death",
         "abs-gmm-long_length_of_stay",
         "abs-gmm-same_admission_death",
         # "importance-h2o-mean",
         # "importance-h2o-mean_log",
         # "importance-h2o-va-mean",
         # "importance-h2o-va-mean_log",
-        # "importance-scissorhands-10",
-        # "importance-scissorhands-20",
-        # "importance-scissorhands-va-10",
-        # "importance-scissorhands-va-20",
         # "importance-rollout-mean",
         # "importance-rollout-mean_log",
         # "importance-h2o-normed-mean",
@@ -140,7 +136,8 @@ if args.ignore_prefix > 0:
     for k in mets.keys():
         mets[k][:, : args.ignore_prefix] = 0
 
-mets["abs-gmm-mort-x-info"] = mets["abs-gmm-same_admission_death"] * mets["information"]
+for k in mets.keys() - {"information"}:
+    mets[k + "-x-info"] = mets[k] * mets["information"]
 
 n_cols = 6
 n_rows = args.tl_len // n_cols

@@ -55,10 +55,6 @@ parser.add_argument(
         # "importance-h2o-mean_log",
         # "importance-h2o-va-mean",
         # "importance-h2o-va-mean_log",
-        # "importance-scissorhands-10",
-        # "importance-scissorhands-20",
-        # "importance-scissorhands-va-10",
-        # "importance-scissorhands-va-20",
         # "importance-rollout-mean",
         # "importance-rollout-mean_log",
         # "importance-h2o-normed-mean",
@@ -142,7 +138,8 @@ for outcome in args.outcomes:
     with pl.Config(tbl_rows=-1, tbl_width_chars=200, fmt_str_lengths=100):
         print(outcome)
         print(
-            top10 := tto.filter(outcome).filter(pl.col("wt_md_" + outcome) > 0.9)
+            top10 := tto.filter(outcome)
+            .filter(pl.col("wt_md_" + outcome) > 0.9)
             .sort("abs_gmm_" + outcome + "q99", descending=True)
             .head(10)
         )

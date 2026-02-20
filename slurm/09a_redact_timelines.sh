@@ -4,14 +4,14 @@
 #SBATCH --output=./output/%A_%a-%x.stdout
 #SBATCH --partition=tier2q
 #SBATCH --time=1:00:00
-#SBATCH --array=0-47
+#SBATCH --array=0-383
 
 source preamble.sh
 
 ni=2
 nj=6
 nk=4
-nm=1
+nm=8
 i=$((SLURM_ARRAY_TASK_ID % ni))
 jkm=$((SLURM_ARRAY_TASK_ID / ni))
 j=$((jkm % nj))
@@ -44,15 +44,15 @@ pcts=(
     40
 )
 metrics=(
-    # abs-gmm-same_admission_death
-    # abs-imp-same_admission_death
-    # rel-gmm-same_admission_death
-    # rel-imp-same_admission_death
-    # abs-gmm-long_length_of_stay
-    # abs-imp-long_length_of_stay
-    # rel-gmm-long_length_of_stay
-    # rel-imp-long_length_of_stay
-    importance-h2o-mean
+    abs-gmm-same_admission_death
+    abs-imp-same_admission_death
+    rel-gmm-same_admission_death
+    rel-imp-same_admission_death
+    abs-gmm-long_length_of_stay
+    abs-imp-long_length_of_stay
+    rel-gmm-long_length_of_stay
+    rel-imp-long_length_of_stay
+    # importance-h2o-mean
 )
 
 python3 ../fms_ehrs/scripts/redact_timelines_tokenwise.py \
@@ -61,7 +61,7 @@ python3 ../fms_ehrs/scripts/redact_timelines_tokenwise.py \
     --model_loc "${hm}/mdls-archive/gemma-5635921-Y21" \
     --pct "${pcts[$k]}" \
     --method "${methods[$j]}" \
-    --metric "${metrics[$m]}"
-# --x_infm
+    --metric "${metrics[$m]}" \
+    --x_infm
 
 source postscript.sh
