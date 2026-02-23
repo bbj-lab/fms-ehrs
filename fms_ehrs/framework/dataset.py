@@ -6,7 +6,7 @@ provide datasets for training
 Supports two modes:
 1. Standard mode (packed/padded): Loads input_ids only for language model training
 2. Representation mode (padded only): Additionally loads numeric_values and relative_times
-   for Experiment 2 soft discretization, xVal, and Time2Vec temporal encoding
+   for Experiment 2 soft discretization, xVal, and Time-Aware RoPE temporal encoding
 """
 
 import itertools
@@ -132,7 +132,7 @@ def _windowed_padded_examples(
     if numeric_values is not None and len(numeric_values) != n:
         raise ValueError("numeric_values must align with tokens (same length)")
 
-    # Admission-level reference time for Time2Vec (shared across windows).
+    # Admission-level reference time for Time-Aware RoPE (shared across windows).
     t0 = None
     if times:
         for ts in times:
@@ -247,7 +247,7 @@ class Datasets:
         If True, load padded_numeric_values for soft discretization and xVal.
         Requires padded collation.
     include_times : bool
-        If True, load padded_times and compute relative_times for Time2Vec.
+        If True, load padded_times and compute relative_times for Time-Aware RoPE.
         Requires padded collation.
     """
 

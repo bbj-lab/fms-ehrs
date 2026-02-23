@@ -4,6 +4,22 @@
 > models on those tokenized records, and then perform various downstream
 > analyses. [^1] [^2]
 
+## Used in: Input Representation Benchmark
+
+The [`input-representation-benchmark`](../input-representation-benchmark) sibling repo
+uses this repo as a **library** for the MLHC 2026 benchmark paper. It adds `fms-ehrs/`
+to `PYTHONPATH` via `slurm/00_preamble.sh` and calls the following scripts directly:
+
+| Script | Stage | Purpose |
+|---|---|---|
+| `fms_ehrs/scripts/tokenize_w_config.py` | Stage 0 | Tokenize MEDS → sequences |
+| `fms_ehrs/scripts/train_representation.py` | Stage 1 | Train causal LM (via `torchrun`) |
+| `fms_ehrs/scripts/extract_hidden_states.py` | Stage 2 | Extract last hidden state at 24h cutoff |
+| `fms_ehrs/scripts/transfer_rep_based_preds.py` | Stage 3 | LR/MLP probes on hidden states |
+| `fms_ehrs/scripts/eval_token_ce.py` | Diagnostics | Per-token cross-entropy analysis |
+
+For the full pipeline description, see [`input-representation-benchmark/PIPELINE.md`](../input-representation-benchmark/PIPELINE.md).
+
 ## Requirements & structure
 
 The bash scripts can be run in a [slurm](https://slurm.schedmd.com) environment
@@ -25,22 +41,9 @@ For plots to render correctly, you may need to install a working version of
 
 ## What the code does
 
-We consider hospitalization events for adults (age 18 or older) from the Beth
-Israel Deaconess Medical Center between 2008–2019
-([MIMIC-IV-3.1](https://physionet.org/content/mimiciv/3.1/)) and from
-[UCMC](https://www.uchicagomedicine.org) between March 2020 and March 2022. We
-restricted to patients with stays of at least 24 hours. We formatted EHR data
-from each health system into the
-[CLIF-2.0.0 format](https://web.archive.org/web/20250711203935/https://clif-consortium.github.io/website/data-dictionary/data-dictionary-2.0.0.html).
-The MIMIC patients were partitioned intro training, validation, and test sets at
-a 70\%-10\%-20\% rate, according to the randomized time of their first
-hospitalization event, with training patients coming first, followed by
-validation and then test. We then collected each hospitalization event for
-patients in a given set. In this way, hospitalization records in the test set
-corresponded to patients with no hospitalization events in the training or
-validation sets. UCMC data was primarily used as a held-out test set. For this
-reason, we partitioned UCMC hospitalizations into training, validation, and test
-sets at a 5\%-5\%-90\% rate in the same manner as used for MIMIC.
+This repository orchestrates the processing of hospitalization events for adult patients (≥18 years) from two sources: the Beth Israel Deaconess Medical Center (MIMIC-IV-3.1, 2008–2019) and UCMC (March 2020–March 2022). All records are restricted to hospital stays of at least 24 hours and mapped to the [CLIF-2.0.0 format](https://web.archive.org/web/20250711203935/https://clif-consortium.github.io/website/data-dictionary/data-dictionary-2.0.0.html).
+
+The MIMIC cohort is partitioned into training, validation, and test datasets at a 70/10/20 split based on the randomized timestamp of each patient's first recorded hospitalization. Consequently, hospitalization records in the test set correspond exclusively to unseen patients. The UCMC data serves primarily as an external validation set and employs a 5/5/90 training/validation/test split using identical methodology.
 
 ## Experiment 3 cohort definition (input-representation-benchmark)
 
@@ -56,33 +59,15 @@ the input data directories are assumed to already be filtered to \(H_{\mathrm{IC
   lists are derived by intersecting admissions for those patients with \(H_{\mathrm{ICU}}\)
   (see `input-representation-benchmark/scripts/align_cohorts.py`).
 
-We convert each hospitalization event into a sequence of integers corresponding
-to the stay. For a given sequence, the first token always corresponds to timeline
-start token. The next three tokens contain patient-level demographic information
-on race, ethnicity, and sex. The following two tokens correspond to
-admission-specific information, namely patient age converted to a decile and
-admission type. Taken together, we refer to the 5 tokens occurring immediately
-after the timelines start token as the _admission prefix_. Tokens corresponding
-to a variety of events for a hospitalization are then inserted in the same order
-in which these events occurred. Transfers are encoded with their CLIF location
-category. Labs are encoded with two tokens and inserted at the time results
-become available: one for the lab category, and a second corresponding to the
-deciled lab value in the training data within that category. We call this
-strategy, of tokenizing categories and binning their corresponding values
-according to the training value of the deciles, category-value tokenization:
+The pipeline converts each hospitalization event into a sequence of integer tokens. A sequence begins with a timeline-start token, followed by an "admission prefix"—five tokens capturing race, ethnicity, sex, age (as a decile limit), and admission type.
+
+Subsequent clinical events are injected sequentially. Transfers map directly to CLIF location categories. Laboratory results generate two tokens simultaneously: a category token and a value token discretized against training-set deciles. This design—tokenizing the category then appending its quantile-binned value—constitutes "category-value tokenization":
 
 ![Category-value tokenization](./img/schematic.svg)
 
-A handful of other tables receive this type of tokenization: vitals and results
-according to vital category, medication and dosage by medication category,
-assessment and results by assessment category. Respiratory information is
-recorded at the beginning of respiratory support; the encoded information is mode
-category and device category. We include a token indicating if a patient is
-placed into a prone position. All hospitalization-related data is encoded this
-way and inserted in chronological order. Tokens that arrive synchronously
-correspond to an event and always appear coterminously in a sequence. Timelines
-then end with a token for discharge category and a dedicated timeline end token.
-For example, the first few tokens for a timeline might look like this:
+This category-value template applies broadly across tables, including vitals, assessment outcomes, and medication classes. Respiratory support records specify both mode and device categories. Prone positioning is captured via a boolean token. Synchronous events occurring at identical timestamps appear coterminously. Finally, timelines conclude with a discharge category token and a dedicated timeline-end token.
+
+An example sequence initialization:
 
 ![Example highlighted timeline](./img/example_tl.svg)
 

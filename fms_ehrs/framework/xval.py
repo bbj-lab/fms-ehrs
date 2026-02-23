@@ -30,7 +30,7 @@ import torch
 import torch.nn as nn
 from transformers import PreTrainedModel
 
-from fms_ehrs.framework.time2vec import Time2VecEmbedding
+
 from fms_ehrs.framework.vocabulary import Vocabulary
 
 
@@ -49,7 +49,7 @@ class XValModelWrapper(nn.Module):
     vocab:
         Vocabulary used for tokenization (must include "[NUM]" token).
     temporal:
-        "time_tokens" (no extra temporal embedding) or "time2vec" (add Time2Vec).
+        "time_tokens" (no extra temporal embedding) or "time_rope" (Time-Aware RoPE).
     clip_sigma:
         Clip normalized values to [-clip_sigma, clip_sigma].
     numeric_stats:
@@ -67,8 +67,8 @@ class XValModelWrapper(nn.Module):
         *,
         base_model: PreTrainedModel,
         vocab: Vocabulary,
-        temporal: typing.Literal["time_tokens", "time2vec"] = "time_tokens",
-        time2vec_dim: int = 64,
+        temporal: typing.Literal["time_tokens", "time_rope"] = "time_tokens",
+        time_rope_scaling: float = 60.0,
         clip_sigma: float = 5.0,
         numeric_stats: dict[str, dict[str, float]] | None = None,
         numeric_loss_weight: float = 1.0,
@@ -78,6 +78,7 @@ class XValModelWrapper(nn.Module):
         self.base_model = base_model
         self.vocab = vocab
         self.temporal = temporal
+        self.time_rope_scaling = time_rope_scaling
         self.clip_sigma = float(clip_sigma)
         self.numeric_loss_weight = float(numeric_loss_weight)
         self.numeric_loss_type = numeric_loss_type
@@ -89,13 +90,6 @@ class XValModelWrapper(nn.Module):
         hidden_size = base_model.config.hidden_size
         self.number_head = nn.Linear(hidden_size, 1)
 
-        # Optional Time2Vec layer (kept consistent with other Exp2 variants).
-        self.time2vec_layer: nn.Module | None = None
-        if temporal == "time2vec":
-            self.time2vec_layer = Time2VecEmbedding(
-                hidden_size=hidden_size,
-                time2vec_dim=time2vec_dim,
-            )
 
         # Build fast stats lookup by *token id of the code token*.
         vocab_size = len(vocab)
@@ -187,16 +181,21 @@ class XValModelWrapper(nn.Module):
         embeddings = self._embed_tokens(input_ids)
         embeddings = embeddings * scale.unsqueeze(-1).to(dtype=embeddings.dtype)
 
-        # Optional Time2Vec addition (orthogonal to xVal).
-        if self.temporal == "time2vec":
-            if relative_times is None:
-                raise ValueError("temporal='time2vec' requires `relative_times`.")
-            embeddings = self.time2vec_layer(embeddings, relative_times)
+        # Optional Time-Aware RoPE (pass position_ids to base model)
+        if self.temporal == "time_rope":
+             if relative_times is not None:
+                rt = relative_times.nan_to_num(0.0)
+                position_ids = (rt * self.time_rope_scaling).long()
+                kwargs["position_ids"] = position_ids
 
         # Ensure dtype matches base model dtype.
         base_dtype = getattr(self.base_model, "dtype", None) or next(self.base_model.parameters()).dtype
         if embeddings.dtype != base_dtype:
             embeddings = embeddings.to(dtype=base_dtype)
+
+        # Pop keys we hardcode below so callers can pass them without conflict.
+        kwargs.pop("output_hidden_states", None)
+        kwargs.pop("return_dict", None)
 
         outputs = self.base_model(
             inputs_embeds=embeddings,
@@ -207,13 +206,29 @@ class XValModelWrapper(nn.Module):
             **kwargs,
         )
 
-        # HF models return a ModelOutput with attribute access; our unit tests use a dict.
-        token_loss = outputs["loss"] if isinstance(outputs, dict) else outputs.loss
+        # HF ModelOutput uses attribute access; our unit tests use a dict.
+        # When labels=None, the model doesn't compute loss: attribute access
+        # returns None, but __getitem__ raises KeyError. Use safe access.
+        if isinstance(outputs, dict):
+            hidden_states = outputs["hidden_states"]
+            logits = outputs["logits"]
+            token_loss = outputs.get("loss", None)
+        else:
+            hidden_states = outputs.hidden_states
+            logits = outputs.logits
+            token_loss = getattr(outputs, "loss", None)
+
+        # Inference mode (labels=None): no loss computation, return hidden_states for extraction.
+        if token_loss is None:
+            return {
+                "logits": logits,
+                "hidden_states": hidden_states,
+            }
+
         numeric_loss = torch.tensor(0.0, device=token_loss.device, dtype=token_loss.dtype)
 
         num_mask_used = num_mask & has_stats
         if torch.any(num_mask_used):
-            hidden_states = outputs["hidden_states"] if isinstance(outputs, dict) else outputs.hidden_states
             hidden = hidden_states[-1]  # (batch, seq, hidden)
             pred = self.number_head(hidden).squeeze(-1)  # (batch, seq)
             target = norm_values.to(device=pred.device, dtype=pred.dtype)
@@ -235,7 +250,8 @@ class XValModelWrapper(nn.Module):
         # Trainer accepts dict-like outputs. We include numeric_loss for logging/debugging.
         return {
             "loss": total_loss,
-            "logits": outputs["logits"] if isinstance(outputs, dict) else outputs.logits,
+            "logits": logits,
+            "hidden_states": hidden_states,
             "token_loss": token_loss.detach(),
             "numeric_loss": numeric_loss.detach(),
         }
