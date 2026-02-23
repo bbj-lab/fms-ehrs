@@ -179,30 +179,34 @@ class BaseTokenizer:
     ) -> None:
         """store training quantile information in the self.vocab object"""
         designator = f"{prefix}_{c}" if prefix is not None else c
+        
+        # Filter finite values once
+        vv = v[np.isfinite(v)]
+        if vv.size == 0:
+            return
 
         # Always compute per-code robust stats from raw values (training split),
         # regardless of the quantizer/anchoring choice used for discretization.
         #
         # NOTE: we only compute these once per designator.
         if designator not in self.numeric_stats:
-            vv = v[np.isfinite(v)]
-            if vv.size > 0:
-                med = float(np.nanmedian(vv))
-                q25 = float(np.nanquantile(vv, 0.25))
-                q75 = float(np.nanquantile(vv, 0.75))
-                iqr = q75 - q25
-                # Robust std estimate (avoid div-by-zero downstream)
-                std = float(max(iqr / 1.35, 1e-8))
-                self.numeric_stats[designator] = {
-                    "median": med,
-                    "q25": q25,
-                    "q75": q75,
-                    "iqr": iqr,
-                    "std": std,
-                    "n": float(vv.size),
-                }
+            med = float(np.nanmedian(vv))
+            q25 = float(np.nanquantile(vv, 0.25))
+            q75 = float(np.nanquantile(vv, 0.75))
+            iqr = q75 - q25
+            # Robust std estimate (avoid div-by-zero downstream)
+            std = float(max(iqr / 1.35, 1e-8))
+            self.numeric_stats[designator] = {
+                "median": med,
+                "q25": q25,
+                "q75": q75,
+                "iqr": iqr,
+                "std": std,
+                "n": float(vv.size),
+            }
+        
         if not self.vocab.has_aux(designator) and self.vocab.is_training:
-            if self.detect_discrete and len(unq := np.unique(v[np.isfinite(v)])) < len(
+            if self.detect_discrete and len(unq := np.unique(vv)) < len(
                 self.q_tokens
             ):
                 self.vocab.set_aux(designator, unq.tolist())
@@ -220,7 +224,7 @@ class BaseTokenizer:
                 else:
                     self.vocab.set_aux(
                         designator,
-                        np.nanquantile(v, np.arange(0.05, 1.0, 0.05)).tolist(),
+                        np.quantile(vv, np.arange(0.05, 1.0, 0.05)).tolist(),
                     )
             elif self.quantizer == "trentiles":
                 if (
@@ -237,15 +241,15 @@ class BaseTokenizer:
                     # Standard trentile: 30 bins = 29 breakpoints
                     self.vocab.set_aux(
                         designator,
-                        np.nanquantile(v, np.arange(1/30, 1.0, 1/30)).tolist(),
+                        np.quantile(vv, np.arange(1/30, 1.0, 1/30)).tolist(),
                     )
             elif self.quantizer == "centiles":
                 self.vocab.set_aux(
-                    designator, np.nanquantile(v, np.arange(0.01, 1.0, 0.01)).tolist()
+                    designator, np.quantile(vv, np.arange(0.01, 1.0, 0.01)).tolist()
                 )
             elif self.quantizer == "deciles":
                 self.vocab.set_aux(
-                    designator, np.nanquantile(v, np.arange(0.1, 1.0, 0.1)).tolist()
+                    designator, np.quantile(vv, np.arange(0.1, 1.0, 0.1)).tolist()
                 )
 
     def save_numeric_stats(self, filepath: Pathlike) -> None:
@@ -546,7 +550,7 @@ class BaseTokenizer:
                     ),
                 )
             )
-            # Optional aligned padding for times / numeric values (used by Exp2 time2vec/encoders)
+            # Optional aligned padding for times / numeric values (used by Exp2 time_rope/encoders)
             if "times" in tokens_timelines.collect_schema().names():
                 tt_under = tt_under.with_columns(
                     padded_times=pl.concat_list(
@@ -665,14 +669,18 @@ def summarize(
         )
     )
 
+    # Explode tokens once and reuse for both top-k and type classification
+    exploded = (
+        tokens_timelines.select("tokens")
+        .explode("tokens")
+        .rename({"tokens": "token"})
+    )
+
     with pl.Config(tbl_rows=len(tokenizer.vocab)):
         post(
             "Top {k} tokens by usage: \n {out}".format(
                 k=k,
-                out=tokens_timelines.select("tokens")
-                .explode("tokens")
-                .rename({"tokens": "token"})
-                .join(tokenizer.vocab.get_frame(), on="token")
+                out=exploded.join(tokenizer.vocab.get_frame(), on="token")
                 .select("word")
                 .to_series()
                 .value_counts()
@@ -681,13 +689,21 @@ def summarize(
             )
         )
 
-    with pl.Config(tbl_rows=len(tokenizer.vocab)):
+    # Build a vectorized token-type lookup table (O(vocab_size) Python calls,
+    # not O(total_tokens)).  Then join to classify all tokens at once.
+    vocab_size = len(tokenizer.vocab)
+    type_lookup = pl.DataFrame(
+        {
+            "token": list(range(vocab_size)),
+            "token_type": [
+                tokenizer.get_token_type_from_int(i) for i in range(vocab_size)
+            ],
+        }
+    )
+    with pl.Config(tbl_rows=vocab_size):
         post(
-            tokens_timelines.select(
-                pl.col("tokens")
-                .explode()
-                .map_elements(tokenizer.get_token_type_from_int, return_dtype=pl.String)
-            )
+            exploded.join(type_lookup, on="token", how="left")
+            .select("token_type")
             .to_series()
             .value_counts()
             .sort(by="count", descending=True)

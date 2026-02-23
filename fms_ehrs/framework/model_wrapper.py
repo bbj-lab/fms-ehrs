@@ -5,25 +5,25 @@ Model wrapper for Experiment 2 representation mechanics.
 
 This module wraps a pretrained causal LM (e.g., LLaMA) to support different
 value representation methods (discrete, soft, xval) and temporal
-encoding strategies (time_tokens, time2vec).
+encoding strategies (time_tokens, time_rope).
 
 The wrapper intercepts the embedding layer and modifies embeddings based on:
 - Soft discretization: Replace quantile-token embeddings with convex combinations, and train quantile-token positions with a soft target
 - xVal: Handled by a separate wrapper (XValModelWrapper) that operates on [NUM] tokenization and adds a numeric head loss
-- Time2Vec: Add learned temporal embeddings based on relative time since admission
+- Time-Aware RoPE: Use relative timestamps as position IDs for rotary embeddings
 
 Architecture:
-    input_ids ──> Token Embedding ──> [Value Encoder] ──> [Time2Vec] ──> Transformer
+    input_ids ──> Token Embedding ──> [Value Encoder] ──> Transformer
                        │                    │                  │
                        v                    v                  v
-                  (batch, seq, d)     (modify numeric    (add temporal
-                                       positions)         embeddings)
+                  (batch, seq, d)     (modify numeric    (position_ids from
+                                       positions)         relative_times)
 
 References
 ----------
 - Soft discretization: ConSE (Norouzi et al., 2014)
 - Continuous encoding: xVal (Golkar et al., 2023) with EHR-specific adaptation
-- Time2Vec: Kazemi & Poupart (2019)
+- Time-Aware RoPE: position_ids derived from relative timestamps
 """
 
 import typing
@@ -34,7 +34,7 @@ import torch.nn.functional as F
 from transformers import PreTrainedModel
 
 from fms_ehrs.framework.soft_discretization import SoftDiscretizationEncoder
-from fms_ehrs.framework.time2vec import Time2VecEmbedding
+
 from fms_ehrs.framework.vocabulary import Vocabulary
 from fms_ehrs.framework.xval import XValModelWrapper
 
@@ -44,7 +44,7 @@ class RepresentationModelWrapper(nn.Module):
 
     This wrapper modifies the forward pass to:
     1. Apply soft discretization or continuous encoding to numeric token positions
-    2. Add Time2Vec temporal embeddings when enabled
+    2. Apply Time-Aware RoPE temporal encoding when enabled
 
     Parameters
     ----------
@@ -57,14 +57,14 @@ class RepresentationModelWrapper(nn.Module):
         - discrete: Standard token embeddings (baseline)
         - soft: Convex combinations of adjacent bin embeddings
         - xval: canonical xVal wrapper ([NUM] tokenization + multiplicative scaling + numeric head loss)
-    temporal : {"time_tokens", "time2vec"}
+    temporal : {"time_tokens", "time_rope"}
         Temporal encoding method:
         - time_tokens: Use existing time spacing tokens (baseline)
-        - time2vec: Add learned Time2Vec embeddings
+        - time_rope: Use relative timestamps as continuous position IDs for RoPE
     num_bins : int
         Number of quantile bins (for soft discretization)
-    time2vec_dim : int
-        Internal dimension for Time2Vec before projection
+    time_rope_scaling : float
+        Scaling factor for converting relative hours to position IDs
     """
 
     def __init__(
@@ -72,15 +72,17 @@ class RepresentationModelWrapper(nn.Module):
         base_model: PreTrainedModel,
         vocab: Vocabulary,
         representation: typing.Literal["discrete", "soft"] = "discrete",
-        temporal: typing.Literal["time_tokens", "time2vec"] = "time_tokens",
+        temporal: typing.Literal["time_tokens", "time_rope"] = "time_tokens",
         num_bins: int = 20,
-        time2vec_dim: int = 64,
+        time_rope_scaling: float = 60.0,
+        **kwargs,
     ):
         super().__init__()
         self.base_model = base_model
         self.vocab = vocab
         self.representation = representation
         self.temporal = temporal
+        self.time_rope_scaling = time_rope_scaling
 
         # Get model hidden size
         self.hidden_size = base_model.config.hidden_size
@@ -126,13 +128,7 @@ class RepresentationModelWrapper(nn.Module):
                 token_id_lookup=vocab.lookup,
                 vocab_size=len(vocab),
             )
-        # Initialize Time2Vec if needed
-        self.time2vec_layer: nn.Module | None = None
-        if temporal == "time2vec":
-            self.time2vec_layer = Time2VecEmbedding(
-                hidden_size=self.hidden_size,
-                time2vec_dim=time2vec_dim,
-            )
+
 
     def _build_quantile_token_lookup(self) -> None:
         """Build mapping from token IDs to code identifiers for numeric tokens.
@@ -169,7 +165,7 @@ class RepresentationModelWrapper(nn.Module):
             NaN indicates non-numeric positions.
         relative_times : torch.Tensor, optional
             Relative time in hours since admission, shape (batch_size, seq_len).
-            Required when temporal="time2vec".
+            Required when temporal="time_rope".
         labels : torch.Tensor, optional
             Labels for language modeling loss
 
@@ -200,13 +196,24 @@ class RepresentationModelWrapper(nn.Module):
                 embeddings, input_ids, numeric_values
             )
 
-        # Apply Time2Vec if enabled
-        if self.temporal == "time2vec" and relative_times is not None:
-            embeddings = self.time2vec_layer(embeddings, relative_times)
+
+        # Handle Time-Aware RoPE (pass position_ids to base model)
+        position_ids = None
+        if self.temporal == "time_rope" and relative_times is not None:
+            # Convert hours to integer steps (e.g. minutes)
+            # relative_times shape: (batch, seq)
+            # fill nan with 0 (usually padding or non-time tokens, though pad tokens are masked anyway)
+            rt = relative_times.nan_to_num(0.0)
+            position_ids = (rt * self.time_rope_scaling).long()
+            
+            # Ensure position_ids are within model limits if possible? 
+            # Or reliance on RoPE implementation handling large IDs.
+            # Usually we pass position_ids to the model forward.
+            kwargs["position_ids"] = position_ids
 
         # Ensure dtype matches the base model parameters.
         #
-        # Rationale: Time2Vec (and some value encoders) operate in float32 by default.
+        # Rationale: Some value encoders operate in float32 by default.
         # When token embeddings are bf16/fp16, adding float32 temporal embeddings will
         # upcast `embeddings` to float32. Passing float32 `inputs_embeds` into a bf16
         # transformer triggers a hard dtype mismatch in torch.nn.Linear:
@@ -462,8 +469,6 @@ class RepresentationModelWrapper(nn.Module):
         yield from self.base_model.parameters(recurse=recurse)
         if self.value_encoder is not None:
             yield from self.value_encoder.parameters(recurse=recurse)
-        if self.time2vec_layer is not None:
-            yield from self.time2vec_layer.parameters(recurse=recurse)
 
     def named_parameters(self, prefix: str = "", recurse: bool = True):
         """Return all named parameters."""
@@ -473,11 +478,6 @@ class RepresentationModelWrapper(nn.Module):
             yield from self.value_encoder.named_parameters(
                 prefix=encoder_prefix, recurse=recurse
             )
-        if self.time2vec_layer is not None:
-            time_prefix = f"{prefix}time2vec_layer." if prefix else "time2vec_layer."
-            yield from self.time2vec_layer.named_parameters(
-                prefix=time_prefix, recurse=recurse
-            )
 
     def state_dict(self, *args, **kwargs):
         """Return combined state dict."""
@@ -486,30 +486,29 @@ class RepresentationModelWrapper(nn.Module):
         if self.value_encoder is not None:
             for k, v in self.value_encoder.state_dict(*args, **kwargs).items():
                 state[f"value_encoder.{k}"] = v
-        if self.time2vec_layer is not None:
-            for k, v in self.time2vec_layer.state_dict(*args, **kwargs).items():
-                state[f"time2vec_layer.{k}"] = v
         return state
 
     def load_state_dict(self, state_dict, strict: bool = True):
         """Load combined state dict."""
         base_state = {}
         encoder_state = {}
-        time_state = {}
 
         for k, v in state_dict.items():
             if k.startswith("value_encoder."):
                 encoder_state[k[14:]] = v
-            elif k.startswith("time2vec_layer."):
-                time_state[k[15:]] = v
             else:
                 base_state[k] = v
 
-        self.base_model.load_state_dict(base_state, strict=strict)
+        result = self.base_model.load_state_dict(base_state, strict=strict)
         if self.value_encoder is not None and encoder_state:
-            self.value_encoder.load_state_dict(encoder_state, strict=strict)
-        if self.time2vec_layer is not None and time_state:
-            self.time2vec_layer.load_state_dict(time_state, strict=strict)
+            enc_result = self.value_encoder.load_state_dict(encoder_state, strict=strict)
+            if result is not None and enc_result is not None:
+                # Merge missing/unexpected keys from both sub-models
+                result = type(result)(
+                    missing_keys=result.missing_keys + [f"value_encoder.{k}" for k in enc_result.missing_keys],
+                    unexpected_keys=result.unexpected_keys + [f"value_encoder.{k}" for k in enc_result.unexpected_keys],
+                )
+        return result
 
 
 def create_representation_model(
@@ -551,7 +550,7 @@ def create_representation_model(
             base_model=base_model,
             vocab=vocab,
             temporal=temporal,
-            time2vec_dim=int(kwargs.get("time2vec_dim", 64)),
+            time_rope_scaling=float(kwargs.get("time_rope_scaling", 60.0)),
             clip_sigma=float(kwargs.get("clip_sigma", 5.0)),
             numeric_stats=kwargs.get("numeric_stats", None),
             numeric_loss_weight=float(kwargs.get("numeric_loss_weight", 1.0)),
@@ -595,7 +594,7 @@ if __name__ == "__main__":
         base_model=base_model,
         vocab=vocab,
         representation="soft",
-        temporal="time2vec",
+        temporal="time_rope",
         num_bins=20,
     )
 

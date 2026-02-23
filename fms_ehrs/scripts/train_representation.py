@@ -5,11 +5,11 @@ Unified training script for Experiment 2 representation mechanics.
 
 This script supports all 6 Exp2 configurations:
 - representation ∈ {discrete, soft, xval}
-- temporal ∈ {time_tokens, time2vec}
+- temporal ∈ {time_tokens, time_rope}
 
 The script uses padded collation (one hospitalization per row) to preserve
 per-admission temporal structure needed for:
-- Time2Vec: Requires relative time in hours since admission
+- Time-Aware RoPE: Requires relative time in hours since admission
 - Soft/xVal: Requires numeric_values aligned to token positions
 
 Usage:
@@ -20,19 +20,19 @@ Usage:
         --representation discrete \\
         --temporal time_tokens
 
-    # Soft discretization + Time2Vec
+    # Soft discretization + Time-Aware RoPE
     python train_representation.py \\
         --data_dir /path/to/data \\
         --model_dir /path/to/models \\
         --representation soft \\
-        --temporal time2vec
+        --temporal time_rope
 
-    # xVal + Time2Vec
+    # xVal + Time-Aware RoPE
     python train_representation.py \\
         --data_dir /path/to/data \\
         --model_dir /path/to/models \\
         --representation xval \\
-        --temporal time2vec
+        --temporal time_rope
 
 Note:
     Soft and xVal representations require unfused tokenization
@@ -110,7 +110,8 @@ class RepresentationDataCollator:
 
     For Exp2, we need to pass additional tensors beyond input_ids:
     - numeric_values: For soft discretization and xVal
-    - relative_times: For Time2Vec temporal encoding
+    - relative_times: For Time-Aware RoPE temporal encoding
+
     """
 
     def __init__(
@@ -203,9 +204,11 @@ def main(
     attn_implementation: str | None = _normalize_attn_impl(os.getenv("IRB_ATTN_IMPL", "sdpa")),
     # Representation parameters
     representation: typing.Literal["discrete", "soft", "xval"] = "discrete",
-    temporal: typing.Literal["time_tokens", "time2vec"] = "time_tokens",
+    temporal: typing.Literal["time_tokens", "time_rope"] = "time_tokens",
     num_bins: int = 20,
-    time2vec_dim: int = int(os.getenv("IRB_TIME2VEC_DIM", "128")),
+    # Time-Aware RoPE knob: scale factor to convert hours -> position IDs.
+    # Default 60.0 means 1 unit = 1 minute.
+    time_rope_scaling: float = float(os.getenv("IRB_TIME_ROPE_SCALING", "60.0")),
     # xVal canonical knob
     numeric_loss_weight: float = float(os.getenv("IRB_XVAL_NUMERIC_LOSS_WEIGHT", "1.0")),
     clip_sigma: float = float(os.getenv("IRB_XVAL_CLIP_SIGMA", "5.0")),
@@ -267,12 +270,10 @@ def main(
         Version tag for saved model
     representation : {"discrete", "soft", "xval"}
         Value representation method
-    temporal : {"time_tokens", "time2vec"}
+    temporal : {"time_tokens", "time_rope"}
         Temporal encoding method
     num_bins : int
         Number of quantile bins for soft discretization
-    time2vec_dim : int
-        Internal dimension for Time2Vec
     n_epochs : int
         Number of training epochs
     per_device_train_batch_size : int
@@ -315,13 +316,12 @@ def main(
             )
     if representation in ("soft", "xval") and temporal == "time_tokens":
         logger.warning(
-            f"Using {representation} representation with time_tokens temporal encoding. "
-            "This is valid but typically paired with time2vec for Exp2."
+            "This is valid but typically paired with time_rope for Exp2."
         )
 
     # Determine what additional data to load
     needs_numeric_values = representation in ("soft", "xval")
-    needs_times = temporal == "time2vec"
+    needs_times = temporal in ("time_rope",)
 
     if needs_numeric_values or needs_times:
         logger.info(
@@ -398,11 +398,11 @@ def main(
                 e,
             )
 
-    def _log_param_deltas(
+    def log_model_hyperparameters(
         model,
         *,
         selected_num_bins: int,
-        selected_time2vec_dim: int,
+        time_rope_scaling: float,
         selected_numeric_loss_weight: float,
     ):
         if isinstance(model, RepresentationModelWrapper):
@@ -412,35 +412,28 @@ def main(
                 if model.value_encoder is not None
                 else 0
             )
-            time_params = (
-                sum(p.numel() for p in model.time2vec_layer.parameters())
-                if model.time2vec_layer is not None
-                else 0
-            )
-            total_params = base_params + value_params + time_params
+            total_params = base_params + value_params
             logger.info(
-                "params: base=%s value=%s time=%s total=%s | knobs: num_bins=%s time2vec_dim=%s numeric_loss_weight=%s",
+                "params: base=%s value=%s total=%s | knobs: num_bins=%s time_rope=%s numeric_loss_weight=%s",
                 f"{base_params:,}",
                 f"{value_params:,}",
-                f"{time_params:,}",
                 f"{total_params:,}",
                 selected_num_bins,
-                selected_time2vec_dim,
+                time_rope_scaling,
                 selected_numeric_loss_weight,
             )
         else:
             total_params = sum(p.numel() for p in model.parameters())
             logger.info(
-                "params: base=%s | knobs: num_bins=%s time2vec_dim=%s numeric_loss_weight=%s",
+                "params: base=%s | knobs: bins=%s rope=%.1f w=%.1f",
                 f"{total_params:,}",
                 selected_num_bins,
-                selected_time2vec_dim,
+                time_rope_scaling,
                 selected_numeric_loss_weight,
             )
 
     def _build_model(
         selected_num_bins: int,
-        selected_time2vec_dim: int,
         selected_numeric_loss_weight: float,
     ):
         # Build model once (no HPO in Exp2/Exp3).
@@ -462,31 +455,23 @@ def main(
             representation=representation,
             temporal=temporal,
             num_bins=selected_num_bins,
-            time2vec_dim=selected_time2vec_dim,
             numeric_stats=numeric_stats if representation == "xval" else None,
             clip_sigma=float(clip_sigma),
+            time_rope_scaling=float(time_rope_scaling),
             numeric_loss_weight=selected_numeric_loss_weight,
         )
 
     final_num_bins = num_bins
-    final_time2vec_dim = time2vec_dim
     final_numeric_loss_weight = float(numeric_loss_weight)
 
-    model = _build_model(final_num_bins, final_time2vec_dim, final_numeric_loss_weight)
-    _log_param_deltas(
-        model,
-        selected_num_bins=final_num_bins,
-        selected_time2vec_dim=final_time2vec_dim,
-        selected_numeric_loss_weight=final_numeric_loss_weight,
-    )
+    model = _build_model(final_num_bins, final_numeric_loss_weight)
 
     n_params = sum(p.numel() for p in model.parameters())
     logger.info(f"Model initialized with {n_params:,} parameters")
     logger.info(f"Representation: {representation}, Temporal: {temporal}")
     logger.info(
-        "Representation knobs: num_bins=%s time2vec_dim=%s",
+        "Representation knobs: num_bins=%s",
         num_bins,
-        time2vec_dim,
     )
 
     # Create data collator
@@ -562,6 +547,13 @@ def main(
         betas=(float(adam_beta1), float(adam_beta2)),
         eps=float(adam_epsilon),
     )
+    log_model_hyperparameters(
+        model,
+        selected_num_bins=num_bins,
+        time_rope_scaling=time_rope_scaling,
+        selected_numeric_loss_weight=numeric_loss_weight,
+    )
+
     trainer = IRBTrainer(
         model=model,
         train_dataset=dataset.dataset["train"],
@@ -584,13 +576,14 @@ def main(
         final_model_path = output_dir / f"model-{representation}-{temporal}"
         final_model_path.mkdir(exist_ok=True, parents=True)
 
-        # IMPORTANT: for wrapper models (soft/time2vec), we must save:
+        # IMPORTANT: for wrapper models (soft/time_rope/xval), we must save:
         # 1) the underlying HF model in standard `save_pretrained` format (config + weights)
-        # 2) the representation-mechanics parameters (value encoder / time2vec) separately
+        # 2) the representation-mechanics parameters (value encoder) separately
         #
         # This allows downstream scripts (e.g., sequence classification) to reload the same
         # representation mechanics and apply them using numeric_values / relative_times.
-        if isinstance(model, RepresentationModelWrapper):
+        from fms_ehrs.framework.xval import XValModelWrapper
+        if isinstance(model, (RepresentationModelWrapper, XValModelWrapper)):
             # Save the wrapped HF model (config + weights)
             set_perms(model.base_model.save_pretrained)(str(final_model_path))
 
@@ -599,14 +592,16 @@ def main(
                 "representation": representation,
                 "temporal": temporal,
                 "num_bins": final_num_bins,
-                "time2vec_dim": final_time2vec_dim,
+                "time_rope_scaling": float(time_rope_scaling),
                 "value_encoder_state": (
-                    model.value_encoder.state_dict() if model.value_encoder is not None else None
-                ),
-                "time2vec_state": (
-                    model.time2vec_layer.state_dict() if model.time2vec_layer is not None else None
+                    model.value_encoder.state_dict() if hasattr(model, "value_encoder") and model.value_encoder is not None else None
                 ),
             }
+
+            # For xVal, also save the number_head weights
+            if isinstance(model, XValModelWrapper):
+                rep_state["number_head_state"] = model.number_head.state_dict()
+
             # NOTE: `set_perms` expects a saver with signature saver(file, *args),
             # but torch.save is torch.save(obj, file). Wrap to avoid arg order bugs.
             set_perms(lambda f, obj: t.save(obj, f))(

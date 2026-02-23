@@ -1,3 +1,5 @@
+> **Note:** This document describes the **original fms-ehrs CLIF-based development pipeline** (apptainer containerized, CLIF parquet format). For the Input Representation Benchmark (IRB) paper pipeline, see the `input-representation-benchmark` repository and its `PIPELINE.md`.
+
 ## Tokenization intro (internal)
 
 -   Our tokenizer operates on raw clif data that lives in parquet files. I've
