@@ -7,6 +7,9 @@ Key engineering choices:
 - Canonical xVal replaces each numeric value with a dedicated placeholder token
   (we use the literal token string "[NUM]") and encodes the magnitude by
   *multiplying* that placeholder embedding by a (preprocessed) scalar.
+- We additionally support an affine variant (review-driven): at [NUM] positions,
+  apply \\mathbf{e}_{NUM}(v) = z\\cdot\\mathbf{e}_{NUM} + \\mathbf{b}, which avoids
+  collapsing near-median values to (near) zero under zero-centered scaling.
 - Canonical xVal adds a separate *number head* trained with a regression loss
   on the numeric values at the "[NUM]" positions, in addition to the standard
   token cross-entropy loss.
@@ -60,6 +63,9 @@ class XValModelWrapper(nn.Module):
         Weight for numeric regression loss added to token loss.
     numeric_loss_type:
         "mse" (default). (NMSE support can be added when enabling multi-scale xVal.)
+    numeric_injection:
+        "mul" (canonical): \\mathbf{e}_{NUM}(v)=z\\cdot\\mathbf{e}_{NUM}.
+        "affine": \\mathbf{e}_{NUM}(v)=z\\cdot\\mathbf{e}_{NUM}+\\mathbf{b}.
     """
 
     def __init__(
@@ -73,6 +79,7 @@ class XValModelWrapper(nn.Module):
         numeric_stats: dict[str, dict[str, float]] | None = None,
         numeric_loss_weight: float = 1.0,
         numeric_loss_type: typing.Literal["mse"] = "mse",
+        numeric_injection: typing.Literal["mul", "affine"] = "mul",
     ) -> None:
         super().__init__()
         self.base_model = base_model
@@ -82,6 +89,12 @@ class XValModelWrapper(nn.Module):
         self.clip_sigma = float(clip_sigma)
         self.numeric_loss_weight = float(numeric_loss_weight)
         self.numeric_loss_type = numeric_loss_type
+        self.numeric_injection = numeric_injection
+
+        if self.numeric_injection not in ("mul", "affine"):
+            raise ValueError(
+                f"Unsupported numeric_injection={self.numeric_injection!r}; expected 'mul' or 'affine'."
+            )
 
         if "[NUM]" not in self.vocab.lookup:
             raise ValueError('Vocabulary does not contain required token "[NUM]".')
@@ -89,6 +102,13 @@ class XValModelWrapper(nn.Module):
 
         hidden_size = base_model.config.hidden_size
         self.number_head = nn.Linear(hidden_size, 1)
+
+        # Optional affine bias (only when enabled to avoid unused parameters in canonical runs).
+        if self.numeric_injection == "affine":
+            self.num_bias = nn.Parameter(torch.empty(hidden_size))
+            nn.init.normal_(self.num_bias, mean=0.0, std=0.02)
+        else:
+            self.num_bias = None
 
 
         # Build fast stats lookup by *token id of the code token*.
@@ -180,6 +200,16 @@ class XValModelWrapper(nn.Module):
         # Embed tokens and apply xVal scaling at [NUM] positions.
         embeddings = self._embed_tokens(input_ids)
         embeddings = embeddings * scale.unsqueeze(-1).to(dtype=embeddings.dtype)
+
+        if self.numeric_injection == "affine":
+            if self.num_bias is None:
+                raise RuntimeError("numeric_injection='affine' requires num_bias to be initialized.")
+            # Apply affine shift only at [NUM] positions with per-code stats.
+            mask = (num_mask & has_stats).unsqueeze(-1)  # (B, S, 1)
+            bias = self.num_bias.to(device=embeddings.device, dtype=embeddings.dtype).view(1, 1, -1)
+            embeddings = embeddings + mask.to(dtype=embeddings.dtype) * bias
+        elif self.numeric_injection != "mul":
+            raise ValueError(f"Unsupported numeric_injection: {self.numeric_injection}")
 
         # Optional Time-Aware RoPE (pass position_ids to base model)
         if self.temporal == "time_rope":

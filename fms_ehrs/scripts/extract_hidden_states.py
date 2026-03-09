@@ -65,7 +65,8 @@ def _infer_representation_from_path(model_loc: pathlib.Path) -> tuple[str, str]:
         return "discrete", "time_tokens"
     remainder = parts[1]  # "xval-time_rope"
     # Split representation from temporal
-    for rep in ("soft", "xval", "discrete"):
+    # IMPORTANT: order matters (e.g., "xval_affine" must match before "xval").
+    for rep in ("xval_affine", "soft", "xval", "discrete"):
         if remainder.startswith(rep):
             rest = remainder[len(rep):]
             if rest.startswith("-"):
@@ -122,7 +123,7 @@ def main(
         representation, temporal = _infer_representation_from_path(model_loc)
 
     needs_wrapper = not (representation == "discrete" and temporal == "time_tokens")
-    needs_numeric = representation in ("soft", "xval")
+    needs_numeric = representation in ("soft", "xval", "xval_affine")
     needs_times = temporal == "time_rope"
 
     if needs_wrapper:
@@ -154,7 +155,7 @@ def main(
             "Falling back to bare model extraction (numeric encoding will be skipped)."
         )
         needs_numeric = False
-        if representation in ("soft", "xval") and not needs_times:
+        if representation in ("soft", "xval", "xval_affine") and not needs_times:
             needs_wrapper = False
 
     if needs_times and not (has_times or has_padded_times):
@@ -258,7 +259,7 @@ def main(
             wrapper_kwargs["time_rope_scaling"] = rep_meta.get("time_rope_scaling", 60.0)
 
         # Load numeric_stats for xVal if available
-        if representation == "xval":
+        if representation in ("xval", "xval_affine"):
             stats_path = data_dir / f"{data_version}-tokenized" / "train" / "numeric_stats.json"
             if stats_path.exists():
                 try:
@@ -284,7 +285,7 @@ def main(
                 logger.info("Loaded value_encoder weights from representation_mechanics.pt")
 
         # Load xVal number_head weights
-        if representation == "xval":
+        if representation in ("xval", "xval_affine"):
             from fms_ehrs.framework.xval import XValModelWrapper
             if isinstance(model, XValModelWrapper):
                 # Try representation_mechanics.pt first (new format)
