@@ -51,6 +51,7 @@ import torch as t
 from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
+    LlamaConfig,
     Trainer,
     TrainerCallback,
     TrainingArguments,
@@ -203,7 +204,7 @@ def main(
     use_bf16: bool = _parse_bool(os.getenv("IRB_USE_BF16", "true"), default=True),
     attn_implementation: str | None = _normalize_attn_impl(os.getenv("IRB_ATTN_IMPL", "sdpa")),
     # Representation parameters
-    representation: typing.Literal["discrete", "soft", "xval"] = "discrete",
+    representation: typing.Literal["discrete", "soft", "xval", "xval_affine"] = "discrete",
     temporal: typing.Literal["time_tokens", "time_rope"] = "time_tokens",
     num_bins: int = 20,
     # Time-Aware RoPE knob: scale factor to convert hours -> position IDs.
@@ -314,13 +315,13 @@ def main(
                 "attn_implementation=flash_attention_2 requires the optional `flash-attn` package "
                 "(and a compatible GPU/CUDA build)."
             )
-    if representation in ("soft", "xval") and temporal == "time_tokens":
+    if representation in ("soft", "xval", "xval_affine") and temporal == "time_tokens":
         logger.warning(
             "This is valid but typically paired with time_rope for Exp2."
         )
 
     # Determine what additional data to load
-    needs_numeric_values = representation in ("soft", "xval")
+    needs_numeric_values = representation in ("soft", "xval", "xval_affine")
     needs_times = temporal in ("time_rope",)
 
     if needs_numeric_values or needs_times:
@@ -440,14 +441,38 @@ def main(
         cfg_kwargs = dict(model_kwargs)
         if attn_implementation is not None:
             cfg_kwargs["attn_implementation"] = attn_implementation
-        config = AutoConfig.from_pretrained(
-            model_name,
-            vocab_size=len(dataset.vocab),
-            bos_token_id=dataset.vocab("TL_START"),
-            eos_token_id=dataset.vocab("TL_END"),
-            pad_token_id=dataset.vocab("PAD"),
-            **cfg_kwargs,
-        )
+        try:
+            config = AutoConfig.from_pretrained(
+                model_name,
+                vocab_size=len(dataset.vocab),
+                bos_token_id=dataset.vocab("TL_START"),
+                eos_token_id=dataset.vocab("TL_END"),
+                pad_token_id=dataset.vocab("PAD"),
+                **cfg_kwargs,
+            )
+        except OSError as e:
+            # We train from scratch (weights are randomly initialized), and only need a
+            # base Transformer config. Some base-model repos (e.g., Meta Llama) are gated
+            # and require authentication even to fetch config.json. When that happens,
+            # fall back to a local LlamaConfig with the same hyperparameters.
+            msg = str(e).lower()
+            is_gated = ("gated repo" in msg) or ("401 client error" in msg) or ("access to model" in msg)
+            is_llama = "llama" in str(model_name).lower()
+            if not (is_gated and is_llama):
+                raise
+            logger.warning(
+                "AutoConfig.from_pretrained(%r) failed due to gated/unauthenticated access. "
+                "Falling back to local LlamaConfig (random init; config-only). "
+                "To use the upstream config, authenticate with HuggingFace and ensure you have access.",
+                model_name,
+            )
+            config = LlamaConfig(
+                vocab_size=len(dataset.vocab),
+                bos_token_id=dataset.vocab("TL_START"),
+                eos_token_id=dataset.vocab("TL_END"),
+                pad_token_id=dataset.vocab("PAD"),
+                **cfg_kwargs,
+            )
         base_model = AutoModelForCausalLM.from_config(config)
         return create_representation_model(
             base_model=base_model,
@@ -455,7 +480,7 @@ def main(
             representation=representation,
             temporal=temporal,
             num_bins=selected_num_bins,
-            numeric_stats=numeric_stats if representation == "xval" else None,
+            numeric_stats=numeric_stats if representation in ("xval", "xval_affine") else None,
             clip_sigma=float(clip_sigma),
             time_rope_scaling=float(time_rope_scaling),
             numeric_loss_weight=selected_numeric_loss_weight,
@@ -489,7 +514,7 @@ def main(
     # use the value-encoder parameters. In DDP, this requires find_unused_parameters,
     # otherwise PyTorch raises:
     #   RuntimeError: Expected to have finished reduction ... parameters not used ...
-    ddp_find_unused = representation in ("soft", "xval")
+    ddp_find_unused = representation in ("soft", "xval", "xval_affine")
     use_bf16 = bool(use_bf16) and t.cuda.is_available()
 
     training_args = TrainingArguments(

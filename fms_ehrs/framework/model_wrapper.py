@@ -9,7 +9,9 @@ encoding strategies (time_tokens, time_rope).
 
 The wrapper intercepts the embedding layer and modifies embeddings based on:
 - Soft discretization: Replace quantile-token embeddings with convex combinations, and train quantile-token positions with a soft target
-- xVal: Handled by a separate wrapper (XValModelWrapper) that operates on [NUM] tokenization and adds a numeric head loss
+- xVal: Handled by a separate wrapper (XValModelWrapper) that operates on [NUM] tokenization and adds a numeric head loss.
+  We support both canonical multiplicative xVal ("xval") and an affine-shifted
+  variant ("xval_affine") that avoids zeroing near-median values.
 - Time-Aware RoPE: Use relative timestamps as position IDs for rotary embeddings
 
 Architecture:
@@ -52,11 +54,12 @@ class RepresentationModelWrapper(nn.Module):
         The base transformer model (e.g., LLaMA)
     vocab : Vocabulary
         Tokenizer vocabulary with quantile auxiliary data
-    representation : {"discrete", "soft", "xval"}
+    representation : {"discrete", "soft", "xval", "xval_affine"}
         Value representation method:
         - discrete: Standard token embeddings (baseline)
         - soft: Convex combinations of adjacent bin embeddings
         - xval: canonical xVal wrapper ([NUM] tokenization + multiplicative scaling + numeric head loss)
+        - xval_affine: xVal with affine numeric injection (z*e + b)
     temporal : {"time_tokens", "time_rope"}
         Temporal encoding method:
         - time_tokens: Use existing time spacing tokens (baseline)
@@ -544,8 +547,9 @@ def create_representation_model(
         # No modifications needed - return base model
         return base_model
 
-    if representation == "xval":
-        # Canonical xVal wrapper (requires [NUM] tokenization + numeric_values).
+    if representation in ("xval", "xval_affine"):
+        # xVal wrapper (requires [NUM] tokenization + numeric_values).
+        numeric_injection = "mul" if representation == "xval" else "affine"
         return XValModelWrapper(
             base_model=base_model,
             vocab=vocab,
@@ -554,6 +558,7 @@ def create_representation_model(
             clip_sigma=float(kwargs.get("clip_sigma", 5.0)),
             numeric_stats=kwargs.get("numeric_stats", None),
             numeric_loss_weight=float(kwargs.get("numeric_loss_weight", 1.0)),
+            numeric_injection=numeric_injection,
         )
 
     return RepresentationModelWrapper(
