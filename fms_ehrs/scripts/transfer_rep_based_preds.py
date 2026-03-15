@@ -259,12 +259,12 @@ for v in versions:
         features[v][s] = np.load(
             data_dirs[v][s].joinpath("features-{m}.npy".format(m=model_loc.stem))
         )
+        outcomes_scan = pl.scan_parquet(data_dirs[v][s].joinpath(outcomes_parquet))
+        outcomes_schema = outcomes_scan.collect_schema()
         for outcome in outcomes:
             raw_labels = (
-                pl.scan_parquet(
-                    data_dirs[v][s].joinpath(outcomes_parquet)
-                )
-                .select(outcome)
+                outcomes_scan
+                .select(pl.col(outcome).cast(pl.Float64))
                 .collect()
                 .to_numpy()
                 .ravel()
@@ -275,20 +275,19 @@ for v in versions:
                 # For regression: valid = non-NaN values (some admissions may lack the target)
                 qualifiers[outcome][v][s] = np.isfinite(raw_labels)
             else:
-                qualifiers[outcome][v][s] = (
-                    (
-                        ~pl.scan_parquet(
-                            data_dirs[v][s].joinpath(outcomes_parquet)
-                        )
-                        .select(outcome + "_24h")
+                qualifiers[outcome][v][s] = np.isfinite(raw_labels)
+                # Exclude admissions that already met the outcome during the first 24h
+                # whenever a parallel <outcome>_24h column exists in the outcomes parquet.
+                outcome_24h = outcome + "_24h"
+                if outcome_24h in outcomes_schema:
+                    qualifiers[outcome][v][s] &= ~(
+                        outcomes_scan
+                        .select(pl.col(outcome_24h).fill_null(False))
                         .collect()
                         .to_numpy()
                         .ravel()
                         .astype(bool)
-                    )  # *not* people who have had this outcome in the first 24h
-                    if outcome in ("icu_admission", "imv_event")
-                    else np.ones(len(raw_labels), dtype=bool)
-                )
+                    )
 
 
 preds = collections.defaultdict(dict)
