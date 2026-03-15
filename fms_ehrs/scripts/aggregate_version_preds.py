@@ -277,10 +277,28 @@ def _derive_pred_paths(
     classifier: str,
     model_loc: pathlib.Path,
 ) -> list[pathlib.Path]:
-    return [
-        data_dir.joinpath(f"{dv}-tokenized", "test", f"{classifier}-preds-{model_loc.stem}.pkl")
-        for dv in data_versions
-    ]
+    paths: list[pathlib.Path] = []
+    for dv in data_versions:
+        test_dir = data_dir.joinpath(f"{dv}-tokenized", "test")
+        legacy = test_dir.joinpath(f"{classifier}-preds-{model_loc.stem}.pkl")
+        if legacy.exists():
+            paths.append(legacy)
+            continue
+        tagged = sorted(test_dir.glob(f"{classifier}-preds-*-{model_loc.stem}.pkl"))
+        if len(tagged) == 1:
+            paths.append(tagged[0])
+            continue
+        if len(tagged) == 0:
+            raise FileNotFoundError(
+                f"No prediction pickle found for data_version={dv!r}, classifier={classifier!r}, "
+                f"model={model_loc.stem!r} under {test_dir}. "
+                "Provide --pred_paths explicitly if you are using a nonstandard layout."
+            )
+        raise ValueError(
+            f"Multiple tagged prediction pickles match data_version={dv!r}, classifier={classifier!r}, "
+            f"model={model_loc.stem!r} under {test_dir}. Provide --pred_paths explicitly."
+        )
+    return paths
 
 
 def _load_named_results(
@@ -370,6 +388,17 @@ def main() -> int:
         handles = list(args.handles)
         if len(handles) != len(pred_paths):
             raise ValueError("--handles must match the number of derived prediction paths.")
+
+    paired_inputs = list(zip(handles, pred_paths))
+    if args.baseline_handle is not None:
+        baseline = str(args.baseline_handle)
+        if baseline not in handles:
+            raise ValueError(f"--baseline_handle={baseline!r} is not present in --handles.")
+        paired_inputs = [pair for pair in paired_inputs if pair[0] == baseline] + [
+            pair for pair in paired_inputs if pair[0] != baseline
+        ]
+    handles = [h for h, _ in paired_inputs]
+    pred_paths = [p for _, p in paired_inputs]
 
     named_results = _load_named_results(pred_paths=pred_paths, handles=handles)
     outcomes = list(args.outcomes) if args.outcomes else _available_outcomes(named_results)
