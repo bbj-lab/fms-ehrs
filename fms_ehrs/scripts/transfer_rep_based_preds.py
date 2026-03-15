@@ -13,6 +13,7 @@ import argparse
 import collections
 import pathlib
 import pickle
+import re
 import typing
 
 import lightgbm as lgb
@@ -70,6 +71,10 @@ def _ece(y_true: np.ndarray, y_prob: np.ndarray, *, n_bins: int = 15) -> float:
         ece += weight * abs(acc - conf)
         
     return float(ece)
+
+
+def _sanitize_preds_tag(s: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", s.strip()).strip("-")
 
 
 def _choose_threshold(
@@ -166,6 +171,12 @@ parser.add_argument(
     type=str,
     default="tokens_timelines_outcomes.parquet",
     help="Parquet filename containing outcome labels (default: tokens_timelines_outcomes.parquet).",
+)
+parser.add_argument(
+    "--preds_tag",
+    type=str,
+    default="",
+    help="Optional tag to encode the outcome family / label source in saved prediction filenames.",
 )
 parser.add_argument(
     "--tune_logreg_C",
@@ -302,6 +313,20 @@ for outcome in outcomes:
     yval = (labels[outcome]["orig"]["val"])[qualifiers[outcome]["orig"]["val"]]
 
     logger.info(f"train: {Xtrain.shape[0]}, val: {Xval.shape[0]}")
+    if Xtrain.shape[0] == 0 or Xval.shape[0] == 0 or ytrain.size == 0 or yval.size == 0:
+        logger.info(
+            f"SKIPPING {outcome}: empty qualifying train/val set "
+            f"(train={Xtrain.shape[0]}, val={Xval.shape[0]})."
+        )
+        skipped_outcomes.add(outcome)
+        continue
+    if any(qualifiers[outcome][v]["test"].sum() == 0 for v in versions):
+        logger.info(
+            f"SKIPPING {outcome}: empty qualifying test set for at least one version "
+            f"(orig={qualifiers[outcome]['orig']['test'].sum()}, new={qualifiers[outcome]['new']['test'].sum()})."
+        )
+        skipped_outcomes.add(outcome)
+        continue
 
     # Guard: skip outcomes where training or val data has fewer than 2 classes
     # (e.g., icu_admission in ICU-only cohorts where all patients are positive).
@@ -613,10 +638,18 @@ if args.save_preds:
         prefix = args.classifier
         if is_regression:
             prefix = f"reg_{prefix}"
+        filename = prefix + "-preds-" + model_loc.stem + ".pkl"
+        if args.preds_tag.strip():
+            filename = (
+                prefix
+                + "-preds-"
+                + _sanitize_preds_tag(args.preds_tag)
+                + "-"
+                + model_loc.stem
+                + ".pkl"
+            )
         with open(
-            data_dirs[v]["test"].joinpath(
-                prefix + "-preds-" + model_loc.stem + ".pkl"
-            ),
+            data_dirs[v]["test"].joinpath(filename),
             "wb",
         ) as fp:
             pickle.dump(
@@ -631,6 +664,9 @@ if args.save_preds:
                     "metadata": {
                         "classifier": args.classifier,
                         "task_type": args.task_type,
+                        "preds_tag": args.preds_tag,
+                        "outcomes_parquet": args.outcomes_parquet,
+                        "outcomes": list(outcomes),
                         "tune_logreg_C": bool(args.tune_logreg_C),
                         "logreg_C_grid": _parse_float_list(args.logreg_C_grid),
                         "threshold_strategy": args.threshold_strategy,
