@@ -72,7 +72,7 @@ class BaseTokenizer:
         elif quantizer == "trentiles":
             self.q_tokens = tuple(map(lambda i: f"Q{i}", range(30)))
         if self.numeric_encoding == "xval":
-            # Canonical xVal uses a single number placeholder token instead of quantile tokens.
+            # Standard xVal uses a single number placeholder token instead of quantile tokens.
             self.q_tokens = tuple()
         # Special tokens.
         #
@@ -395,7 +395,7 @@ class BaseTokenizer:
         else:
             self.set_quants(v=v, c=c, prefix=prefix)
         if self.numeric_encoding == "xval":
-            # Canonical xVal tokenization:
+            # Standard xVal tokenization:
             # emit [code_token, [NUM]] and align raw numeric value to [NUM].
             #   tokens: [code_token, num_token] -> numeric_values: [null, value]
             if self.fused_category_values:

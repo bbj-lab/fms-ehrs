@@ -127,6 +127,10 @@ class RepresentationDataCollator:
 
     def __call__(self, features: list[dict]) -> dict:
         """Collate batch of features."""
+        labels = t.stack([f["input_ids"] for f in features])
+        labels = labels.clone()
+        labels[labels == self.pad_token_id] = -100
+
         batch = {
             "input_ids": t.stack([f["input_ids"] for f in features]),
             "attention_mask": t.stack(
@@ -135,7 +139,7 @@ class RepresentationDataCollator:
                     for f in features
                 ]
             ),
-            "labels": t.stack([f["input_ids"] for f in features]),
+            "labels": labels,
         }
 
         if self.include_numeric_values and "numeric_values" in features[0]:
@@ -210,7 +214,7 @@ def main(
     # Time-Aware RoPE knob: scale factor to convert hours -> position IDs.
     # Default 60.0 means 1 unit = 1 minute.
     time_rope_scaling: float = float(os.getenv("IRB_TIME_ROPE_SCALING", "60.0")),
-    # xVal canonical knob
+    # xVal tuning knob
     numeric_loss_weight: float = float(os.getenv("IRB_XVAL_NUMERIC_LOSS_WEIGHT", "1.0")),
     clip_sigma: float = float(os.getenv("IRB_XVAL_CLIP_SIGMA", "5.0")),
     # Training parameters

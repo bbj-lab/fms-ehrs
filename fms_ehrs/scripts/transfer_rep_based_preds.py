@@ -162,7 +162,7 @@ parser.add_argument(
     default=None,
     help=(
         "Optional explicit list of outcome columns to evaluate (space-separated). "
-        "If not provided, defaults to the canonical fms-ehrs set. "
+        "If not provided, defaults to the standard fms-ehrs set. "
         "This is useful for experiment-specific task sets (e.g., Exp3 H_ICU cohort: LOS>=24h + linked ICU stay)."
     ),
 )

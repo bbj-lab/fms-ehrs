@@ -10,7 +10,7 @@ encoding strategies (time_tokens, time_rope).
 The wrapper intercepts the embedding layer and modifies embeddings based on:
 - Soft discretization: Replace quantile-token embeddings with convex combinations, and train quantile-token positions with a soft target
 - xVal: Handled by a separate wrapper (XValModelWrapper) that operates on [NUM] tokenization and adds a numeric head loss.
-  We support both canonical multiplicative xVal ("xval") and an affine-shifted
+  We support both standard multiplicative xVal ("xval") and an affine-shifted
   variant ("xval_affine") that avoids zeroing near-median values.
 - Time-Aware RoPE: Use relative timestamps as position IDs for rotary embeddings
 
@@ -58,7 +58,7 @@ class RepresentationModelWrapper(nn.Module):
         Value representation method:
         - discrete: Standard token embeddings (baseline)
         - soft: Convex combinations of adjacent bin embeddings
-        - xval: canonical xVal wrapper ([NUM] tokenization + multiplicative scaling + numeric head loss)
+        - xval: standard xVal wrapper ([NUM] tokenization + multiplicative scaling + numeric head loss)
         - xval_affine: xVal with affine numeric injection (z*e + b)
     temporal : {"time_tokens", "time_rope"}
         Temporal encoding method:

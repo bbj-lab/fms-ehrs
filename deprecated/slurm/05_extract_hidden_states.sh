@@ -3,7 +3,7 @@
 #SBATCH --job-name=x-all-layers
 #SBATCH --output=./output/%j-%x.stdout
 #SBATCH --partition=gpuq
-#SBATCH --gres=gpu:2
+#SBATCH --gres=gpu:1
 #SBATCH --time=1-00:00:00
 #SBATCH --array=0-9
 
@@ -33,7 +33,9 @@ models=(
     "mdl-llama1b-57928921-run1-58165531-clsfr-imv_event"
 )
 
-torchrun --nproc_per_node=2 \
+# Extraction writes a single feature array per split, so keep this launcher
+# single-process unless the Python entrypoint grows explicit sharding/gathering.
+torchrun --nproc_per_node=1 \
     --rdzv_backend c10d \
     --rdzv-id "${SLURM_ARRAY_TASK_ID:-0}" \
     --rdzv-endpoint=localhost:0 \

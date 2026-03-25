@@ -23,7 +23,7 @@
           ```
 
     Each of these tables corresponds to the the CLIF-2.0.0 schema --
-    ![](./img/clif-tables.png)
+    ![](../img/clif-tables.png)
 
 -   The first thing we do to this data is create a train/val/test split. On
     randi, we can run

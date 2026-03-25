@@ -1,0 +1,53 @@
+{
+  "scripts": [
+    {
+      "script": "fms_ehrs/scripts/aggregate_version_preds.py",
+      "dryrun": "fms_ehrs/tests/dryrun/run_fms_ehrs__scripts__aggregate_version_preds.sh",
+      "mode": "execute",
+      "args": [
+        "--help"
+      ]
+    },
+    {
+      "script": "fms_ehrs/scripts/eval_token_ce.py",
+      "dryrun": "fms_ehrs/tests/dryrun/run_fms_ehrs__scripts__eval_token_ce.sh",
+      "mode": "compile",
+      "args": []
+    },
+    {
+      "script": "fms_ehrs/scripts/extract_hidden_states.py",
+      "dryrun": "fms_ehrs/tests/dryrun/run_fms_ehrs__scripts__extract_hidden_states.sh",
+      "mode": "compile",
+      "args": []
+    },
+    {
+      "script": "fms_ehrs/scripts/tokenize_w_config.py",
+      "dryrun": "fms_ehrs/tests/dryrun/run_fms_ehrs__scripts__tokenize_w_config.sh",
+      "mode": "execute",
+      "args": [
+        "--help"
+      ]
+    },
+    {
+      "script": "fms_ehrs/scripts/train_representation.py",
+      "dryrun": "fms_ehrs/tests/dryrun/run_fms_ehrs__scripts__train_representation.sh",
+      "mode": "compile",
+      "args": []
+    },
+    {
+      "script": "fms_ehrs/scripts/transfer_rep_based_preds.py",
+      "dryrun": "fms_ehrs/tests/dryrun/run_fms_ehrs__scripts__transfer_rep_based_preds.sh",
+      "mode": "execute",
+      "args": [
+        "--help"
+      ]
+    },
+    {
+      "script": "fms_ehrs/scripts/tune_model.py",
+      "dryrun": "fms_ehrs/tests/dryrun/run_fms_ehrs__scripts__tune_model.sh",
+      "mode": "compile",
+      "args": []
+    }
+  ],
+  "notes": "Dry-run wrappers default to compile-only mode. Set FMS_DRYRUN_EXECUTE_MODE=1 to run execute-mode wrappers where configured."
+}

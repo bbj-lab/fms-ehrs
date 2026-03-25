@@ -4,13 +4,13 @@
 xVal implementation (Golkar et al., 2023) adapted to EHR sequences.
 
 Key engineering choices:
-- Canonical xVal replaces each numeric value with a dedicated placeholder token
+- Standard xVal replaces each numeric value with a dedicated placeholder token
   (we use the literal token string "[NUM]") and encodes the magnitude by
   *multiplying* that placeholder embedding by a (preprocessed) scalar.
 - We additionally support an affine variant (review-driven): at [NUM] positions,
   apply \\mathbf{e}_{NUM}(v) = z\\cdot\\mathbf{e}_{NUM} + \\mathbf{b}, which avoids
   collapsing near-median values to (near) zero under zero-centered scaling.
-- Canonical xVal adds a separate *number head* trained with a regression loss
+- Standard xVal adds a separate *number head* trained with a regression loss
   on the numeric values at the "[NUM]" positions, in addition to the standard
   token cross-entropy loss.
 
@@ -38,7 +38,7 @@ from fms_ehrs.framework.vocabulary import Vocabulary
 
 
 class XValModelWrapper(nn.Module):
-    """Wrap a causal LM with canonical xVal numeric encoding.
+    """Wrap a causal LM with standard xVal numeric encoding.
 
     Expected tokenization (unfused):
       ... CODE_TOKEN, [NUM], ...
@@ -64,7 +64,7 @@ class XValModelWrapper(nn.Module):
     numeric_loss_type:
         "mse" (default). (NMSE support can be added when enabling multi-scale xVal.)
     numeric_injection:
-        "mul" (canonical): \\mathbf{e}_{NUM}(v)=z\\cdot\\mathbf{e}_{NUM}.
+        "mul" (standard): \\mathbf{e}_{NUM}(v)=z\\cdot\\mathbf{e}_{NUM}.
         "affine": \\mathbf{e}_{NUM}(v)=z\\cdot\\mathbf{e}_{NUM}+\\mathbf{b}.
     """
 
@@ -103,7 +103,7 @@ class XValModelWrapper(nn.Module):
         hidden_size = base_model.config.hidden_size
         self.number_head = nn.Linear(hidden_size, 1)
 
-        # Optional affine bias (only when enabled to avoid unused parameters in canonical runs).
+        # Optional affine bias (only when enabled to avoid unused parameters in standard runs).
         if self.numeric_injection == "affine":
             self.num_bias = nn.Parameter(torch.empty(hidden_size))
             nn.init.normal_(self.num_bias, mean=0.0, std=0.02)

@@ -14,7 +14,6 @@ import pathlib
 import fire as fi
 import numpy as np
 import torch as t
-import torch.distributed as dist
 from datasets import load_dataset
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM
@@ -92,14 +91,21 @@ def main(
         lambda d: pathlib.Path(d).expanduser().resolve(), (data_dir, model_loc)
     )
 
-    # prepare parallelism
-    is_parallel = t.cuda.device_count() > 1
-    if is_parallel:
-        dist.init_process_group(backend="nccl")
-        rank = dist.get_rank()
-    else:
-        rank = 0
-    device = t.device(f"cuda:{rank}")
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    if world_size != 1:
+        raise ValueError(
+            "extract_hidden_states.py currently writes one feature array per split and "
+            "does not support multi-process extraction. Launch it with a single process "
+            "(for example, torchrun --nproc_per_node=1)."
+        )
+    if not t.cuda.is_available():
+        raise RuntimeError("extract_hidden_states.py requires a CUDA-visible GPU.")
+    if local_rank >= t.cuda.device_count():
+        raise ValueError(
+            f"LOCAL_RANK={local_rank} but only {t.cuda.device_count()} CUDA device(s) are visible."
+        )
+    device = t.device(f"cuda:{local_rank}")
     t.cuda.set_device(device)
 
     # load and prep data
@@ -150,22 +156,16 @@ def main(
     has_padded_times = "padded_times" in col_names
 
     if needs_numeric and not (has_numeric_values or has_padded_numeric):
-        logger.warning(
-            "Wrapper model needs numeric_values but parquet lacks the column. "
-            "Falling back to bare model extraction (numeric encoding will be skipped)."
+        raise ValueError(
+            "Wrapper model needs numeric_values but the tokenized parquet lacks that column. "
+            "Re-run Stage 0 with numeric values preserved for this representation."
         )
-        needs_numeric = False
-        if representation in ("soft", "xval", "xval_affine") and not needs_times:
-            needs_wrapper = False
 
     if needs_times and not (has_times or has_padded_times):
-        logger.warning(
-            "Wrapper model uses time_rope but parquet lacks times column. "
-            "Falling back to sequential position_ids."
+        raise ValueError(
+            "Wrapper model uses time_rope but the tokenized parquet lacks times columns. "
+            "Re-run Stage 0 with relative-time inputs preserved for this representation."
         )
-        needs_times = False
-        if not needs_numeric:
-            needs_wrapper = False
 
     def process_batch(batch):
         """Map batch to include input_ids and optional numeric/time features."""
@@ -315,9 +315,6 @@ def main(
 
     model = model.to(device)
     model.eval()
-
-    if is_parallel:
-        model = t.nn.parallel.DistributedDataParallel(model, device_ids=[rank])
 
     # iterate over splits and run inference using model
     pad_id = vocab("PAD")

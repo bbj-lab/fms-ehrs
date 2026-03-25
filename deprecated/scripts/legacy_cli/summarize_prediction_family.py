@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-Canonical entrypoint for aggregating saved prediction files into paper-facing
+Primary entrypoint for aggregating saved prediction files into manuscript
 metric and pairwise comparison tables.
 
 This wrapper preserves a clearer public name while delegating to the legacy
