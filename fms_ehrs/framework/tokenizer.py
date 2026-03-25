@@ -18,6 +18,18 @@ Frame: typing.TypeAlias = pl.DataFrame | pl.LazyFrame
 Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
 
 
+def _eval_polars_expr(expr: str):
+    return eval(expr, {"__builtins__": {}}, {"pl": pl})
+
+
+def _eval_polars_exprs(exprs: str | list[str] | None):
+    if exprs is None:
+        return None
+    if isinstance(exprs, str):
+        return _eval_polars_expr(exprs)
+    return [_eval_polars_expr(expr) for expr in exprs]
+
+
 class Tokenizer21(BaseTokenizer):
     """
     tokenizes a directory containing a set of parquet files according to a
@@ -127,22 +139,12 @@ class Tokenizer21(BaseTokenizer):
                 pl.col(subject_id_str).alias(self.config["subject_id"])
             )
         if filter_expr is not None:
-            df = df.filter(
-                eval(filter_expr)
-                if isinstance(filter_expr, str)
-                else [eval(c) for c in filter_expr]
-            )
+            df = df.filter(_eval_polars_exprs(filter_expr))
         if with_col_expr is not None:
-            df = df.with_columns(
-                eval(with_col_expr)
-                if isinstance(with_col_expr, str)
-                else [eval(c) for c in with_col_expr]
-            )
+            df = df.with_columns(_eval_polars_exprs(with_col_expr))
         if agg_expr is not None:
             df = df.group_by(key if key is not None else self.config["subject_id"]).agg(
-                eval(agg_expr)
-                if isinstance(agg_expr, str)
-                else [eval(c) for c in agg_expr]
+                _eval_polars_exprs(agg_expr)
             )
         return df
 
@@ -197,11 +199,7 @@ class Tokenizer21(BaseTokenizer):
                 maintain_order="left",
             )
         if "post_join_cols" in cfg:
-            df = df.with_columns(
-                eval(pjc)
-                if isinstance(pjc := cfg["post_join_cols"], str)
-                else [eval(c) for c in pjc]
-            )
+            df = df.with_columns(_eval_polars_exprs(cfg["post_join_cols"]))
         if "age" in cfg:
             age = df.select(cfg["age"]).collect().to_numpy().ravel()
             self.set_quants(

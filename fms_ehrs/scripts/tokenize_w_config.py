@@ -34,7 +34,7 @@ parser.add_argument(
     ),
 )
 parser.add_argument(
-    "--config_loc", type=pathlib.Path, default="../fms_ehrs/config/clif-21.yaml"
+    "--config_loc", type=pathlib.Path, default="../fms_ehrs/config/mimic-meds.yaml"
 )
 parser.add_argument(
     "--quantizer",

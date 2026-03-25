@@ -1,195 +1,116 @@
 # Adding an outcome
 
-Suppose there's some outcome you'd like to consider. Some outcomes correspond
-precisely to the existence of a token already included in our tokenization
-process. For example, same-admission mortality occurs when a `DSCG_expired` token
-exists in a given timeline. Some correspond to tokenized events that need to
-happen after the 24-hour observation window concludes, like an IMV (invasive
-mechanical ventillation) event (for persons who do not have one in the first 24h
-of their stay). This corresponds to the `RESP_IMV` token and we create two
-flags[^1], one for IMV during the stay and one for an IMV event during the first
-24h of the stay (see `imv_event` and `imv_event_24h` in
-[extract_outcomes.py](../fms_ehrs/scripts/extract_outcomes.py)). In both cases,
-we're examining the tokens corresponding to the full timelines (used during
-training) and the timelines up to the 24h cutoff point (used for making
-predictions).
+This note covers the active path for extending the tokenizer and label surface.
 
-Some outcomes can correspond to a single token under a reconfigured tokenization
-process. For example, by configuring:
+## Pick the right layer
 
-```yaml
-options:
-    quantizer: ventiles # 20 bins
-    fused_category_values: !!bool false
-```
+There are two common cases.
 
-then `VTL_sbp_Q0` corresponds to an instance of extreme hypotension (a systolic
-blood pressure reading in the lowest ventile). However, in many cases, an outcome
-of interest corresponds to some piece of data that was not previously available
-in token form and needs to be added to the timelines.
+### 1. The signal belongs in the token sequence
 
-## Time-based outcomes
+Use this when the model should see the event during Stage 0 tokenization.
 
-These outcomes correspond to events that happen at a certain time for a given
-patient. For example, we can compute SOFA scores[^2] for sepsis[^3] using the
-[clifpy](https://common-longitudinal-icu-data-format.github.io/clifpy/) package.
-Running [00_run_sofa.sh](../slurm/00_run_sofa.sh) calls
-[run_sofa_scoring.py](../fms_ehrs/scripts/run_sofa_scoring.py) which creates a
-table `clif_sofa.parquet` that includes columns:
+Examples:
 
--   hospitalization_id
--   event_time
--   sofa_cv_97
--   sofa_cns
--   sofa_coag
--   sofa_liver
--   sofa_renal
--   sofa_resp
+- a new MEDS event stream
+- a new categorical suffix field
+- a new numeric measurement that should be discretized or passed through the wrapper path
 
-This table was created after the original data split was made, and so required us
-to run the [01_partition_posthoc.sh](../slurm/01_partition_posthoc.sh) script to
-take the table located at `--new_data_loc` and insert tables of the same name
-into the training, validation, and test splits of the partitioned dataset with
-the
-[partition_posthoc_w_config.py](../fms_ehrs/scripts/partition_posthoc_w_config.py)
-function.
+### 2. The signal is only a downstream label
 
-We can include tokens for each of these measurements by adding the following
-snippet to our configuration file [clif-21.yaml](../fms_ehrs/config/clif-21.yaml)
-we use to run the tokenization process:
+Use this when the model does not need the event as an input token, but Stage 3 should predict it.
+
+For the current benchmark, downstream labels are handled in the sibling repo:
+
+- base outcomes: `../input-representation-benchmark/scripts/extract_outcomes_meds.py`
+- extended outcomes: `../input-representation-benchmark/scripts/extract_extended_outcomes.py`
+
+## Adding a new tokenized event table
+
+Create a MEDS-style parquet table with:
+
+- `subject_id`
+- `time`
+- `code`
+- optional `numeric_value`
+- optional `text_value`
+
+Then reference that table in the tokenizer config used by `tokenize_w_config.py`.
+
+## Minimal event example
 
 ```yaml
 events:
-    # ...
-
-    - table: clif_sofa
-      prefix: SOFA
-      with_col_expr:
-          - (pl.lit("cv-") + pl.col("sofa_cv_97").cast(str)).alias("cv")
-          - (pl.lit("cns-") + pl.col("sofa_cns").cast(str)).alias("cns")
-          - (pl.lit("coag-") + pl.col("sofa_coag").cast(str)).alias("coag")
-          - (pl.lit("liver-") + pl.col("sofa_liver").cast(str)).alias("liver")
-          - (pl.lit("renal-") + pl.col("sofa_renal").cast(str)).alias("renal")
-          - (pl.lit("resp-") + pl.col("sofa_resp").cast(str)).alias("resp")
-      code:
-          - cv
-          - cns
-          - coag
-          - liver
-          - renal
-          - resp
-      time: event_time
+  - table: my_event_table
+    prefix: MY_EVENT
+    code: code
+    time: time
 ```
 
-This causes tokens `SOFA_cv-0`, ..., `SOFA_cv-4`, and so on for each type of
-score to be inserted at `event_time` into the respective timelines.
+This inserts tokens such as `MY_EVENT_xxx` where `xxx` comes from the `code` column.
 
-## Time-agnostic outcomes
+## Adding numeric events
 
-Some outcomes are not associated with a specific time stamp. For example,
-[ICD-10-CM](https://www.cdc.gov/nchs/icd/icd-10-cm/index.html) billing codes are
-assigned to a hospitalization after discharge, and so can be appended to the
-suffix of a timeline that corresponds to information that only becomes available
-after a stay[^4]. The CLIF-2.1 format provides this information in a table:
+If the new table has a numeric measurement, keep the MEDS columns:
 
-![](../img/clif-21-dx-schema.png).
+- `code`
+- `numeric_value`
+- optional reference-range columns if you need anchored binning
 
-We can add this information to the reference table with this configuration:
+The active MEDS configs in `fms_ehrs/config/` show the pattern used by the benchmark:
 
-```yaml
-# join other tables to the reference table
-augmentation_tables:
-    # ...
+- `mimic-meds.yaml`
+- `mimic-meds-ed.yaml`
+- `mimic-meds-exp3-icu.yaml`
 
-    - table: clif_hospital_diagnosis
-      key: hospitalization_id
-      filter_expr: pl.col("diagnosis_primary") == 1
-      with_col_expr: pl.col("diagnosis_code").str.split(".").list.first().alias("primary_dx_type")
-      agg_expr: pl.col("primary_dx_type").sort().alias("primary_dx_types")
-      validation: "1:1"
+## Adding joined columns to the reference frame
 
-    - table: clif_hospital_diagnosis
-      key: hospitalization_id
-      filter_expr: pl.col("diagnosis_primary") == 0
-      with_col_expr: pl.col("diagnosis_code").str.split(".").list.first().alias("dx_type")
-      agg_expr: pl.col("dx_type").sort().alias("non_primary_dx_types")
-      validation: "1:1"
-```
+If the signal is admission-level metadata rather than a timed event, add it through `reference.augmentation_tables` and then expose it in the prefix or suffix sections of the config.
 
-We can then append these columns from the reference table after the discharge
-information in timeline suffixes:
+Typical use cases:
+
+- grouped diagnosis labels
+- admission-level flags
+- demographic or cohort metadata
+
+### Example
 
 ```yaml
+reference:
+  augmentation_tables:
+    - table: my_admission_table
+      key: hospitalization_id
+      agg_expr: pl.col("group_code").sort().alias("group_codes")
+      validation: "1:1"
+
 suffix:
-    # ...
-
-    - column: primary_dx_types
-      prefix: DX
-      is_list: !!bool true
-
-    - column: non_primary_dx_types
-      prefix: DX
-      is_list: !!bool true
+  - column: group_codes
+    prefix: GROUP
+    is_list: true
 ```
 
-This gives us tokens: `DX_I11`, `DX_I61`, `DX_C01`, `DX_A40`, `DX_J10`, etc. The
-`DX_J10` token for example corresponds to hospital stays that subsequently
-recieve a diagnosis / billing code with a
-[J10 prefix](https://www.icd10data.com/ICD10CM/Codes/J00-J99/J09-J18/J10-) for
-"Influenza due to other identified influenza virus".
+This appends tokens such as `GROUP_A` and `GROUP_B` after the discharge portion of the sequence.
 
-## Arbitrary event-based outcome
+## When the label should stay outside the sequence
 
-Suppose you want to add an arbitrary event-based outcome to the tokenization
-process. You can create a new parquet table in the
-[MEDS schema](https://github.com/Medical-Event-Data-Standard/meds) with columns:
+If you only need a prediction target, keep it out of `fms-ehrs`.
 
--   subject_id (int or str, required)
--   time (datetime, required)
--   code (str, required)
--   numeric_value (float, optional)
--   text_value (str, optional)
+For the benchmark path:
 
-Depending on whether or not your data had already been partitioned into training,
-validation, and test sets, you would then need to either run
-[partition_w_config.py](../fms_ehrs/scripts/partition_w_config.py) or
-[partition_posthoc_w_config.py](../fms_ehrs/scripts/partition_posthoc_w_config.py),
-both of which now convert "subject_id" columns to the value of the `subject_id`
-key in our config file. You would want to create a configuration (based on the
-configurations in the [config folder](../fms_ehrs/config/)) that includes this
-table. In the most basic instance, you could add an event for your new
-`table_name.parquet` table by adding the following to the list of events in the
-config file:
+1. leave Stage 0 tokenization unchanged
+2. derive the label parquet in `input-representation-benchmark`
+3. join that label onto `tokens_timelines_outcomes.parquet` or `tokens_timelines_extended_outcomes.parquet`
+4. rerun the affected Stage 3 and stats families
 
-```yaml
-events:
-    # ...
+This is the right path for most benchmark-only labels.
 
-    - table: table_name
-      prefix: MY-NEW-THING
-      code: code
-      time: time
-```
+## Checklist
 
-If everything went according to plan, this would insert tokens `MY-NEW-THING_xxx`
-where `xxx` corresponds to the codes in your code column. You would then want to
-rerun tokenization, training, etc. with this new config.
+1. Decide whether the signal belongs in the token sequence or only in the label parquet.
+2. If it belongs in the sequence, add the table or joined column to the tokenizer config.
+3. Retokenize the affected data version.
+4. Retrain any models whose Stage 0 inputs changed.
+5. If it is only a downstream label, update the benchmark-side outcome extraction scripts instead.
+6. Add a small regression test near the code you changed.
 
-[^1]:
-    This is unnecessary for same-admission mortality, because we filter out all
-    hospitalizations that are <24 hours in length.
-
-[^2]:
-    Vincent JL, Moreno R, Takala J, et al.
-    [The SOFA (Sepsis-related Organ Failure Assessment) score to describe organ dysfunction/failure](https://doi.org/10.1007/BF01709751).
-    Intensive Care Med. 1996;22(7):707-710.
-
-[^3]:
-    Singer M, Deutschman CS, Seymour CW, et al.
-    [The Third International Consensus Definitions for Sepsis and Septic Shock (Sepsis-3)](https://doi.org/10.1001/jama.2016.0287).
-    JAMA. 2016;315(8):801-810.
-
-[^4]:
-    Ramadan B, Liu M-C, Burkhart M, Parker W, Beaulieu-Jones, B.
-    [Diagnostic codes in AI prediction models and label leakage of same-admission clinical outcomes](https://doi.org/10.1101/2025.08.09.25333360).
-    JAMA Netw Open (in press).
+Older CLIF/UCMC examples were archived under `../deprecated/`.

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-Aggregate saved prediction files into paper-facing metric and pairwise comparison
+Aggregate saved prediction files into manuscript metric and pairwise comparison
 tables.
 
 This script upgrades the older one-off plotting helper into a reusable aggregation
@@ -202,13 +202,15 @@ def _paired_permutation_pval(
     y1: np.ndarray,
     *,
     metric_fn: typing.Callable[[np.ndarray, np.ndarray], float],
+    higher_is_better: bool,
     n_samples: int,
     seed: int,
     alternative: typing.Literal["one-sided", "two-sided"],
     require_two_classes: bool,
 ) -> float:
     rng = np.random.default_rng(seed)
-    obs = float(metric_fn(y_true, y1) - metric_fn(y_true, y0))
+    obs_raw = float(metric_fn(y_true, y1) - metric_fn(y_true, y0))
+    obs = obs_raw if higher_is_better else -obs_raw
     count = 0
     valid = 0
     n = len(y_true)
@@ -219,13 +221,14 @@ def _paired_permutation_pval(
         if require_two_classes and np.unique(y_true).size < 2:
             continue
         try:
-            diff = float(metric_fn(y_true, perm1) - metric_fn(y_true, perm0))
+            diff_raw = float(metric_fn(y_true, perm1) - metric_fn(y_true, perm0))
         except Exception:
             continue
         valid += 1
         if alternative == "two-sided":
-            count += abs(diff) >= abs(obs)
+            count += abs(diff_raw) >= abs(obs_raw)
         else:
+            diff = diff_raw if higher_is_better else -diff_raw
             count += diff >= obs
     if valid == 0:
         return float("nan")
@@ -270,25 +273,94 @@ def _load_payload(path: pathlib.Path) -> dict:
         return pickle.load(fp)
 
 
+def _resolve_outcomes_path(
+    pred_path: pathlib.Path,
+    payload: dict,
+    explicit_outcomes_path: Pathlike | None = None,
+) -> pathlib.Path | None:
+    if explicit_outcomes_path is not None:
+        explicit_path = pathlib.Path(explicit_outcomes_path).expanduser()
+        if not explicit_path.is_absolute():
+            explicit_path = pred_path.parent.joinpath(explicit_path)
+        outcomes_path = explicit_path.resolve()
+        if not outcomes_path.exists():
+            raise FileNotFoundError(
+                f"Explicit outcomes parquet {explicit_outcomes_path!r} for prediction payload "
+                f"{pred_path} does not exist at {outcomes_path}."
+            )
+        return outcomes_path
+    metadata = payload.get("metadata", {}) or {}
+    outcomes_name = metadata.get("outcomes_parquet")
+    if not outcomes_name:
+        return None
+    outcomes_path = pred_path.parent.joinpath(str(outcomes_name)).expanduser().resolve()
+    if not outcomes_path.exists():
+        raise FileNotFoundError(
+            f"Prediction payload at {pred_path} points to outcomes parquet "
+            f"{outcomes_name!r}, but {outcomes_path} does not exist."
+        )
+    return outcomes_path
+
+
+def _load_hospitalization_ids(
+    outcomes_path: pathlib.Path,
+    *,
+    id_cache: dict[pathlib.Path, np.ndarray],
+) -> np.ndarray:
+    if outcomes_path in id_cache:
+        return id_cache[outcomes_path]
+
+    outcomes_scan = pl.scan_parquet(outcomes_path)
+    schema = outcomes_scan.collect_schema()
+    names = schema.names()
+    if "hospitalization_id" in names:
+        expr = pl.col("hospitalization_id").cast(pl.String)
+    elif "hadm_id" in names:
+        expr = pl.col("hadm_id").cast(pl.String)
+    else:
+        raise ValueError(
+            f"Could not find hospitalization_id or hadm_id in outcomes parquet {outcomes_path}."
+        )
+
+    ids = (
+        outcomes_scan
+        .select(expr.alias("hospitalization_id"))
+        .collect()
+        .to_series()
+        .to_numpy()
+        .astype(str)
+    )
+    id_cache[outcomes_path] = ids
+    return ids
+
+
 def _derive_pred_paths(
     *,
     data_dir: pathlib.Path,
     data_versions: list[str],
     classifier: str,
+    task_type: str,
     model_loc: pathlib.Path,
 ) -> list[pathlib.Path]:
     paths: list[pathlib.Path] = []
     for dv in data_versions:
         test_dir = data_dir.joinpath(f"{dv}-tokenized", "test")
-        legacy = test_dir.joinpath(f"{classifier}-preds-{model_loc.stem}.pkl")
-        if legacy.exists():
-            paths.append(legacy)
+        classifier_prefixes = [classifier]
+        if task_type == "regression" and not classifier.startswith("reg_"):
+            classifier_prefixes = [f"reg_{classifier}", classifier]
+
+        matches: list[pathlib.Path] = []
+        for prefix in classifier_prefixes:
+            legacy = test_dir.joinpath(f"{prefix}-preds-{model_loc.stem}.pkl")
+            if legacy.exists():
+                matches.append(legacy)
+            matches.extend(sorted(test_dir.glob(f"{prefix}-preds-*-{model_loc.stem}.pkl")))
+
+        deduped_matches = list(dict.fromkeys(matches))
+        if len(deduped_matches) == 1:
+            paths.append(deduped_matches[0])
             continue
-        tagged = sorted(test_dir.glob(f"{classifier}-preds-*-{model_loc.stem}.pkl"))
-        if len(tagged) == 1:
-            paths.append(tagged[0])
-            continue
-        if len(tagged) == 0:
+        if len(deduped_matches) == 0:
             raise FileNotFoundError(
                 f"No prediction pickle found for data_version={dv!r}, classifier={classifier!r}, "
                 f"model={model_loc.stem!r} under {test_dir}. "
@@ -296,7 +368,8 @@ def _derive_pred_paths(
             )
         raise ValueError(
             f"Multiple tagged prediction pickles match data_version={dv!r}, classifier={classifier!r}, "
-            f"model={model_loc.stem!r} under {test_dir}. Provide --pred_paths explicitly."
+            f"model={model_loc.stem!r} under {test_dir}: {[p.name for p in deduped_matches]}. "
+            "Provide --pred_paths explicitly."
         )
     return paths
 
@@ -305,11 +378,18 @@ def _load_named_results(
     *,
     pred_paths: list[pathlib.Path],
     handles: list[str],
+    outcomes_paths: list[Pathlike | None] | None = None,
 ) -> collections.OrderedDict[str, dict]:
     named = collections.OrderedDict()
-    for handle, path in zip(handles, pred_paths):
+    if outcomes_paths is None:
+        outcomes_paths = [None] * len(pred_paths)
+    for handle, path, outcomes_path in zip(handles, pred_paths, outcomes_paths):
         payload = _load_payload(path)
-        named[handle] = {"payload": payload, "pred_path": path}
+        named[handle] = {
+            "payload": payload,
+            "pred_path": path,
+            "explicit_outcomes_path": outcomes_path,
+        }
     return named
 
 
@@ -321,15 +401,124 @@ def _available_outcomes(named_results: collections.OrderedDict[str, dict]) -> li
     return sorted(common or [])
 
 
-def _extract_arrays(payload: dict, outcome: str) -> tuple[np.ndarray, np.ndarray]:
+def _extract_arrays(
+    payload: dict,
+    outcome: str,
+    *,
+    pred_path: pathlib.Path,
+    id_cache: dict[pathlib.Path, np.ndarray],
+    explicit_outcomes_path: Pathlike | None = None,
+) -> dict[str, typing.Any]:
     quals = np.asarray(payload["qualifiers"][outcome]).astype(bool)
-    y_true = np.asarray(payload["labels"][outcome])[quals].astype(float)
+    labels = np.asarray(payload["labels"][outcome]).astype(float)
+    y_true = labels[quals].astype(float)
     y_pred = np.asarray(payload["predictions"][outcome]).astype(float)
     if y_true.shape[0] != y_pred.shape[0]:
         raise ValueError(
             f"Outcome {outcome!r}: label/pred length mismatch ({y_true.shape[0]} vs {y_pred.shape[0]})"
         )
-    return y_true, y_pred
+    outcomes_path = _resolve_outcomes_path(
+        pred_path,
+        payload,
+        explicit_outcomes_path=explicit_outcomes_path,
+    )
+    ids = None
+    if outcomes_path is not None:
+        full_ids = _load_hospitalization_ids(outcomes_path, id_cache=id_cache)
+        if full_ids.shape[0] != labels.shape[0]:
+            raise ValueError(
+                f"Outcome {outcome!r}: hospitalization_id length mismatch for {outcomes_path} "
+                f"({full_ids.shape[0]} ids vs {labels.shape[0]} labels)."
+            )
+        ids = full_ids[quals]
+        if ids.shape[0] != y_pred.shape[0]:
+            raise ValueError(
+                f"Outcome {outcome!r}: hospitalization_id/pred length mismatch "
+                f"({ids.shape[0]} vs {y_pred.shape[0]})."
+            )
+
+    return {
+        "y_true": y_true,
+        "y_score": y_pred,
+        "hospitalization_ids": ids,
+        "outcomes_parquet": str(outcomes_path) if outcomes_path is not None else None,
+    }
+
+
+def _align_pairwise_arrays(
+    *,
+    arr0: dict[str, typing.Any],
+    arr1: dict[str, typing.Any],
+    outcome: str,
+    handle0: str,
+    handle1: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, int, str]:
+    ids0 = arr0.get("hospitalization_ids")
+    ids1 = arr1.get("hospitalization_ids")
+    if ids0 is not None and ids1 is not None:
+        df0 = pd.DataFrame(
+            {
+                "hospitalization_id": np.asarray(ids0).astype(str),
+                "y_true_0": np.asarray(arr0["y_true"]).astype(float),
+                "y_score_0": np.asarray(arr0["y_score"]).astype(float),
+            }
+        )
+        df1 = pd.DataFrame(
+            {
+                "hospitalization_id": np.asarray(ids1).astype(str),
+                "y_true_1": np.asarray(arr1["y_true"]).astype(float),
+                "y_score_1": np.asarray(arr1["y_score"]).astype(float),
+            }
+        )
+        if df0["hospitalization_id"].duplicated().any():
+            raise ValueError(
+                f"Outcome {outcome!r}: duplicate hospitalization_id values for handle {handle0!r}."
+            )
+        if df1["hospitalization_id"].duplicated().any():
+            raise ValueError(
+                f"Outcome {outcome!r}: duplicate hospitalization_id values for handle {handle1!r}."
+            )
+        merged = df0.merge(
+            df1,
+            on="hospitalization_id",
+            how="inner",
+            sort=True,
+            validate="1:1",
+        )
+        if merged.empty:
+            raise ValueError(
+                f"Outcome {outcome!r}: no overlapping hospitalization_id values between "
+                f"{handle0!r} and {handle1!r}."
+            )
+        y_true0 = merged["y_true_0"].to_numpy(dtype=float)
+        y_true1 = merged["y_true_1"].to_numpy(dtype=float)
+        if not np.allclose(y_true0, y_true1, equal_nan=True):
+            raise ValueError(
+                f"Outcome {outcome!r}: labels differ after hospitalization_id alignment "
+                f"between {handle0!r} and {handle1!r}."
+            )
+        return (
+            y_true0,
+            merged["y_score_0"].to_numpy(dtype=float),
+            merged["y_score_1"].to_numpy(dtype=float),
+            int(merged.shape[0]),
+            "hospitalization_id",
+        )
+
+    y_true0 = np.asarray(arr0["y_true"]).astype(float)
+    y_true1 = np.asarray(arr1["y_true"]).astype(float)
+    if y_true0.shape[0] != y_true1.shape[0] or not np.array_equal(y_true0, y_true1):
+        raise ValueError(
+            f"Outcome {outcome!r}: cannot do paired comparison because labels differ "
+            f"between {handle0!r} and {handle1!r}."
+        )
+    return (
+        y_true0,
+        np.asarray(arr0["y_score"]).astype(float),
+        np.asarray(arr1["y_score"]).astype(float),
+        int(y_true0.shape[0]),
+        "row_order",
+    )
 
 
 def _metric_specs(task_type: str, ece_bins: int) -> list[MetricSpec]:
@@ -344,6 +533,7 @@ def main() -> int:
     parser.add_argument("--task_type", choices=["classification", "regression"], default="classification")
     parser.add_argument("--pred_paths", type=pathlib.Path, nargs="*", default=None)
     parser.add_argument("--handles", type=str, nargs="*", default=None)
+    parser.add_argument("--outcomes_paths", type=str, nargs="*", default=None)
     parser.add_argument("--baseline_handle", type=str, default=None)
     parser.add_argument("--outcomes", type=str, nargs="*", default=None)
     parser.add_argument("--out_dir", type=pathlib.Path, default=pathlib.Path("./aggregation"))
@@ -371,6 +561,9 @@ def main() -> int:
         if not args.handles or len(args.handles) != len(pred_paths):
             raise ValueError("--handles must be provided and match --pred_paths length.")
         handles = list(args.handles)
+        if args.outcomes_paths is not None and len(args.outcomes_paths) != len(pred_paths):
+            raise ValueError("--outcomes_paths must match --pred_paths length when provided.")
+        outcomes_paths = list(args.outcomes_paths) if args.outcomes_paths is not None else [None] * len(pred_paths)
     else:
         if not (args.data_dir and args.data_versions and args.classifier and args.model_loc and args.handles):
             raise ValueError(
@@ -383,13 +576,18 @@ def main() -> int:
             data_dir=data_dir,
             data_versions=list(args.data_versions),
             classifier=str(args.classifier),
+            task_type=str(args.task_type),
             model_loc=model_loc,
         )
         handles = list(args.handles)
         if len(handles) != len(pred_paths):
             raise ValueError("--handles must match the number of derived prediction paths.")
+        if args.outcomes_paths is not None:
+            raise ValueError("--outcomes_paths is only supported with explicit --pred_paths.")
+        outcomes_paths = [None] * len(pred_paths)
 
-    paired_inputs = list(zip(handles, pred_paths))
+    paired_inputs = list(zip(handles, pred_paths, outcomes_paths))
+    baseline = None
     if args.baseline_handle is not None:
         baseline = str(args.baseline_handle)
         if baseline not in handles:
@@ -397,30 +595,44 @@ def main() -> int:
         paired_inputs = [pair for pair in paired_inputs if pair[0] == baseline] + [
             pair for pair in paired_inputs if pair[0] != baseline
         ]
-    handles = [h for h, _ in paired_inputs]
-    pred_paths = [p for _, p in paired_inputs]
+    handles = [h for h, _, _ in paired_inputs]
+    pred_paths = [p for _, p, _ in paired_inputs]
+    outcomes_paths = [o for _, _, o in paired_inputs]
 
-    named_results = _load_named_results(pred_paths=pred_paths, handles=handles)
+    named_results = _load_named_results(
+        pred_paths=pred_paths,
+        handles=handles,
+        outcomes_paths=outcomes_paths,
+    )
     outcomes = list(args.outcomes) if args.outcomes else _available_outcomes(named_results)
     metric_specs = _metric_specs(args.task_type, args.ece_bins)
     plots_dir = pathlib.Path(args.plots_dir).expanduser().resolve() if args.plots_dir else pathlib.Path(args.out_dir).expanduser().resolve()
     out_dir = pathlib.Path(args.out_dir).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     plots_dir.mkdir(parents=True, exist_ok=True)
+    id_cache: dict[pathlib.Path, np.ndarray] = {}
 
     metrics_rows: list[dict[str, typing.Any]] = []
     pairwise_rows: list[dict[str, typing.Any]] = []
 
     for outcome in outcomes:
         logger.info(outcome.upper().ljust(79, "-"))
-        named_arrays: collections.OrderedDict[str, dict[str, np.ndarray]] = collections.OrderedDict()
+        named_arrays: collections.OrderedDict[str, dict[str, typing.Any]] = collections.OrderedDict()
         for handle, result in named_results.items():
             payload = result["payload"]
             if outcome not in payload["predictions"]:
                 logger.info(f"Skipping outcome={outcome} for handle={handle}: not present in predictions.")
                 continue
-            y_true, y_pred = _extract_arrays(payload, outcome)
-            named_arrays[handle] = {"y_true": y_true, "y_score": y_pred}
+            arrays = _extract_arrays(
+                payload,
+                outcome,
+                pred_path=result["pred_path"],
+                id_cache=id_cache,
+                explicit_outcomes_path=result.get("explicit_outcomes_path"),
+            )
+            y_true = np.asarray(arrays["y_true"]).astype(float)
+            y_pred = np.asarray(arrays["y_score"]).astype(float)
+            named_arrays[handle] = arrays
             require_two_classes = args.task_type == "classification"
             for spec in metric_specs:
                 try:
@@ -449,6 +661,7 @@ def main() -> int:
                         "ci_lo": ci_lo,
                         "ci_hi": ci_hi,
                         "pred_path": str(result["pred_path"]),
+                        "outcomes_parquet": arrays["outcomes_parquet"],
                     }
                 )
 
@@ -467,17 +680,18 @@ def main() -> int:
                 savepath=plots_dir.joinpath(f"pr-{args.family_name}-{outcome}.pdf"),
             )
 
-        for handle0, handle1 in itertools.combinations(named_arrays.keys(), 2):
-            y_true0 = named_arrays[handle0]["y_true"]
-            y_true1 = named_arrays[handle1]["y_true"]
-            if y_true0.shape[0] != y_true1.shape[0] or not np.array_equal(y_true0, y_true1):
-                raise ValueError(
-                    f"Outcome {outcome!r}: cannot do paired comparison because labels differ "
-                    f"between {handle0!r} and {handle1!r}."
-                )
-            y_true = y_true0
-            y0 = named_arrays[handle0]["y_score"]
-            y1 = named_arrays[handle1]["y_score"]
+        if baseline is not None and baseline in named_arrays:
+            pair_iter = ((baseline, handle1) for handle1 in named_arrays.keys() if handle1 != baseline)
+        else:
+            pair_iter = itertools.combinations(named_arrays.keys(), 2)
+        for handle0, handle1 in pair_iter:
+            y_true, y0, y1, n_eval_common, alignment_mode = _align_pairwise_arrays(
+                arr0=named_arrays[handle0],
+                arr1=named_arrays[handle1],
+                outcome=outcome,
+                handle0=handle0,
+                handle1=handle1,
+            )
             require_two_classes = args.task_type == "classification"
             for spec in metric_specs:
                 try:
@@ -503,6 +717,7 @@ def main() -> int:
                     y0,
                     y1,
                     metric_fn=spec.fn,
+                    higher_is_better=spec.higher_is_better,
                     n_samples=int(args.permutation_n),
                     seed=999,
                     alternative=typing.cast(typing.Literal["one-sided", "two-sided"], args.alternative),
@@ -518,6 +733,8 @@ def main() -> int:
                         "higher_is_better": spec.higher_is_better,
                         "handle0": handle0,
                         "handle1": handle1,
+                        "n_eval_common": n_eval_common,
+                        "alignment_mode": alignment_mode,
                         "metric0": metric0,
                         "metric1": metric1,
                         "delta_raw": delta,
@@ -576,6 +793,8 @@ def main() -> int:
                     "metric",
                     "handle0",
                     "handle1",
+                    "n_eval_common",
+                    "alignment_mode",
                     "delta_better_ci95",
                     "p_raw",
                     "p_adj",
