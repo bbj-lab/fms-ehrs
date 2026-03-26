@@ -67,8 +67,6 @@ Older CLIF configs live under `deprecated/config/`.
 | `notes/` | short maintained notes |
 | `fms_ehrs/tests/unit/` | unit and contract tests |
 | `fms_ehrs/tests/dryrun/` | dry-run wrappers for active scripts |
-| `fms_ehrs/tests/` | compatibility wrappers for historical test imports |
-| `tests/` | compatibility wrapper tests |
 | `docs/` | structure and surface-inventory docs |
 | `deprecated/` | archived scripts, configs, notes, launchers, and diagrams |
 

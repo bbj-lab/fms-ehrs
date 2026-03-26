@@ -255,7 +255,7 @@ class BaseTokenizer:
     def save_numeric_stats(self, filepath: Pathlike) -> None:
         """Save per-code numeric stats computed from the training split.
 
-        Stored as JSON so downstream training scripts can load \mu_c,\sigma_c
+        Stored as JSON so downstream training scripts can load \\mu_c,\\sigma_c
         independently of binning/anchoring choices.
         """
         fp = pathlib.Path(filepath).expanduser().resolve()

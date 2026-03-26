@@ -9,7 +9,6 @@ This is the primary navigation layout for `fms-ehrs`.
 - `fms_ehrs/config/`: active tokenizer/model config files used by the benchmark.
 - `fms_ehrs/tests/unit/`: unit and contract tests.
 - `fms_ehrs/tests/dryrun/`: one dry-run wrapper per active script.
-- `fms_ehrs/tests/`: compatibility wrappers for legacy test imports.
 - `notes/`: maintained notes.
 - `docs/`: inventory and structure docs.
 - `deprecated/`: retired CLIF/UCMC launchers, scripts, configs, and notes.

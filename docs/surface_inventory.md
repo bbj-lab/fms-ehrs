@@ -28,7 +28,6 @@ This inventory classifies the `fms-ehrs` surface used by the input-representatio
 - `fms_ehrs/tests/unit/test_value_encoders.py`
 - `fms_ehrs/tests/unit/test_xval.py`
 - `fms_ehrs/tests/unit/test_windowed_padded_dataset.py`
-- `tests/test_windowed_padded_dataset.py` (compatibility wrapper)
 - `notes/`
 - `env.def` (container build helper; optional for benchmark pipeline)
 
