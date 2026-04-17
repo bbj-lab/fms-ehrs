@@ -17,9 +17,18 @@ from fms_ehrs.framework.tokenizer_base import BaseTokenizer, summarize
 Frame: typing.TypeAlias = pl.DataFrame | pl.LazyFrame
 Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
 
+_EVAL_GLOBALS = {"__builtins__": {}}
+_EVAL_LOCALS = {
+    "pl": pl,
+    "float": float,
+    "int": int,
+    "str": str,
+    "bool": bool,
+}
+
 
 def _eval_polars_expr(expr: str):
-    return eval(expr, {"__builtins__": {}}, {"pl": pl})
+    return eval(expr, _EVAL_GLOBALS, _EVAL_LOCALS)
 
 
 def _eval_polars_exprs(exprs: str | list[str] | None):
