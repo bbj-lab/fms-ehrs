@@ -91,6 +91,81 @@ def _normalize_attn_impl(x: str | None) -> str | None:
     return s
 
 
+def _safe_artifact_name(name: str) -> str:
+    cleaned = []
+    for ch in str(name):
+        if ch.isalnum() or ch in ("-", "_", "."):
+            cleaned.append(ch)
+        else:
+            cleaned.append("-")
+    out = "".join(cleaned).strip("-")
+    return out or "artifact"
+
+
+def _log_wandb_directory_artifact(
+    *,
+    directory: pathlib.Path,
+    artifact_name: str,
+    artifact_type: str,
+    metadata: dict[str, typing.Any],
+    project: str,
+    run_name: str,
+    require_wandb: bool,
+) -> None:
+    if not directory.exists():
+        msg = f"Artifact directory does not exist: {directory}"
+        if require_wandb:
+            raise RuntimeError(msg)
+        logger.warning(msg)
+        return
+
+    if str(os.getenv("WANDB_MODE", "")).strip().lower() == "offline":
+        msg = (
+            f"WANDB_MODE=offline; cannot upload artifact {artifact_name} from {directory}"
+        )
+        if require_wandb:
+            raise RuntimeError(msg)
+        logger.warning(msg)
+        return
+
+    try:
+        import wandb
+
+        run = wandb.run
+        created_run = False
+        if run is None:
+            run = wandb.init(
+                project=project,
+                name=f"{run_name}-artifact",
+                job_type="artifact-export",
+                reinit=False,
+            )
+            created_run = True
+
+        artifact = wandb.Artifact(
+            name=_safe_artifact_name(artifact_name),
+            type=artifact_type,
+            metadata=metadata,
+        )
+        artifact.add_dir(str(directory))
+        run.log_artifact(artifact, aliases=["latest"])
+        logger.info("Logged W&B artifact '%s' from %s", artifact_name, str(directory))
+
+        if created_run and run is not None:
+            run.finish()
+    except Exception as e:
+        if require_wandb:
+            raise RuntimeError(
+                f"Failed to log required W&B artifact {artifact_name} from {directory}: {e}"
+            ) from e
+        logger.warning(
+            "W&B artifact upload skipped for %s (%s): %s",
+            artifact_name,
+            str(directory),
+            e,
+        )
+
+
 class NanStoppingCallback(TrainerCallback):
     """Stop training on encountering a NaN objective."""
 
@@ -204,17 +279,17 @@ def main(
     model_dir: os.PathLike = None,
     model_name: str = "meta-llama/Llama-3.2-1B",
     model_version: str = "llama1b",
-    # Optional performance knobs (objective-preserving):
+    # Optional performance settings (objective-preserving):
     use_bf16: bool = _parse_bool(os.getenv("IRB_USE_BF16", "true"), default=True),
     attn_implementation: str | None = _normalize_attn_impl(os.getenv("IRB_ATTN_IMPL", "sdpa")),
     # Representation parameters
     representation: typing.Literal["discrete", "soft", "xval", "xval_affine"] = "discrete",
     temporal: typing.Literal["time_tokens", "time_rope"] = "time_tokens",
     num_bins: int = 20,
-    # Time-Aware RoPE knob: scale factor to convert hours -> position IDs.
+    # Time-Aware RoPE setting: scale factor to convert hours -> position IDs.
     # Default 60.0 means 1 unit = 1 minute.
     time_rope_scaling: float = float(os.getenv("IRB_TIME_ROPE_SCALING", "60.0")),
-    # xVal tuning knob
+    # xVal tuning setting
     numeric_loss_weight: float = float(os.getenv("IRB_XVAL_NUMERIC_LOSS_WEIGHT", "1.0")),
     clip_sigma: float = float(os.getenv("IRB_XVAL_CLIP_SIGMA", "5.0")),
     # Training parameters
@@ -237,11 +312,11 @@ def main(
         typing.Literal["adamw", "muon"],
         os.getenv("IRB_STAGE1_OPTIMIZER", "muon"),
     ),
-    # Muon knobs (defaults follow torch.optim.Muon defaults where applicable).
+    # Muon settings (defaults follow torch.optim.Muon defaults where applicable).
     muon_momentum: float = 0.95,
     muon_nesterov: bool = True,
     muon_ns_steps: int = 5,
-    # Aux AdamW knobs (used when optimizer="muon"; also matches our Exp1 defaults).
+    # Aux AdamW settings (used when optimizer="muon"; also matches our Exp1 defaults).
     adam_beta1: float = 0.9,
     adam_beta2: float = 0.999,
     adam_epsilon: float = 1.0e-8,
@@ -343,6 +418,8 @@ def main(
     run_name = f"{model_version}-{representation}-{temporal}-{jid}"
     os.environ["WANDB_PROJECT"] = wandb_project
     os.environ["WANDB_RUN_NAME"] = run_name
+    os.environ.setdefault("WANDB_LOG_MODEL", "checkpoint")
+    require_wandb = _parse_bool(os.getenv("IRB_REQUIRE_WANDB", "false"), default=False)
 
     output_dir = model_dir / run_name
     output_dir.mkdir(exist_ok=True, parents=True)
@@ -419,7 +496,7 @@ def main(
             )
             total_params = base_params + value_params
             logger.info(
-                "params: base=%s value=%s total=%s | knobs: num_bins=%s time_rope=%s numeric_loss_weight=%s",
+                "params: base=%s value=%s total=%s | settings: num_bins=%s time_rope=%s numeric_loss_weight=%s",
                 f"{base_params:,}",
                 f"{value_params:,}",
                 f"{total_params:,}",
@@ -430,7 +507,7 @@ def main(
         else:
             total_params = sum(p.numel() for p in model.parameters())
             logger.info(
-                "params: base=%s | knobs: bins=%s rope=%.1f w=%.1f",
+                "params: base=%s | settings: bins=%s rope=%.1f w=%.1f",
                 f"{total_params:,}",
                 selected_num_bins,
                 time_rope_scaling,
@@ -499,7 +576,7 @@ def main(
     logger.info(f"Model initialized with {n_params:,} parameters")
     logger.info(f"Representation: {representation}, Temporal: {temporal}")
     logger.info(
-        "Representation knobs: num_bins=%s",
+        "Representation settings: num_bins=%s",
         num_bins,
     )
 
@@ -645,6 +722,54 @@ def main(
 
         # Also save vocabulary
         dataset.vocab.save(final_model_path / "vocab.gzip")
+
+        best_ckpt = getattr(trainer.state, "best_model_checkpoint", None)
+        _log_wandb_directory_artifact(
+            directory=final_model_path,
+            artifact_name=f"{run_name}-exported-model",
+            artifact_type="model-export",
+            metadata={
+                "model_version": model_version,
+                "data_version": data_version,
+                "representation": representation,
+                "temporal": temporal,
+                "seed": seed,
+                "slurm_jid": jid,
+                "best_model_checkpoint": str(best_ckpt) if best_ckpt else None,
+            },
+            project=wandb_project,
+            run_name=run_name,
+            require_wandb=require_wandb,
+        )
+
+        if best_ckpt:
+            best_ckpt_path = pathlib.Path(best_ckpt)
+            if best_ckpt_path.exists():
+                _log_wandb_directory_artifact(
+                    directory=best_ckpt_path,
+                    artifact_name=f"{run_name}-best-checkpoint",
+                    artifact_type="model-checkpoint",
+                    metadata={
+                        "model_version": model_version,
+                        "data_version": data_version,
+                        "representation": representation,
+                        "temporal": temporal,
+                        "seed": seed,
+                        "slurm_jid": jid,
+                    },
+                    project=wandb_project,
+                    run_name=run_name,
+                    require_wandb=require_wandb,
+                )
+            elif require_wandb:
+                raise RuntimeError(
+                    f"Required best checkpoint path was not found on disk: {best_ckpt_path}"
+                )
+            else:
+                logger.warning(
+                    "Best checkpoint path not found on disk; skipping artifact upload: %s",
+                    str(best_ckpt_path),
+                )
 
         return final_model_path
 

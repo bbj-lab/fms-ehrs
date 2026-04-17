@@ -4,10 +4,11 @@
 tune a model with a packing strategy
 """
 
+import importlib.util
+import json
 import os
 import pathlib
 import typing
-import importlib.util
 
 import fire as fi
 import numpy as np
@@ -16,6 +17,7 @@ from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
     EarlyStoppingCallback,
+    LlamaConfig,
     TrainerCallback,
 )
 from trl import SFTConfig, SFTTrainer
@@ -51,6 +53,110 @@ def _normalize_attn_impl(x: str | None) -> str | None:
     return s
 
 
+def _safe_artifact_name(name: str) -> str:
+    cleaned = []
+    for ch in str(name):
+        if ch.isalnum() or ch in ("-", "_", "."):
+            cleaned.append(ch)
+        else:
+            cleaned.append("-")
+    out = "".join(cleaned).strip("-")
+    return out or "artifact"
+
+
+def _resolve_latest_checkpoint(output_dir: pathlib.Path) -> pathlib.Path | None:
+    """Find latest checkpoint under output_dir or nested run-* dirs."""
+    candidates = [
+        p
+        for p in (
+            list(output_dir.glob("checkpoint-*"))
+            + list(output_dir.glob("run-*/checkpoint-*"))
+        )
+        if p.is_dir()
+    ]
+    if not candidates:
+        return None
+
+    def _sort_key(p: pathlib.Path) -> tuple[int, float, str]:
+        step = -1
+        name = p.name
+        if name.startswith("checkpoint-"):
+            suffix = name.split("checkpoint-", 1)[1]
+            if suffix.isdigit():
+                step = int(suffix)
+        try:
+            mtime = p.stat().st_mtime
+        except OSError:
+            mtime = -1.0
+        return (step, mtime, str(p))
+
+    return sorted(candidates, key=_sort_key)[-1]
+
+
+def _log_wandb_directory_artifact(
+    *,
+    directory: pathlib.Path,
+    artifact_name: str,
+    artifact_type: str,
+    metadata: dict[str, typing.Any],
+    project: str | None,
+    run_name: str,
+    require_wandb: bool,
+) -> None:
+    if not directory.exists():
+        msg = f"Artifact directory does not exist: {directory}"
+        if require_wandb:
+            raise RuntimeError(msg)
+        logger.warning(msg)
+        return
+
+    if str(os.getenv("WANDB_MODE", "")).strip().lower() == "offline":
+        msg = (
+            f"WANDB_MODE=offline; cannot upload artifact {artifact_name} from {directory}"
+        )
+        if require_wandb:
+            raise RuntimeError(msg)
+        logger.warning(msg)
+        return
+
+    try:
+        import wandb
+
+        run = wandb.run
+        created_run = False
+        if run is None:
+            run = wandb.init(
+                project=project,
+                name=f"{run_name}-artifact",
+                job_type="artifact-export",
+                reinit=False,
+            )
+            created_run = True
+
+        artifact = wandb.Artifact(
+            name=_safe_artifact_name(artifact_name),
+            type=artifact_type,
+            metadata=metadata,
+        )
+        artifact.add_dir(str(directory))
+        run.log_artifact(artifact, aliases=["latest"])
+        logger.info("Logged W&B artifact '%s' from %s", artifact_name, str(directory))
+
+        if created_run and run is not None:
+            run.finish()
+    except Exception as e:
+        if require_wandb:
+            raise RuntimeError(
+                f"Failed to log required W&B artifact {artifact_name} from {directory}: {e}"
+            ) from e
+        logger.warning(
+            "W&B artifact upload skipped for %s (%s): %s",
+            artifact_name,
+            str(directory),
+            e,
+        )
+
+
 class NanStoppingCallback(TrainerCallback):
     """stop training on encountering a nan objective"""
 
@@ -64,6 +170,38 @@ class NanStoppingCallback(TrainerCallback):
                     if state.is_world_process_zero:
                         logger.warning(f"Encountered non-finite metric {k} ({v}).")
                     control.should_training_stop = True
+
+
+class _PretokenizedProcessingStub:
+    """Minimal processing stub for pretokenized `input_ids` datasets."""
+
+    def __init__(self, *, pad_token_id: int, model_max_length: int):
+        self.pad_token_id = int(pad_token_id)
+        self.eos_token_id = int(pad_token_id)
+        self.padding_side = "right"
+        self.model_max_length = int(model_max_length)
+        self.model_input_names = ["input_ids", "attention_mask"]
+
+    def save_pretrained(self, save_directory: str | os.PathLike):
+        out_dir = pathlib.Path(save_directory)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_file = out_dir / "processing_stub.json"
+        out_file.write_text(
+            json.dumps(
+                {
+                    "type": "pretokenized_stub",
+                    "pad_token_id": self.pad_token_id,
+                    "eos_token_id": self.eos_token_id,
+                    "padding_side": self.padding_side,
+                    "model_max_length": self.model_max_length,
+                    "model_input_names": self.model_input_names,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        )
+        return (str(out_file),)
 
 
 @logger.log_calls
@@ -80,6 +218,8 @@ def main(
     # - do_hpo=True: run Optuna HPO (expensive; may exceed cluster walltime)
     # - do_hpo=False: run a single fixed-hyperparameter training
     do_hpo: bool = True,
+    # Optional resume path for continuing an interrupted fixed-hyperparameter run.
+    resume_from_checkpoint: str | None = None,
     learning_rate: float = 5e-5,
     lr_min: float = 5e-5,
     lr_max: float = 5e-4,
@@ -87,7 +227,7 @@ def main(
     # (how many microbatches are consumed per optimizer step). We fix it to avoid
     # inadvertently giving some configurations more effective training tokens/compute.
     gradient_accumulation_steps: int = 2,
-    # Optional performance knobs (objective-preserving):
+    # Optional performance settings (objective-preserving):
     # - use_bf16: enable bf16 mixed precision (A100 supports bf16).
     # - attn_implementation: attention backend ("sdpa" or "flash_attention_2").
     use_bf16: bool = _parse_bool(os.getenv("IRB_USE_BF16", "true"), default=True),
@@ -104,6 +244,17 @@ def main(
     **kwargs,
 ):
     """pass additional model configuration parameters with kwargs"""
+    # Fire may pass booleans as strings (e.g., "false"), so normalize explicitly.
+    do_hpo = _parse_bool(do_hpo, default=True)
+    iterable_dataset = _parse_bool(iterable_dataset, default=True)
+    use_bf16 = _parse_bool(use_bf16, default=True)
+    if isinstance(resume_from_checkpoint, str):
+        s = resume_from_checkpoint.strip()
+        if s.lower() in ("", "none", "null"):
+            resume_from_checkpoint = None
+        else:
+            resume_from_checkpoint = s
+
     if int(gradient_accumulation_steps) != 2:
         raise ValueError(
             "For benchmark fairness, gradient_accumulation_steps is fixed to 2 "
@@ -121,6 +272,16 @@ def main(
 
     os.environ["WANDB_PROJECT"] = wandb_project
     os.environ["WANDB_RUN_NAME"] = "{m}-{j}".format(m=model_version, j=jid)
+    # In HPO mode, Transformers' W&B callback resolves checkpoint paths relative to
+    # `output_dir` while Optuna writes under run-* subdirectories, which can cause
+    # "Path is not a directory" on on_save. The same mismatch can occur when
+    # resuming from an HPO run-* checkpoint into fixed-training mode.
+    # We keep explicit artifact logging below.
+    if do_hpo or bool(resume_from_checkpoint):
+        os.environ["WANDB_LOG_MODEL"] = "false"
+    else:
+        os.environ.setdefault("WANDB_LOG_MODEL", "checkpoint")
+    require_wandb = _parse_bool(os.getenv("IRB_REQUIRE_WANDB", "false"), default=False)
 
     data_dir, model_dir = map(
         lambda d: pathlib.Path(d).expanduser().resolve(), (data_dir, model_dir)
@@ -140,14 +301,38 @@ def main(
         cfg_kwargs = dict(kwargs)
         if attn_implementation is not None:
             cfg_kwargs["attn_implementation"] = attn_implementation
-        config = AutoConfig.from_pretrained(
-            model_name,
-            vocab_size=len(dataset.vocab),
-            bos_token_id=dataset.vocab("TL_START"),
-            eos_token_id=dataset.vocab("TL_END"),
-            pad_token_id=dataset.vocab("PAD"),
-            **cfg_kwargs,
-        )
+        try:
+            config = AutoConfig.from_pretrained(
+                model_name,
+                vocab_size=len(dataset.vocab),
+                bos_token_id=dataset.vocab("TL_START"),
+                eos_token_id=dataset.vocab("TL_END"),
+                pad_token_id=dataset.vocab("PAD"),
+                **cfg_kwargs,
+            )
+        except OSError as e:
+            # Exp1 also trains from scratch, so only the base architecture config is needed.
+            # Mirror Exp2/Exp3 behavior: if the upstream config repo is gated, fall back to
+            # a local LlamaConfig with the same hyperparameters.
+            msg = str(e).lower()
+            is_gated = ("gated repo" in msg) or ("401 client error" in msg) or ("access to model" in msg)
+            is_llama = "llama" in str(model_name).lower()
+            if not (is_gated and is_llama):
+                raise
+            logger.warning(
+                "AutoConfig.from_pretrained(%r) failed due to gated/unauthenticated access. "
+                "Falling back to local LlamaConfig (random init; config-only). "
+                "To use the upstream config, authenticate with HuggingFace and ensure you have access.",
+                model_name,
+            )
+            config = LlamaConfig(
+                vocab_size=len(dataset.vocab),
+                bos_token_id=dataset.vocab("TL_START"),
+                eos_token_id=dataset.vocab("TL_END"),
+                pad_token_id=dataset.vocab("PAD"),
+                **cfg_kwargs,
+            )
+        config._name_or_path = str(model_name)
         mdl = AutoModelForCausalLM.from_config(config)
         mdl_params = sum(p.numel() for p in mdl.parameters())
         logger.info("Model initialized, n. param = {}".format(mdl_params))
@@ -170,6 +355,32 @@ def main(
             // t.cuda.device_count()
             // gradient_accumulation_steps
     )
+
+    pad_token_id = int(dataset.vocab("PAD"))
+    processing_stub = _PretokenizedProcessingStub(
+        pad_token_id=pad_token_id,
+        model_max_length=max_seq_length,
+    )
+
+    def _format_pretokenized(example):
+        return example["input_ids"]
+
+    def _collate_pretokenized_batch(
+        examples: list[dict[str, typing.Any]],
+    ) -> dict[str, t.Tensor]:
+        batch_size = len(examples)
+        max_len = max(int(t.as_tensor(ex["input_ids"]).numel()) for ex in examples)
+        input_ids = t.full((batch_size, max_len), fill_value=pad_token_id, dtype=t.long)
+        for i, ex in enumerate(examples):
+            ids = t.as_tensor(ex["input_ids"], dtype=t.long).reshape(-1)
+            input_ids[i, : ids.numel()] = ids
+        attention_mask = (input_ids != pad_token_id).long()
+        labels = input_ids.masked_fill(attention_mask == 0, -100)
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "labels": labels,
+        }
 
     # train model
     use_bf16 = bool(use_bf16) and t.cuda.is_available()
@@ -204,6 +415,9 @@ def main(
         ),
         eval_dataset=dataset.get_val_dataset(iterable=iterable_dataset),
         args=training_args,
+        data_collator=_collate_pretokenized_batch,
+        processing_class=processing_stub,
+        formatting_func=_format_pretokenized,
         callbacks=[
             EarlyStoppingCallback(early_stopping_patience=3),
             NanStoppingCallback(),
@@ -222,6 +436,10 @@ def main(
     # otherwise DDP initialization / collectives will hang or error.
     best_ckpt = None
     if do_hpo:
+        if resume_from_checkpoint:
+            logger.warning(
+                "resume_from_checkpoint is ignored when do_hpo=True (current HPO path does not resume trials)."
+            )
         best_trial = trainer.hyperparameter_search(
             direction="minimize",
             backend="optuna",
@@ -237,15 +455,20 @@ def main(
         # Fixed-hyperparameter training
         trainer.args.learning_rate = learning_rate
         trainer.args.gradient_accumulation_steps = gradient_accumulation_steps
-        trainer.train()
+        resume_ckpt = (
+            str(pathlib.Path(resume_from_checkpoint).expanduser().resolve())
+            if resume_from_checkpoint
+            else None
+        )
+        trainer.train(resume_from_checkpoint=resume_ckpt)
 
         if os.getenv("RANK", "0") == "0":
-            ckpts = sorted(output_dir.glob("checkpoint-*"))
-            if not ckpts:
+            best_ckpt = _resolve_latest_checkpoint(output_dir)
+            if best_ckpt is None:
                 raise RuntimeError(
-                    f"No checkpoints found under {output_dir} after training."
+                    "No checkpoints found after training under "
+                    f"{output_dir} (checked checkpoint-* and run-*/checkpoint-*)."
                 )
-            best_ckpt = ckpts[-1]
 
     # Ensure all ranks finished (and fail fast consistently) before rank0 exports the symlink.
     if t.distributed.is_available() and t.distributed.is_initialized():
@@ -265,6 +488,25 @@ def main(
             os.chown(best_mdl_loc, uid=-1, gid=os.stat(best_mdl_loc.parent).st_gid)
         except Exception:
             pass
+
+        _log_wandb_directory_artifact(
+            directory=best_ckpt,
+            artifact_name=f"{model_version}-{jid}-best-checkpoint",
+            artifact_type="model-checkpoint",
+            metadata={
+                "model_version": model_version,
+                "data_version": data_version,
+                "slurm_jid": jid,
+                "do_hpo": bool(do_hpo),
+                "n_trials": int(n_trials),
+                "learning_rate": float(learning_rate),
+                "best_checkpoint_path": str(best_ckpt),
+                "best_model_symlink": str(best_mdl_loc),
+            },
+            project=wandb_project,
+            run_name=f"{model_version}-{jid}",
+            require_wandb=require_wandb,
+        )
 
         return str(best_mdl_loc)
 
