@@ -108,7 +108,7 @@ def _windowed_padded_examples(
     - Each window is padded to length window_len with PAD, time=None, numeric=NaN.
     - Relative times are computed w.r.t. the *admission-level* t0 (first non-null time in full timeline).
 
-    Token-exposure knobs:
+    Token-exposure settings:
     - window_stride controls how we advance the window start index.
       * If cont_id is provided and window_stride == window_len, we interpret this as
         "non-overlapping contiguous coverage": window0 covers L tokens, and subsequent
