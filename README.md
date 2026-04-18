@@ -88,6 +88,14 @@ VITAL event blocks.
 - `aggregate_version_preds.py` writes per-family metrics and paired tables.
   The benchmark repository then builds combined reporting tables.
 
+## Reproducibility notes
+
+- This repository covers the model-side path: tokenization, training,
+  extraction, and prediction output generation.
+- For the paper's reported statistics files, figure inputs, and metric audit
+  surfaces, see the `Statistics files for Reproducibility` section in
+  `../input-representation-benchmark/README.md`.
+
 ## Directory map
 
 | Path | Role |
