@@ -1,10 +1,10 @@
 # fms-ehrs
 
-`fms-ehrs` runs the model steps used by
+`fms-ehrs` runs the model-side steps used by
 `../input-representation-benchmark`.
-It turns event tables into token sequences, trains models, extracts hidden
-model feature vectors, and runs prediction tasks.
-The benchmark repository controls experiment scheduling and final statistics
+It turns event tables into token sequences, trains models, extracts feature
+vectors, and runs prediction tasks.
+The benchmark repository handles experiment scheduling and final statistics
 assembly.
 
 ## Active scripts
@@ -40,8 +40,8 @@ because the ICU outcome differs between Experiments 1-2 and Experiment 3.
 - train sequence models
 - rebuild value support modules during extraction when needed
 - extract final model feature vectors from first-24-hour token timelines
-- fit prediction models and save prediction payloads
-- aggregate prediction payloads into metrics, confidence intervals, and paired
+- fit prediction models and save prediction outputs
+- aggregate prediction outputs into metrics, confidence intervals, and paired
   comparison tables
 
 ## Benchmark hand-offs
@@ -81,7 +81,7 @@ VITAL event blocks.
 
 ## Reporting assumptions in this repo
 
-- First-24-hour tokenized timelines are the extraction surface for prediction
+- First-24-hour tokenized timelines are the extraction input for prediction
   features.
 - `xval` and `xval_affine` runs depend on both `numeric_stats.json` and
   `representation_mechanics.pt`.
@@ -90,11 +90,24 @@ VITAL event blocks.
 
 ## Reproducibility notes
 
-- This repository covers the model-side path: tokenization, training,
+- This repository includes the model-training path: tokenization, training,
   extraction, and prediction output generation.
-- For the paper's reported statistics files, figure inputs, and metric audit
-  surfaces, see the `Statistics files for Reproducibility` section in
+- For the paper's reported statistics files, figure inputs, and metric checks,
+  see the `Statistics files for reproducibility` section in
   `../input-representation-benchmark/README.md`.
+
+## Reproduction environment
+
+For the paper reproduction environment, clone this repository next to
+`input-representation-benchmark` and run:
+
+```bash
+conda env create -f ../input-representation-benchmark/environment.yml
+conda activate input-rep
+```
+
+That environment file mirrors the `input-rep` conda environment used for the
+reported runs and installs both repositories in editable mode.
 
 ## Directory map
 
@@ -106,25 +119,16 @@ VITAL event blocks.
 | `notes/` | short maintained notes |
 | `fms_ehrs/tests/unit/` | unit and contract tests |
 | `fms_ehrs/tests/dryrun/` | dry-run checks for active scripts |
-| `docs/` | structure and surface-inventory docs |
+| `docs/` | layout and file-inventory docs |
 | `deprecated/` | archived scripts, configs, notes, launchers, and diagrams |
 
 `slurm/` is now a pointer directory. Archived launchers are in `deprecated/slurm/`.
 
-## Installation
-
-```bash
-uv venv --python="$(which python3)" venv
-. venv/bin/activate
-uv pip install --torch-backend=cu128 --link-mode=copy -e .
-```
-
 ## Docs
 
 - `fms_ehrs/scripts/README.md`: active script inventory
-- `fms_ehrs/tests/README.md`: unit and dry-run audit layout
+- `fms_ehrs/tests/README.md`: unit and dry-run test layout
 - `docs/layout.md`: repo layout
-- `docs/surface_inventory.md`: active/utility/deprecated classification
 - `notes/README.md`: maintained notes
 - `deprecated/README.md`: archived material
 - `../input-representation-benchmark/README.md`: benchmark-level run path

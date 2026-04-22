@@ -12,9 +12,9 @@ This directory now contains only the active script entrypoints on the live path.
 - `aggregate_version_preds.py`: aggregate saved predictions into metrics, confidence intervals, and pairwise tables
 - `eval_token_ce.py`: token cross-entropy analysis used by the mechanistic section
 
-Archived CLIs, older analysis scripts, and CLIF/UCMC command surfaces were moved to `../../deprecated/scripts/`.
+Archived CLIs, older analysis scripts, and CLIF/UCMC command sets were moved to `../../deprecated/scripts/`.
 
-Audit checks for these entrypoints live in:
+Checks for these entrypoints live in:
 
 - `../tests/unit/test_script_contracts.py`
 - `../tests/dryrun/run_all.sh`
