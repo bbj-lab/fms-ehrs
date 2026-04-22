@@ -1,6 +1,6 @@
-# Surface Inventory (Model Execution Reorg)
+# Repo Inventory
 
-This inventory classifies the `fms-ehrs` surface used by the input-representation benchmark.
+This inventory classifies the `fms-ehrs` repo directory used by the input-representation benchmark.
 
 ## Pipeline-Critical
 
