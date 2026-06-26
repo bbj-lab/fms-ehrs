@@ -9,7 +9,6 @@ import pathlib
 
 import numpy as np
 import torch as t
-import torch.distributed as dist
 from datasets import load_dataset
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM
@@ -41,15 +40,10 @@ data_dir, model_loc = map(
     lambda d: pathlib.Path(d).expanduser().resolve(), (args.data_dir, args.model_loc)
 )
 
-# prepare parallelism
-is_parallel = t.cuda.device_count() > 1
-if is_parallel:
-    dist.init_process_group(backend="nccl")
-    rank = dist.get_rank()
-else:
-    rank = 0
-device = t.device(f"cuda:{rank}")
-t.cuda.set_device(device)
+# prepare device
+device = t.device("cuda" if t.cuda.is_available() else "cpu")
+if device.type == "cuda":
+    t.cuda.set_device(device)
 
 # load and prep data
 splits = ("train", "val", "test")
@@ -74,8 +68,6 @@ dataset = (
 model = AutoModelForCausalLM.from_pretrained(model_loc)  # in eval mode by default
 d = model.config.hidden_size
 model = model.to(device)
-if is_parallel:
-    model = t.nn.parallel.DistributedDataParallel(model, device_ids=[rank])
 
 # iterate over splits and run inference using model
 stop_tokens = t.tensor([vocab("PAD"), vocab("TRUNC"), vocab("TL_END")]).to(device)

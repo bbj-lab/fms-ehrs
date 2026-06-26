@@ -10,8 +10,12 @@ Supports two modes:
 """
 
 import itertools
+import hashlib
+import json
 import os
 import pathlib
+import shutil
+import time
 import typing
 from datetime import datetime
 
@@ -24,6 +28,17 @@ from fms_ehrs.framework.vocabulary import Vocabulary
 
 Frame: typing.TypeAlias = pl.DataFrame | pl.LazyFrame
 Pathlike: typing.TypeAlias = pathlib.PurePath | str | os.PathLike
+
+
+def _parse_bool_env(name: str, *, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return str(value).strip().lower() in ("1", "true", "yes", "on", "y")
+
+
+def _safe_path_fragment(value: str) -> str:
+    return "".join(c if c.isalnum() or c in ("-", "_", ".") else "_" for c in value)
 
 
 def compute_relative_times_hours(times_list: list, *, t0: typing.Any | None = None) -> list[float]:
@@ -272,6 +287,7 @@ class Datasets:
         # Extreme-length guardrail (compute stability):
         # Cap windows emitted per admission in windowed padded mode. If None, emit all windows.
         max_windows_per_admission: int | None = None,
+        mapped_dataset_cache_dir: Pathlike | None = None,
     ):
         self.data_version = data_version
         self.data_dir = pathlib.Path(data_dir).expanduser().resolve()
@@ -296,6 +312,11 @@ class Datasets:
         self.window_stride = window_stride
         self.add_cont_token = add_cont_token
         self.max_windows_per_admission = max_windows_per_admission
+        self.mapped_dataset_cache_dir = (
+            pathlib.Path(mapped_dataset_cache_dir).expanduser().resolve()
+            if mapped_dataset_cache_dir is not None
+            else None
+        )
 
         # Representation mode (numeric_values or times) requires padded collation
         if (include_numeric_values or include_times) and collation != "padded":
@@ -333,80 +354,154 @@ class Datasets:
         self.n_train: int = self.dataset["train"].num_rows
         self.n_val: int = self.dataset["val"].num_rows
 
+    def _mapped_cache_path(self, all_columns: list[str]) -> pathlib.Path | None:
+        if not _parse_bool_env("IRB_USE_MAPPED_DATASET_CACHE", default=True):
+            return None
+
+        # The expensive restart cost comes from exploding full padded timelines into
+        # fixed-length windows. Leave other lightweight dataset maps on their normal
+        # HF cache path unless the caller explicitly supplies a cache root.
+        if self.mapped_dataset_cache_dir is None and not (
+            self.collation == "padded" and self.windowed_padded
+        ):
+            return None
+
+        base_cache = self.mapped_dataset_cache_dir
+        if base_cache is None:
+            env_root = os.getenv("IRB_MAPPED_DATASET_CACHE_DIR")
+            if env_root:
+                base_cache = pathlib.Path(env_root).expanduser().resolve()
+            else:
+                base_cache = pathlib.Path(
+                    os.getenv("HF_DATASETS_CACHE", "~/.cache/huggingface/datasets")
+                ).expanduser() / "irb-mapped"
+
+        file_metadata = {}
+        for split, data_dir in self.data_dirs.items():
+            parquet = data_dir / "tokens_timelines.parquet"
+            stat = parquet.stat()
+            file_metadata[f"{split}_parquet"] = {
+                "path": str(parquet.resolve()),
+                "size": stat.st_size,
+                "mtime_ns": stat.st_mtime_ns,
+            }
+
+        vocab_path = self.data_dirs["train"] / "vocab.gzip"
+        vocab_stat = vocab_path.stat()
+        payload = {
+            "schema_version": 2,
+            "data_version": self.data_version,
+            "data_dir": str(self.data_dir),
+            "collation": self.collation,
+            "max_seq_length": int(self.max_seq_length),
+            "include_numeric_values": bool(self.include_numeric_values),
+            "include_times": bool(self.include_times),
+            "windowed_padded": bool(self.windowed_padded),
+            "window_stride": int(self.window_stride) if self.window_stride is not None else None,
+            "add_cont_token": bool(self.add_cont_token),
+            "max_windows_per_admission": (
+                int(self.max_windows_per_admission)
+                if self.max_windows_per_admission is not None
+                else None
+            ),
+            "all_columns": list(all_columns),
+            "vocab_size": len(self.vocab),
+            "vocab": {
+                "path": str(vocab_path.resolve()),
+                "size": vocab_stat.st_size,
+                "mtime_ns": vocab_stat.st_mtime_ns,
+            },
+            "files": file_metadata,
+        }
+        digest = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()[:16]
+        name = (
+            f"{_safe_path_fragment(self.data_version)}-"
+            f"{_safe_path_fragment(self.collation)}-"
+            f"win{int(self.max_seq_length)}-{digest}"
+        )
+        return base_cache / name
+
+    def _load_or_build_mapped_dataset(
+        self,
+        *,
+        cache_path: pathlib.Path | None,
+        build_fn: typing.Callable[[], ds.DatasetDict],
+    ) -> ds.DatasetDict:
+        if cache_path is None:
+            return build_fn()
+
+        complete_marker = cache_path / "_SUCCESS"
+        if complete_marker.exists():
+            print(f"[dataset-cache] Loading mapped dataset cache: {cache_path}", flush=True)
+            return ds.load_from_disk(str(cache_path))
+
+        lock_path = cache_path.with_name(f"{cache_path.name}.lock")
+        local_rank = int(os.getenv("LOCAL_RANK", "0"))
+        timeout_s = int(os.getenv("IRB_MAPPED_DATASET_CACHE_WAIT_SECONDS", "7200"))
+        poll_s = float(os.getenv("IRB_MAPPED_DATASET_CACHE_POLL_SECONDS", "10"))
+        start = time.time()
+
+        while True:
+            try:
+                lock_path.parent.mkdir(parents=True, exist_ok=True)
+                fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(f"pid={os.getpid()}\n")
+                    f.write(f"local_rank={local_rank}\n")
+                    f.write(f"started_at={datetime.now().isoformat()}\n")
+                break
+            except FileExistsError:
+                if complete_marker.exists():
+                    print(f"[dataset-cache] Loading mapped dataset cache: {cache_path}", flush=True)
+                    return ds.load_from_disk(str(cache_path))
+                if time.time() - start > timeout_s:
+                    raise TimeoutError(
+                        f"Timed out waiting for mapped dataset cache at {cache_path}; "
+                        f"lock still present at {lock_path}"
+                    )
+                print(
+                    f"[dataset-cache] Waiting for mapped dataset cache: {cache_path}",
+                    flush=True,
+                )
+                time.sleep(poll_s)
+
+        tmp_path = cache_path.with_name(f"{cache_path.name}.tmp.{os.getpid()}")
+        try:
+            if complete_marker.exists():
+                return ds.load_from_disk(str(cache_path))
+
+            print(f"[dataset-cache] Building mapped dataset cache: {cache_path}", flush=True)
+            dataset = build_fn()
+            if tmp_path.exists():
+                shutil.rmtree(tmp_path)
+            dataset.save_to_disk(str(tmp_path))
+            if cache_path.exists():
+                shutil.rmtree(cache_path)
+            tmp_path.rename(cache_path)
+            complete_marker.write_text(datetime.now().isoformat() + "\n", encoding="utf-8")
+            return dataset
+        finally:
+            if tmp_path.exists():
+                shutil.rmtree(tmp_path, ignore_errors=True)
+            try:
+                lock_path.unlink()
+            except FileNotFoundError:
+                pass
+
     def _build_dataset(self, base_columns: list, extra_columns: list):
         """Build the HuggingFace dataset with appropriate columns."""
         all_columns = base_columns + extra_columns
-
-        # Load raw dataset
-        raw_dataset = ds.load_dataset(
-            "parquet",
-            data_files={
-                s: str(self.data_dirs[s] / "tokens_timelines.parquet")
-                for s in self.splits
-            },
-        )
-
-        # Define the mapping function
-        def process_batch(batch):
-            # Windowed padded mode: explode each admission into multiple windows of length max_seq_length.
-            if self.collation == "padded" and self.windowed_padded:
-                pad_id = int(self.vocab("PAD"))
-                cont_id = int(self.vocab("TL_CONT")) if self.add_cont_token and ("TL_CONT" in self.vocab.lookup) else None
-                # Default stride: non-overlapping windows.
-                #
-                # With TL_CONT enabled, subsequent windows carry (window_len - 1) raw tokens
-                # plus the marker. In _windowed_padded_examples, window_stride == window_len is
-                # treated as an explicit request for non-overlapping contiguous coverage.
-                stride = int(self.window_stride) if self.window_stride is not None else int(self.max_seq_length)
-                max_w = int(self.max_windows_per_admission) if self.max_windows_per_admission is not None else None
-
-                out_all: dict[str, list] = {"input_ids": []}
-                if self.include_numeric_values:
-                    out_all["numeric_values"] = []
-                if self.include_times:
-                    out_all["relative_times"] = []
-
-                toks_list = batch["tokens"]
-                times_list = batch.get("times")
-                nums_list = batch.get("numeric_values")
-
-                for i, toks in enumerate(toks_list):
-                    times = times_list[i] if times_list is not None else None
-                    nums = nums_list[i] if nums_list is not None else None
-                    out_i = _windowed_padded_examples(
-                        tokens=list(toks) if toks is not None else [],
-                        times=list(times) if times is not None else None,
-                        numeric_values=list(nums) if nums is not None else None,
-                        window_len=int(self.max_seq_length),
-                        window_stride=stride,
-                        pad_id=pad_id,
-                        cont_id=cont_id,
-                        max_windows=max_w,
-                    )
-                    out_all["input_ids"].extend(out_i["input_ids"])
-                    if self.include_numeric_values:
-                        out_all["numeric_values"].extend(out_i.get("numeric_values", []))
-                    if self.include_times:
-                        out_all["relative_times"].extend(out_i.get("relative_times", []))
-
-                return out_all
-
-            # Standard (non-windowed) behavior.
-            result = {"input_ids": batch["padded" if self.collation == "padded" else "tokens"]}
-
-            if self.include_numeric_values and "padded_numeric_values" in batch:
-                numeric_values = []
-                for seq in batch["padded_numeric_values"]:
-                    numeric_values.append([float(v) if v is not None else float("nan") for v in seq])
-                result["numeric_values"] = numeric_values
-
-            if self.include_times and "padded_times" in batch:
-                relative_times = []
-                for seq in batch["padded_times"]:
-                    relative_times.append(compute_relative_times_hours(seq))
-                result["relative_times"] = relative_times
-
-            return result
+        base_cache = pathlib.Path(
+            os.getenv("HF_DATASETS_CACHE", "~/.cache/huggingface/datasets")
+        ).expanduser()
+        cache_dir = base_cache / "parquet"
+        if int(os.getenv("WORLD_SIZE", "1")) > 1:
+            job_id = os.getenv("SLURM_JOB_ID", "manual")
+            local_rank = os.getenv("LOCAL_RANK", "0")
+            cache_dir = base_cache / "ddp-parquet" / str(job_id) / f"local-rank-{local_rank}"
+        cache_dir.mkdir(parents=True, exist_ok=True)
 
         # Determine columns to remove (everything not in our output)
         # We need to inspect actual schema
@@ -430,16 +525,90 @@ class Datasets:
         # Columns to remove (all original columns that aren't in our output)
         remove_cols = list(schema_cols - set(features_dict.keys()))
 
-        return (
-            raw_dataset
-            .map(
+        cache_path = self._mapped_cache_path(all_columns)
+
+        def build_dataset():
+            raw_dataset = ds.load_dataset(
+                "parquet",
+                data_files={
+                    s: str(self.data_dirs[s] / "tokens_timelines.parquet")
+                    for s in self.splits
+                },
+                cache_dir=str(cache_dir) if cache_dir is not None else None,
+            )
+
+            def process_batch(batch):
+                # Windowed padded mode: explode each admission into multiple windows of length max_seq_length.
+                if self.collation == "padded" and self.windowed_padded:
+                    pad_id = int(self.vocab("PAD"))
+                    cont_id = int(self.vocab("TL_CONT")) if self.add_cont_token and ("TL_CONT" in self.vocab.lookup) else None
+                    # Default stride: non-overlapping windows.
+                    #
+                    # With TL_CONT enabled, subsequent windows carry (window_len - 1) raw tokens
+                    # plus the marker. In _windowed_padded_examples, window_stride == window_len is
+                    # treated as an explicit request for non-overlapping contiguous coverage.
+                    stride = int(self.window_stride) if self.window_stride is not None else int(self.max_seq_length)
+                    max_w = int(self.max_windows_per_admission) if self.max_windows_per_admission is not None else None
+
+                    out_all: dict[str, list] = {"input_ids": []}
+                    if self.include_numeric_values:
+                        out_all["numeric_values"] = []
+                    if self.include_times:
+                        out_all["relative_times"] = []
+
+                    toks_list = batch["tokens"]
+                    times_list = batch.get("times")
+                    nums_list = batch.get("numeric_values")
+
+                    for i, toks in enumerate(toks_list):
+                        times = times_list[i] if times_list is not None else None
+                        nums = nums_list[i] if nums_list is not None else None
+                        out_i = _windowed_padded_examples(
+                            tokens=list(toks) if toks is not None else [],
+                            times=list(times) if times is not None else None,
+                            numeric_values=list(nums) if nums is not None else None,
+                            window_len=int(self.max_seq_length),
+                            window_stride=stride,
+                            pad_id=pad_id,
+                            cont_id=cont_id,
+                            max_windows=max_w,
+                        )
+                        out_all["input_ids"].extend(out_i["input_ids"])
+                        if self.include_numeric_values:
+                            out_all["numeric_values"].extend(out_i.get("numeric_values", []))
+                        if self.include_times:
+                            out_all["relative_times"].extend(out_i.get("relative_times", []))
+
+                    return out_all
+
+                # Standard (non-windowed) behavior.
+                result = {"input_ids": batch["padded" if self.collation == "padded" else "tokens"]}
+
+                if self.include_numeric_values and "padded_numeric_values" in batch:
+                    numeric_values = []
+                    for seq in batch["padded_numeric_values"]:
+                        numeric_values.append([float(v) if v is not None else float("nan") for v in seq])
+                    result["numeric_values"] = numeric_values
+
+                if self.include_times and "padded_times" in batch:
+                    relative_times = []
+                    for seq in batch["padded_times"]:
+                        relative_times.append(compute_relative_times_hours(seq))
+                    result["relative_times"] = relative_times
+
+                return result
+
+            return raw_dataset.map(
                 process_batch,
                 batched=True,
                 remove_columns=remove_cols,
                 features=ds.Features(features_dict),
             )
-            .with_format("torch")
-        )
+
+        return self._load_or_build_mapped_dataset(
+            cache_path=cache_path,
+            build_fn=build_dataset,
+        ).with_format("torch")
 
     def generate_padding(self, poisson_rate: float = 7.0):
         size = t.poisson(t.tensor(poisson_rate), generator=self.t_rng).to(

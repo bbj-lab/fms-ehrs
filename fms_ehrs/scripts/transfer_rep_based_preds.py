@@ -35,6 +35,16 @@ logger.info("running {}".format(__file__))
 logger.log_env()
 
 
+def _sanitize_model_stem(stem: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", stem).strip("_")
+
+
+def _feature_model_stem(model_loc: pathlib.Path) -> str:
+    if model_loc.name.startswith("model-") and model_loc.parent.name:
+        return _sanitize_model_stem(f"{model_loc.parent.name}-{model_loc.name}")
+    return _sanitize_model_stem(model_loc.stem)
+
+
 def _parse_float_list(s: str) -> list[float]:
     # Accept either "[0.1,1,10]" or "0.1,1,10"
     s = s.strip()
@@ -268,7 +278,7 @@ for v in versions:
             f"{args.data_version}-tokenized", s
         )
         features[v][s] = np.load(
-            data_dirs[v][s].joinpath("features-{m}.npy".format(m=model_loc.stem))
+            data_dirs[v][s].joinpath("features-{m}.npy".format(m=_feature_model_stem(model_loc)))
         )
         outcomes_scan = pl.scan_parquet(data_dirs[v][s].joinpath(outcomes_parquet))
         outcomes_schema = outcomes_scan.collect_schema()
