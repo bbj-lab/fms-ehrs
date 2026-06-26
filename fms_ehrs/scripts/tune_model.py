@@ -429,11 +429,8 @@ def main(
     )
     # If we already exported a "best model" pointer, do nothing (all ranks exit cleanly).
     if best_mdl_loc.exists() or best_mdl_loc.is_symlink():
-        return str(best_mdl_loc) if os.getenv("RANK", "0") == "0" else None
+        return str(best_mdl_loc) if trainer.is_world_process_zero() else None
 
-    # IMPORTANT (DDP correctness):
-    # All ranks must execute the same high-level control flow (HPO vs train),
-    # otherwise DDP initialization / collectives will hang or error.
     best_ckpt = None
     if do_hpo:
         if resume_from_checkpoint:
@@ -446,8 +443,7 @@ def main(
             hp_space=optuna_hp_space,
             n_trials=n_trials,
         )
-        # Each rank will compute `best_trial`, but only rank0 will export the checkpoint.
-        if os.getenv("RANK", "0") == "0":
+        if trainer.is_world_process_zero():
             best_ckpt = sorted(
                 output_dir.joinpath(f"run-{best_trial.run_id}").glob("checkpoint-*")
             ).pop()
@@ -462,7 +458,7 @@ def main(
         )
         trainer.train(resume_from_checkpoint=resume_ckpt)
 
-        if os.getenv("RANK", "0") == "0":
+        if trainer.is_world_process_zero():
             best_ckpt = _resolve_latest_checkpoint(output_dir)
             if best_ckpt is None:
                 raise RuntimeError(
@@ -470,13 +466,7 @@ def main(
                     f"{output_dir} (checked checkpoint-* and run-*/checkpoint-*)."
                 )
 
-    # Ensure all ranks finished (and fail fast consistently) before rank0 exports the symlink.
-    if t.distributed.is_available() and t.distributed.is_initialized():
-        # If any rank errors above, torchrun/elastic will tear down the job; barrier here
-        # prevents silent rank-skew where rank0 exits early and others hang in collectives.
-        t.distributed.barrier()
-
-    if os.getenv("RANK", "0") == "0":
+    if trainer.is_world_process_zero():
         if best_ckpt is None:
             raise RuntimeError("best_ckpt was not resolved on rank0.")
         best_mdl_loc.parent.mkdir(parents=True, exist_ok=True)

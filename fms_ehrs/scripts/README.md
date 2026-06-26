@@ -1,20 +1,19 @@
-# Active Script Inventory
+# Active script inventory
 
-This directory now contains only the active script entrypoints on the live path.
+Script roles, output filenames, and benchmark hand-offs are in
+[`../../README.md`](../../README.md).
 
-## Active scripts
+Active entrypoints:
 
-- `tokenize_w_config.py`: tokenize split parquet trees from a YAML config
-- `tune_model.py`: packed training path used by Exp1
-- `train_representation.py`: padded/windowed training path used by Exp2 and Exp3
-- `extract_hidden_states.py`: extract final hidden states from tokenized 24-hour timelines
-- `transfer_rep_based_preds.py`: fit downstream models from extracted features and save predictions
-- `aggregate_version_preds.py`: aggregate saved predictions into metrics, confidence intervals, and pairwise tables
-- `eval_token_ce.py`: token cross-entropy analysis used by the mechanistic section
+| Script | Stage |
+| --- | --- |
+| `tokenize_w_config.py` | 0 |
+| `tune_model.py` | 1 (Exp1) |
+| `train_representation.py` | 1 (Exp2/Exp3) |
+| `extract_hidden_states.py` | 2 |
+| `transfer_rep_based_preds.py` | 3 |
+| `aggregate_version_preds.py` | stats backend |
+| `eval_token_ce.py` | mechanistic analysis |
 
-Archived CLIs, older analysis scripts, and CLIF/UCMC command sets were moved to `../../deprecated/scripts/`.
-
-Checks for these entrypoints live in:
-
-- `../tests/unit/test_script_contracts.py`
-- `../tests/dryrun/run_all.sh`
+Tests: [`../tests/README.md`](../tests/README.md). Archived CLIs live under
+[`../../deprecated/scripts/`](../../deprecated/scripts/).

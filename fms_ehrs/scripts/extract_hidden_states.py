@@ -10,6 +10,8 @@ xVal, Time-Aware RoPE) by auto-detecting representation_mechanics.pt in the mode
 import json
 import os
 import pathlib
+import re
+import shutil
 
 import fire as fi
 import numpy as np
@@ -27,6 +29,85 @@ from fms_ehrs.framework.vocabulary import Vocabulary
 logger = get_logger()
 logger.info("running {}".format(__file__))
 logger.log_env()
+
+
+def _sanitize_model_stem(stem: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", stem).strip("_")
+
+
+def _feature_model_stem(model_loc: pathlib.Path) -> str:
+    if model_loc.name.startswith("model-") and model_loc.parent.name:
+        return _sanitize_model_stem(f"{model_loc.parent.name}-{model_loc.name}")
+    return _sanitize_model_stem(model_loc.stem)
+
+
+def _dist_barrier(world_size: int) -> None:
+    if world_size > 1:
+        t.distributed.barrier()
+
+
+def _feature_path(data_dir: pathlib.Path, *, all_layers: bool, model_stem: str) -> pathlib.Path:
+    return data_dir.joinpath(
+        "features{x}-{m}.npy".format(
+            x="-all-layers" if all_layers else "",
+            m=model_stem,
+        )
+    )
+
+
+def _shard_dir_for(feature_path: pathlib.Path) -> pathlib.Path:
+    return feature_path.parent / f".{feature_path.stem}.shards"
+
+
+def _prepare_shard_dir(shard_dir: pathlib.Path, *, rank: int, world_size: int) -> None:
+    if world_size == 1:
+        return
+    if rank == 0 and shard_dir.exists():
+        shutil.rmtree(shard_dir)
+    _dist_barrier(world_size)
+    shard_dir.mkdir(parents=True, exist_ok=True)
+    _dist_barrier(world_size)
+
+
+def _merge_feature_shards(
+    *,
+    output_path: pathlib.Path,
+    shard_dir: pathlib.Path,
+    n_rows: int,
+    feature_shape: tuple[int, ...],
+    world_size: int,
+) -> None:
+    features = np.empty((n_rows, *feature_shape), dtype=np.float16)
+    seen = np.zeros(n_rows, dtype=bool)
+
+    for shard_rank in range(world_size):
+        shard_path = shard_dir / f"rank-{shard_rank:05d}-of-{world_size:05d}.npz"
+        if not shard_path.exists():
+            raise FileNotFoundError(f"Missing extraction shard: {shard_path}")
+        with np.load(shard_path) as shard:
+            indices = shard["indices"].astype(np.int64, copy=False)
+            shard_features = shard["features"].astype(np.float16, copy=False)
+        if indices.shape[0] != shard_features.shape[0]:
+            raise ValueError(
+                f"Shard {shard_path} has {indices.shape[0]} indices but "
+                f"{shard_features.shape[0]} feature rows."
+            )
+        if indices.size:
+            if indices.min() < 0 or indices.max() >= n_rows:
+                raise ValueError(f"Shard {shard_path} contains out-of-range row indices.")
+            if seen[indices].any():
+                raise ValueError(f"Shard {shard_path} overlaps a previously merged shard.")
+            features[indices] = shard_features
+            seen[indices] = True
+
+    if not seen.all():
+        missing = np.flatnonzero(~seen)
+        preview = ", ".join(map(str, missing[:10]))
+        raise ValueError(
+            f"Merged extraction is missing {missing.size} row(s); first missing: {preview}"
+        )
+
+    set_perms(np.save)(output_path, features)
 
 
 def _load_representation_meta(model_loc: pathlib.Path) -> dict | None:
@@ -92,13 +173,13 @@ def main(
     )
 
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    rank = int(os.environ.get("RANK", "0"))
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
-    if world_size != 1:
-        raise ValueError(
-            "extract_hidden_states.py currently writes one feature array per split and "
-            "does not support multi-process extraction. Launch it with a single process "
-            "(for example, torchrun --nproc_per_node=1)."
-        )
+    if world_size > 1 and not t.distributed.is_initialized():
+        dist_backend = os.environ.get("IRB_EXTRACT_DIST_BACKEND", "gloo")
+        t.distributed.init_process_group(backend=dist_backend, init_method="env://")
+        rank = t.distributed.get_rank()
+        world_size = t.distributed.get_world_size()
     if not t.cuda.is_available():
         raise RuntimeError("extract_hidden_states.py requires a CUDA-visible GPU.")
     if local_rank >= t.cuda.device_count():
@@ -107,6 +188,14 @@ def main(
         )
     device = t.device(f"cuda:{local_rank}")
     t.cuda.set_device(device)
+    is_main_process = rank == 0
+    logger.info(
+        "Extraction rank setup: rank=%s world_size=%s local_rank=%s device=%s",
+        rank,
+        world_size,
+        local_rank,
+        device,
+    )
 
     # load and prep data
     splits = ("train", "val", "test")
@@ -320,30 +409,69 @@ def main(
     pad_id = vocab("PAD")
     stop_tokens = t.tensor([pad_id, vocab("TRUNC"), vocab("TL_END")]).to(device)
 
+    def _as_padded_long(seqs, *, fill_value: int) -> tuple[t.Tensor, int]:
+        max_len = max((len(x) for x in seqs), default=0)
+        out = t.full(
+            (len(seqs), max_len),
+            fill_value=fill_value,
+            dtype=t.long,
+            device=device,
+        )
+        for i, seq in enumerate(seqs):
+            if len(seq) > 0:
+                out[i, : len(seq)] = t.tensor(seq, dtype=t.long, device=device)
+        return out, max_len
+
+    def _as_padded_float(seqs, *, max_len: int, fill_value: float) -> t.Tensor:
+        out = t.full(
+            (len(seqs), max_len),
+            fill_value=fill_value,
+            dtype=t.float32,
+            device=device,
+        )
+        for i, seq in enumerate(seqs):
+            if seq is not None and len(seq) > 0:
+                out[i, : len(seq)] = t.tensor(seq, dtype=t.float32, device=device)
+        return out
+
     for s in splits:
         n = dataset[s].num_rows
-        features = (
-            np.empty((n, d, h + 1), dtype=np.float16)
-            if all_layers
-            else np.empty((n, d), dtype=np.float16)
+        feature_shape = (d, h + 1) if all_layers else (d,)
+        output_path = _feature_path(
+            data_dirs[s],
+            all_layers=all_layers,
+            model_stem=_feature_model_stem(model_loc),
         )
-        for batch_idx in tqdm(t.split(t.arange(n), batch_sz)):
+        shard_dir = _shard_dir_for(output_path)
+        _prepare_shard_dir(shard_dir, rank=rank, world_size=world_size)
+
+        local_indices = t.arange(rank, n, world_size, dtype=t.long)
+        local_features = np.empty((local_indices.numel(), *feature_shape), dtype=np.float16)
+        local_offset = 0
+        logger.info(
+            "Split %s: rank %s/%s extracting %s of %s row(s).",
+            s,
+            rank,
+            world_size,
+            local_indices.numel(),
+            n,
+        )
+
+        for batch_idx in tqdm(
+            t.split(local_indices, batch_sz),
+            disable=not is_main_process,
+        ):
             # Build input_ids batch
             if use_padded:
-                batch = dataset[s]["input_ids"][batch_idx].to(device)
+                batch_raw = dataset[s]["input_ids"][batch_idx]
+                if hasattr(batch_raw, "to"):
+                    batch = batch_raw.to(device)
+                    max_len = batch.size(1)
+                else:
+                    batch, max_len = _as_padded_long(batch_raw, fill_value=pad_id)
             else:
                 seqs = dataset[s]["input_ids"][batch_idx.tolist()]
-                max_len = max((len(x) for x in seqs), default=0)
-                batch = t.full(
-                    (len(seqs), max_len),
-                    fill_value=pad_id,
-                    dtype=t.long,
-                    device=device,
-                )
-                for i, seq in enumerate(seqs):
-                    if not seq:
-                        continue
-                    batch[i, : len(seq)] = t.tensor(seq, dtype=t.long, device=device)
+                batch, max_len = _as_padded_long(seqs, fill_value=pad_id)
 
             # Build forward kwargs
             fwd_kwargs = {"input_ids": batch, "output_hidden_states": True}
@@ -351,35 +479,37 @@ def main(
             # Add numeric_values for soft/xVal models
             if needs_numeric and "numeric_values" in dataset[s].column_names:
                 if use_padded:
-                    nv = dataset[s]["numeric_values"][batch_idx].to(device)
+                    nv_raw = dataset[s]["numeric_values"][batch_idx]
+                    nv = (
+                        nv_raw.to(device)
+                        if hasattr(nv_raw, "to")
+                        else _as_padded_float(nv_raw, max_len=max_len, fill_value=float("nan"))
+                    )
                 else:
                     nv_seqs = dataset[s]["numeric_values"][batch_idx.tolist()]
-                    nv = t.full(
-                        (len(nv_seqs), max_len),
+                    nv = _as_padded_float(
+                        nv_seqs,
+                        max_len=max_len,
                         fill_value=float("nan"),
-                        dtype=t.float32,
-                        device=device,
                     )
-                    for i, seq in enumerate(nv_seqs):
-                        if seq is not None and len(seq) > 0:
-                            nv[i, : len(seq)] = t.tensor(seq, dtype=t.float32, device=device)
                 fwd_kwargs["numeric_values"] = nv
 
             # Add relative_times for time_rope models
             if needs_times and "relative_times" in dataset[s].column_names:
                 if use_padded:
-                    rt = dataset[s]["relative_times"][batch_idx].to(device)
+                    rt_raw = dataset[s]["relative_times"][batch_idx]
+                    rt = (
+                        rt_raw.to(device)
+                        if hasattr(rt_raw, "to")
+                        else _as_padded_float(rt_raw, max_len=max_len, fill_value=float("nan"))
+                    )
                 else:
                     rt_seqs = dataset[s]["relative_times"][batch_idx.tolist()]
-                    rt = t.full(
-                        (len(rt_seqs), max_len),
+                    rt = _as_padded_float(
+                        rt_seqs,
+                        max_len=max_len,
                         fill_value=float("nan"),
-                        dtype=t.float32,
-                        device=device,
                     )
-                    for i, seq in enumerate(rt_seqs):
-                        if seq is not None and len(seq) > 0:
-                            rt[i, : len(seq)] = t.tensor(seq, dtype=t.float32, device=device)
                 fwd_kwargs["relative_times"] = rt
 
             stop_mask = t.isin(batch, stop_tokens)
@@ -416,17 +546,46 @@ def main(
             x = t.stack(hidden_states, dim=-1) if all_layers else hidden_states[-1]
             for i, j in enumerate(final_nonpadding_idx):
                 ret[i] = x[i, j]
-            features[batch_idx] = ret.detach().to("cpu")
+            batch_n = int(batch_idx.numel())
+            local_features[local_offset : local_offset + batch_n] = ret.detach().to(
+                "cpu"
+            )
+            local_offset += batch_n
             t.cuda.empty_cache()
 
-        set_perms(np.save)(
-            data_dirs[s].joinpath(
-                "features{x}-{m}.npy".format(
-                    x="-all-layers" if all_layers else "", m=model_loc.stem
-                )
-            ),
-            features,
-        )  # save out result
+        if local_offset != local_features.shape[0]:
+            raise RuntimeError(
+                f"Rank {rank} wrote {local_offset} rows but allocated "
+                f"{local_features.shape[0]} rows for split {s}."
+            )
+
+        if world_size == 1:
+            set_perms(np.save)(output_path, local_features)
+            continue
+
+        shard_path = shard_dir / f"rank-{rank:05d}-of-{world_size:05d}.npz"
+        set_perms(np.savez)(
+            shard_path,
+            indices=local_indices.numpy().astype(np.int64, copy=False),
+            features=local_features,
+        )
+        _dist_barrier(world_size)
+
+        if is_main_process:
+            logger.info("Merging %s shard(s) for split %s into %s", world_size, s, output_path)
+            _merge_feature_shards(
+                output_path=output_path,
+                shard_dir=shard_dir,
+                n_rows=n,
+                feature_shape=feature_shape,
+                world_size=world_size,
+            )
+            shutil.rmtree(shard_dir)
+
+        _dist_barrier(world_size)
+
+    if world_size > 1 and t.distributed.is_initialized():
+        t.distributed.destroy_process_group()
 
 
 if __name__ == "__main__":

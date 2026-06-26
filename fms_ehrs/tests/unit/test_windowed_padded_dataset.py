@@ -1,8 +1,10 @@
 import math
 
+import polars as pl
 import pytest
 
-from fms_ehrs.framework.dataset import _windowed_padded_examples
+from fms_ehrs.framework.dataset import Datasets, _windowed_padded_examples
+from fms_ehrs.framework.vocabulary import Vocabulary
 
 
 def test_windowed_padded_examples_overlap_and_cont_token():
@@ -148,4 +150,59 @@ def test_windowed_padded_examples_validates_alignment():
             pad_id=0,
             cont_id=None,
         )
+
+
+def test_windowed_padded_dataset_cache_round_trip(tmp_path, monkeypatch):
+    data_root = tmp_path / "data"
+    version = "toy"
+    for split in ("train", "val"):
+        split_dir = data_root / f"{version}-tokenized" / split
+        split_dir.mkdir(parents=True)
+        pl.DataFrame(
+            {
+                "hospitalization_id": [f"{split}-0"],
+                "tokens": [[2, 3, 4, 5, 6]],
+                "times": [[0, 3_600_000, 7_200_000, 10_800_000, 14_400_000]],
+                "numeric_values": [[1.0, None, 3.0, 4.0, 5.0]],
+            }
+        ).write_parquet(split_dir / "tokens_timelines.parquet")
+
+    Vocabulary(("PAD", "TL_CONT", "A", "B", "C", "D", "E")).save(
+        data_root / f"{version}-tokenized" / "train" / "vocab.gzip"
+    )
+
+    cache_root = tmp_path / "mapped-cache"
+    monkeypatch.setenv("IRB_USE_MAPPED_DATASET_CACHE", "true")
+    monkeypatch.setenv("HF_DATASETS_CACHE", str(tmp_path / "hf-datasets"))
+    dataset = Datasets(
+        data_version=version,
+        data_dir=data_root,
+        collation="padded",
+        max_seq_length=4,
+        include_times=True,
+        windowed_padded=True,
+        window_stride=4,
+        add_cont_token=True,
+        mapped_dataset_cache_dir=cache_root,
+    )
+    assert dataset.n_train == 2
+    assert dataset.n_val == 2
+
+    cache_dirs = [p for p in cache_root.iterdir() if p.is_dir()]
+    assert len(cache_dirs) == 1
+    assert (cache_dirs[0] / "_SUCCESS").exists()
+
+    reloaded = Datasets(
+        data_version=version,
+        data_dir=data_root,
+        collation="padded",
+        max_seq_length=4,
+        include_times=True,
+        windowed_padded=True,
+        window_stride=4,
+        add_cont_token=True,
+        mapped_dataset_cache_dir=cache_root,
+    )
+    assert reloaded.n_train == dataset.n_train
+    assert reloaded.dataset["train"][1]["input_ids"].tolist() == [1, 6, 0, 0]
 

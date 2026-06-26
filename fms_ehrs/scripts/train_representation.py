@@ -39,6 +39,7 @@ Note:
     (fused_category_values=false in the tokenizer config).
 """
 
+import csv
 import json
 import os
 import pathlib
@@ -56,6 +57,7 @@ from transformers import (
     TrainerCallback,
     TrainingArguments,
 )
+from transformers.trainer_utils import get_last_checkpoint
 
 from fms_ehrs.framework.dataset import Datasets
 from fms_ehrs.framework.logger import get_logger
@@ -100,6 +102,178 @@ def _safe_artifact_name(name: str) -> str:
             cleaned.append("-")
     out = "".join(cleaned).strip("-")
     return out or "artifact"
+
+
+def _unwrap_model(model: t.nn.Module) -> t.nn.Module:
+    """Return the underlying model when Trainer/Accelerate wraps it."""
+    while hasattr(model, "module"):
+        model = model.module
+    return model
+
+
+def _has_weight_file(path: pathlib.Path) -> bool:
+    return (path / "pytorch_model.bin").exists() or (path / "model.safetensors").exists()
+
+
+def _perplexity_from_loss(value: typing.Any) -> float | None:
+    try:
+        loss = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(loss):
+        return None
+    # Avoid overflow while preserving the useful range for CE curves.
+    return float(np.exp(min(loss, 50.0)))
+
+
+def _add_perplexity_metrics(logs: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    enriched = dict(logs)
+    metric_pairs = (
+        ("loss", "train_perplexity"),
+        ("train_loss", "final_train_perplexity"),
+        ("eval_loss", "eval_perplexity"),
+    )
+    for loss_key, ppl_key in metric_pairs:
+        if loss_key in enriched and ppl_key not in enriched:
+            ppl = _perplexity_from_loss(enriched[loss_key])
+            if ppl is not None:
+                enriched[ppl_key] = ppl
+    return enriched
+
+
+def _write_loss_perplexity_curve(
+    *,
+    output_dir: pathlib.Path,
+    log_history: list[dict[str, typing.Any]],
+) -> None:
+    rows = []
+    keys = [
+        "step",
+        "epoch",
+        "loss",
+        "train_loss",
+        "eval_loss",
+        "train_perplexity",
+        "final_train_perplexity",
+        "eval_perplexity",
+        "learning_rate",
+        "grad_norm",
+    ]
+    for entry in log_history:
+        enriched = _add_perplexity_metrics(entry)
+        if not any(k in enriched for k in ("loss", "train_loss", "eval_loss")):
+            continue
+        rows.append({k: enriched.get(k, "") for k in keys})
+
+    if not rows:
+        logger.warning("No loss/perplexity rows found in Trainer log history.")
+        return
+
+    output_dir.mkdir(exist_ok=True, parents=True)
+    csv_path = output_dir / "loss_perplexity_curve.csv"
+    jsonl_path = output_dir / "loss_perplexity_curve.jsonl"
+    with csv_path.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=keys)
+        writer.writeheader()
+        writer.writerows(rows)
+    with jsonl_path.open("w") as f:
+        for row in rows:
+            f.write(json.dumps(row) + "\n")
+    logger.info("Wrote loss/perplexity curves to %s and %s", csv_path, jsonl_path)
+
+
+def _normalize_saved_config(path: pathlib.Path) -> None:
+    """Keep HF config invariants valid after layer-count overrides."""
+    config_path = path / "config.json"
+    if not config_path.exists():
+        return
+
+    with config_path.open() as f:
+        config = json.load(f)
+
+    num_layers = config.get("num_hidden_layers")
+    layer_types = config.get("layer_types")
+    if isinstance(num_layers, int) and isinstance(layer_types, list) and len(layer_types) != num_layers:
+        if len(layer_types) < num_layers:
+            raise ValueError(
+                f"Cannot extend layer_types in {config_path}: "
+                f"{len(layer_types)} entries for {num_layers} layers"
+            )
+        config["layer_types"] = layer_types[:num_layers]
+        config_path.write_text(json.dumps(config, indent=2, sort_keys=True) + "\n")
+        logger.info("Normalized layer_types in %s to %s entries", config_path, num_layers)
+
+
+def _representation_state(
+    *,
+    model: t.nn.Module,
+    representation: str,
+    temporal: str,
+    num_bins: int,
+    time_rope_scaling: float,
+) -> dict[str, typing.Any]:
+    from fms_ehrs.framework.xval import XValModelWrapper
+
+    state = {
+        "representation": representation,
+        "temporal": temporal,
+        "num_bins": num_bins,
+        "time_rope_scaling": float(time_rope_scaling),
+        "value_encoder_state": (
+            model.value_encoder.state_dict()
+            if hasattr(model, "value_encoder") and model.value_encoder is not None
+            else None
+        ),
+    }
+    if isinstance(model, XValModelWrapper):
+        state["number_head_state"] = model.number_head.state_dict()
+    return state
+
+
+class WrapperCheckpointCallback(TrainerCallback):
+    """Write wrapper model weights into Trainer checkpoints on the main process."""
+
+    def __init__(
+        self,
+        *,
+        representation: str,
+        temporal: str,
+        num_bins: int,
+        time_rope_scaling: float,
+    ):
+        super().__init__()
+        self.representation = representation
+        self.temporal = temporal
+        self.num_bins = int(num_bins)
+        self.time_rope_scaling = float(time_rope_scaling)
+
+    def on_save(self, args, state, control, model=None, **kwargs):
+        if not state.is_world_process_zero or model is None:
+            return control
+
+        from fms_ehrs.framework.xval import XValModelWrapper
+
+        unwrapped = _unwrap_model(model)
+        if not isinstance(unwrapped, (RepresentationModelWrapper, XValModelWrapper)):
+            return control
+
+        checkpoint_dir = pathlib.Path(args.output_dir) / f"checkpoint-{state.global_step}"
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        set_perms(lambda f, obj: t.save(obj, f))(
+            str(checkpoint_dir / "pytorch_model.bin"),
+            unwrapped.state_dict(),
+        )
+        set_perms(lambda f, obj: t.save(obj, f))(
+            str(checkpoint_dir / "representation_mechanics.pt"),
+            _representation_state(
+                model=unwrapped,
+                representation=self.representation,
+                temporal=self.temporal,
+                num_bins=self.num_bins,
+                time_rope_scaling=self.time_rope_scaling,
+            ),
+        )
+        return control
 
 
 def _log_wandb_directory_artifact(
@@ -268,6 +442,11 @@ class IRBTrainer(Trainer):
             adamw=self._aux_adamw_cfg,
         )
 
+    def log(self, logs: dict[str, float], *args, **kwargs):
+        # HF logs cross-entropy losses by default. Add perplexity before the
+        # integrations run so W&B and trainer_state.json carry the curves.
+        return super().log(_add_perplexity_metrics(logs), *args, **kwargs)
+
 
 @logger.log_calls
 def main(
@@ -328,6 +507,17 @@ def main(
     window_stride: int | None = None,
     max_windows_per_admission: int | None = None,
     add_cont_token: bool = True,
+    # Checkpoint/resume controls
+    resume_from_checkpoint: str | None = os.getenv("IRB_RESUME_FROM_CHECKPOINT", None),
+    save_strategy: str = os.getenv("IRB_STAGE1_SAVE_STRATEGY", "epoch"),
+    save_steps: int = int(os.getenv("IRB_STAGE1_SAVE_STEPS", "2000")),
+    save_total_limit: int = int(os.getenv("IRB_STAGE1_SAVE_TOTAL_LIMIT", "2")),
+    eval_strategy: str = os.getenv("IRB_STAGE1_EVAL_STRATEGY", "epoch"),
+    eval_steps: int | None = None,
+    load_best_model_at_end: bool = _parse_bool(
+        os.getenv("IRB_LOAD_BEST_MODEL_AT_END", "true"),
+        default=True,
+    ),
     # Experiment tracking
     jid: str = os.getenv("SLURM_JOB_ID", ""),
     wandb_project: str = "mimic-representation",
@@ -423,6 +613,29 @@ def main(
 
     output_dir = model_dir / run_name
     output_dir.mkdir(exist_ok=True, parents=True)
+
+    use_bf16 = _parse_bool(use_bf16, default=True)
+    muon_nesterov = _parse_bool(muon_nesterov, default=True)
+    windowed_padded = _parse_bool(windowed_padded, default=False)
+    add_cont_token = _parse_bool(add_cont_token, default=True)
+    load_best_model_at_end = _parse_bool(load_best_model_at_end, default=True)
+
+    resolved_resume_from_checkpoint: str | None = None
+    if resume_from_checkpoint is not None:
+        resume_value = str(resume_from_checkpoint).strip()
+        if resume_value and resume_value.lower() not in ("0", "false", "none", "null", "no"):
+            if resume_value.lower() == "auto":
+                last_checkpoint = get_last_checkpoint(str(output_dir))
+                if last_checkpoint is not None:
+                    resolved_resume_from_checkpoint = last_checkpoint
+                    logger.info("Auto-resuming from checkpoint: %s", last_checkpoint)
+                else:
+                    logger.info("No existing checkpoint found under %s; starting fresh.", output_dir)
+            else:
+                resolved_resume_from_checkpoint = str(
+                    pathlib.Path(resume_value).expanduser().resolve()
+                )
+                logger.info("Resuming from checkpoint: %s", resolved_resume_from_checkpoint)
 
     # Windowed padded guardrail for extreme-length admissions (compute stability).
     #
@@ -612,12 +825,14 @@ def main(
         tf32=True,
         max_grad_norm=1.0,
         num_train_epochs=n_epochs,
-        save_total_limit=2,
+        save_total_limit=save_total_limit,
         metric_for_best_model="eval_loss",
-        load_best_model_at_end=True,
+        load_best_model_at_end=load_best_model_at_end,
         greater_is_better=False,
-        eval_strategy="epoch",
-        save_strategy="epoch",
+        eval_strategy=eval_strategy,
+        eval_steps=eval_steps,
+        save_strategy=save_strategy,
+        save_steps=save_steps,
         # HF Trainer defaults to safetensors. With tied embeddings (common for causal LMs),
         # safetensors errors because multiple state_dict entries share the same storage:
         #   RuntimeError: Some tensors share memory ... {'model.embed_tokens.weight', 'lm_head.weight'}
@@ -671,16 +886,29 @@ def main(
         aux_adamw_cfg=aux_cfg if optimizer == "muon" else None,
         callbacks=[
             NanStoppingCallback(),
+            WrapperCheckpointCallback(
+                representation=representation,
+                temporal=temporal,
+                num_bins=final_num_bins,
+                time_rope_scaling=float(time_rope_scaling),
+            ),
         ],
     )
 
     logger.info("Starting training...")
-    trainer.train()
+    trainer.train(resume_from_checkpoint=resolved_resume_from_checkpoint)
 
-    # Save best model
-    if os.getenv("RANK", "0") == "0":
+    if trainer.is_world_process_zero():
+        _write_loss_perplexity_curve(
+            output_dir=output_dir,
+            log_history=list(trainer.state.log_history),
+        )
+
+    # Save final model from the Trainer's main process.
+    if trainer.is_world_process_zero():
         final_model_path = output_dir / f"model-{representation}-{temporal}"
         final_model_path.mkdir(exist_ok=True, parents=True)
+        unwrapped_model = _unwrap_model(model)
 
         # IMPORTANT: for wrapper models (soft/time_rope/xval), we must save:
         # 1) the underlying HF model in standard `save_pretrained` format (config + weights)
@@ -689,34 +917,39 @@ def main(
         # This allows downstream scripts (e.g., sequence classification) to reload the same
         # representation mechanics and apply them using numeric_values / relative_times.
         from fms_ehrs.framework.xval import XValModelWrapper
-        if isinstance(model, (RepresentationModelWrapper, XValModelWrapper)):
+        if isinstance(unwrapped_model, (RepresentationModelWrapper, XValModelWrapper)):
             # Save the wrapped HF model (config + weights)
-            set_perms(model.base_model.save_pretrained)(str(final_model_path))
+            set_perms(unwrapped_model.base_model.save_pretrained)(str(final_model_path))
+            _normalize_saved_config(final_model_path)
+            if not _has_weight_file(final_model_path):
+                set_perms(lambda f, obj: t.save(obj, f))(
+                    str(final_model_path / "pytorch_model.bin"),
+                    unwrapped_model.base_model.state_dict(),
+                )
 
             # Save representation-mechanics parameters
-            rep_state = {
-                "representation": representation,
-                "temporal": temporal,
-                "num_bins": final_num_bins,
-                "time_rope_scaling": float(time_rope_scaling),
-                "value_encoder_state": (
-                    model.value_encoder.state_dict() if hasattr(model, "value_encoder") and model.value_encoder is not None else None
-                ),
-            }
-
-            # For xVal, also save the number_head weights
-            if isinstance(model, XValModelWrapper):
-                rep_state["number_head_state"] = model.number_head.state_dict()
-
             # NOTE: `set_perms` expects a saver with signature saver(file, *args),
             # but torch.save is torch.save(obj, file). Wrap to avoid arg order bugs.
             set_perms(lambda f, obj: t.save(obj, f))(
                 str(final_model_path / "representation_mechanics.pt"),
-                rep_state,
+                _representation_state(
+                    model=unwrapped_model,
+                    representation=representation,
+                    temporal=temporal,
+                    num_bins=final_num_bins,
+                    time_rope_scaling=float(time_rope_scaling),
+                ),
             )
         else:
             # Discrete + time_tokens returns a standard HF model; Trainer can save normally.
             set_perms(trainer.save_model)(str(final_model_path))
+            _normalize_saved_config(final_model_path)
+
+        if not _has_weight_file(final_model_path):
+            raise RuntimeError(
+                f"No model weight file found after export under {final_model_path} "
+                "(expected pytorch_model.bin or model.safetensors)."
+            )
 
         logger.info(f"Saved model to {final_model_path}")
 
@@ -724,6 +957,7 @@ def main(
         dataset.vocab.save(final_model_path / "vocab.gzip")
 
         best_ckpt = getattr(trainer.state, "best_model_checkpoint", None)
+        latest_ckpt = get_last_checkpoint(str(output_dir))
         _log_wandb_directory_artifact(
             directory=final_model_path,
             artifact_name=f"{run_name}-exported-model",
@@ -735,15 +969,32 @@ def main(
                 "temporal": temporal,
                 "seed": seed,
                 "slurm_jid": jid,
+                "slurm_job_id": os.getenv("SLURM_JOB_ID"),
+                "slurm_array_task_id": os.getenv("SLURM_ARRAY_TASK_ID"),
+                "slurm_partition": os.getenv("SLURM_JOB_PARTITION"),
+                "irb_nproc_per_node": os.getenv("IRB_NPROC_PER_NODE"),
+                "world_size": os.getenv("WORLD_SIZE"),
+                "cuda_visible_devices": os.getenv("CUDA_VISIBLE_DEVICES"),
+                "n_epochs": n_epochs,
+                "save_strategy": save_strategy,
+                "save_steps": save_steps,
+                "save_total_limit": save_total_limit,
+                "eval_strategy": eval_strategy,
+                "eval_steps": eval_steps,
+                "load_best_model_at_end": load_best_model_at_end,
+                "resume_from_checkpoint": resume_from_checkpoint,
+                "resolved_resume_from_checkpoint": resolved_resume_from_checkpoint,
                 "best_model_checkpoint": str(best_ckpt) if best_ckpt else None,
+                "latest_checkpoint": str(latest_ckpt) if latest_ckpt else None,
             },
             project=wandb_project,
             run_name=run_name,
             require_wandb=require_wandb,
         )
 
-        if best_ckpt:
-            best_ckpt_path = pathlib.Path(best_ckpt)
+        artifact_ckpt = best_ckpt or latest_ckpt
+        if artifact_ckpt:
+            best_ckpt_path = pathlib.Path(artifact_ckpt)
             if best_ckpt_path.exists():
                 _log_wandb_directory_artifact(
                     directory=best_ckpt_path,
@@ -756,6 +1007,23 @@ def main(
                         "temporal": temporal,
                         "seed": seed,
                         "slurm_jid": jid,
+                        "slurm_job_id": os.getenv("SLURM_JOB_ID"),
+                        "slurm_array_task_id": os.getenv("SLURM_ARRAY_TASK_ID"),
+                        "slurm_partition": os.getenv("SLURM_JOB_PARTITION"),
+                        "irb_nproc_per_node": os.getenv("IRB_NPROC_PER_NODE"),
+                        "world_size": os.getenv("WORLD_SIZE"),
+                        "cuda_visible_devices": os.getenv("CUDA_VISIBLE_DEVICES"),
+                        "n_epochs": n_epochs,
+                        "save_strategy": save_strategy,
+                        "save_steps": save_steps,
+                        "save_total_limit": save_total_limit,
+                        "eval_strategy": eval_strategy,
+                        "eval_steps": eval_steps,
+                        "load_best_model_at_end": load_best_model_at_end,
+                        "resume_from_checkpoint": resume_from_checkpoint,
+                        "resolved_resume_from_checkpoint": resolved_resume_from_checkpoint,
+                        "best_model_checkpoint": str(best_ckpt) if best_ckpt else None,
+                        "latest_checkpoint": str(latest_ckpt) if latest_ckpt else None,
                     },
                     project=wandb_project,
                     run_name=run_name,

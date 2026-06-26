@@ -1,25 +1,13 @@
-# Layout (Model Execution)
+# Layout
 
-This is the primary navigation layout for `fms-ehrs`.
+Start with [`../README.md`](../README.md) for scripts, the output contract, and
+benchmark hand-offs.
 
-## Main directories
+This file only records layout policy:
 
-- `fms_ehrs/framework/`: core library modules.
-- `fms_ehrs/scripts/`: active CLI entrypoints used by benchmark stages.
-- `fms_ehrs/config/`: active tokenizer/model config files used by the benchmark.
-- `fms_ehrs/tests/unit/`: unit and contract tests.
-- `fms_ehrs/tests/dryrun/`: one dry-run wrapper per active script.
-- `notes/`: maintained notes.
-- `docs/`: inventory and structure docs.
-- `deprecated/`: retired CLIF/UCMC launchers, scripts, configs, and notes.
+- `fms_ehrs/framework/`, `fms_ehrs/scripts/`, `fms_ehrs/config/`: active benchmark path.
+- `fms_ehrs/tests/`: unit and dry-run checks for active scripts.
+- `notes/`, `docs/`: short reference notes.
+- `deprecated/`: retired CLIF/UCMC material.
 
-## Active path constraints
-
-- Package/import name stays `fms_ehrs`.
-- Active script filenames in `fms_ehrs/scripts/` stay stable.
-- Active YAML names in `fms_ehrs/config/` stay stable.
-
-## Reorg policy
-
-- Move benchmark-irrelevant residue to `deprecated/`.
-- Keep active script entrypoints fixed for cross-repo compatibility.
+Active script filenames and YAML names stay stable for cross-repo compatibility.
