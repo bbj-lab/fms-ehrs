@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-provides functionality related to saving data and artifacts
+provides functionality related to saving data and outputs
 """
 
 import functools
