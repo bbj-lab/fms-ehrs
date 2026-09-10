@@ -38,6 +38,7 @@
         "wandb",
         "xgboost>=2.1",
     ]
+    optional-dependencies = { clif-cocoa = [ "cocoa @ git+https://github.com/bbj-lab/cocoa.git@03f3f33f6e2ae8d2df2593966cc50bd500e57696" ] }
     license-files = [ "LICENSE.md" ]
     name = "fms-ehrs"
     readme = { file = "README.md", content-type = "text/markdown" }
