@@ -35,23 +35,26 @@ Archived scripts live under `deprecated/`. Script list:
 The paper trains 28 model settings for one epoch each:
 
 - **Exp1:** bin size, reference-range anchoring, fused vs unfused code/value tokens
-- **Exp2:** value methods (`discrete`, `soft`, `xval`, `xval_affine`) and time
+- **Exp2:** value methods (`discrete`, `soft`, `xval`) and time
   methods (`none`, `age`, `rope`)
-- **Exp3:** mapping arms (`native`, `clif_mapped`, `rand_mapped`, `freq_mapped`)
-  with `discrete + rope`
+- **Exp3:** matched native raw-MIMIC and full-CLIF arms with fixed
+  `deciles + unfused + discrete + time_tokens`
 
 There are 30 outcomes; each experiment evaluates 29 because the ICU outcome
 differs between Exp1–2 and Exp3.
 
-Exp3 tokenization reads only `LAB` and `VITAL` blocks
-(`fms_ehrs/config/mimic-meds-exp3-icu.yaml`).
+Exp3 collation is optional (`pip install "fms-ehrs[clif-cocoa]"`): the
+FMS-owned adapter uses Cocoa to collate ten declared raw CLIF tables, restores
+the frozen benchmark split, and writes standard MEDS files. Both Exp3 arms use
+`fms_ehrs/config/mimic-meds-exp3-full.yaml`; the old labs/vitals-only config
+remains for archival reproducibility only.
 
 ## Output contract
 
 | Output | Produced by | Used by |
 | --- | --- | --- |
 | `<data_version>-tokenized/train/vocab.gzip` | `tokenize_w_config.py` | training, extraction |
-| `<data_version>-tokenized/train/numeric_stats.json` | `tokenize_w_config.py` | `xval` / `xval_affine` |
+| `<data_version>-tokenized/train/numeric_stats.json` | `tokenize_w_config.py` | `xval` |
 | `<data_version>_first_24h-tokenized/<split>/tokens_timelines.parquet` | tokenization | extraction |
 | `<data_version>_first_24h-tokenized/<split>/tokens_timelines_outcomes.parquet` | benchmark outcome joiners | Stage 3 |
 | `<model_dir>/checkpoint-*` | training scripts | extraction |
@@ -73,8 +76,9 @@ reused after restarts.
 - Default extraction uses the final valid token before `TRUNC`, `TL_END`, or
   `PAD`. For causal LMs, that position has the widest left-context view of the
   window.
-- `xval` / `xval_affine` need both `numeric_stats.json` and
-  `representation_mechanics.pt`.
+- `xval` and `xval_affine` need both `numeric_stats.json` and
+  `representation_mechanics.pt`. Affine extraction also requires the trained
+  `num_bias` vector in that file.
 
 Paper stats, additional-run stats, and training-stability plots are assembled in
 the benchmark repo. Start with `Where to look first` there.

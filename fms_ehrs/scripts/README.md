@@ -7,6 +7,7 @@ Active entrypoints:
 
 | Script | Stage |
 | --- | --- |
+| `collate_clif_with_cocoa.py` | Exp3 pre-tokenization: freeze native H_ICU splits and adapt Cocoa-collated CLIF events |
 | `tokenize_w_config.py` | 0 |
 | `tune_model.py` | 1 (Exp1) |
 | `train_representation.py` | 1 (Exp2/Exp3) |
