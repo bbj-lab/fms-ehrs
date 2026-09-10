@@ -9,6 +9,7 @@ import os
 import pathlib
 import typing
 
+import numpy as np
 import polars as pl
 import ruamel.yaml as yaml
 
@@ -60,6 +61,7 @@ class Tokenizer21(BaseTokenizer):
         config_file: Pathlike = None,
         detect_discrete: bool = None,
         include_ref_ranges: bool = None,
+        deterministic_vocab: bool = False,
     ):
         self.config = yaml.YAML(typ="safe").load(
             pathlib.Path(config_file).expanduser().resolve()
@@ -110,6 +112,8 @@ class Tokenizer21(BaseTokenizer):
         )
         self.cut_at_24h: bool = cut_at_24h
         self.reference_frame = None
+        self.deterministic_vocab = deterministic_vocab
+        self._deterministic_vocab_prepared = vocab_path is not None
 
     def lazy_load(
         self,
@@ -156,6 +160,227 @@ class Tokenizer21(BaseTokenizer):
                 _eval_polars_exprs(agg_expr)
             )
         return df
+
+    @staticmethod
+    def _prefixed_word_expr(
+        value: pl.Expr,
+        prefix: str,
+        *,
+        lowercase: bool = False,
+        strip_periods: bool = False,
+    ) -> pl.Expr:
+        normalized = value.cast(pl.String).fill_null("None")
+        if lowercase:
+            normalized = normalized.str.to_lowercase()
+        normalized = normalized.str.replace_all(" ", "_")
+        if strip_periods:
+            normalized = normalized.str.strip_chars(".")
+        return pl.concat_str([pl.lit(f"{prefix}_"), normalized])
+
+    def _vocab_lookup_expr(self, word: pl.Expr) -> pl.Expr:
+        return word.replace_strict(
+            self.vocab.lookup,
+            default=self.vocab.lookup[None],
+        ).cast(pl.Int64)
+
+    def _event_frame(
+        self,
+        *,
+        table: str,
+        time: str,
+        filter_expr: str | list[str] | None = None,
+        with_col_expr: str | list[str] | None = None,
+        reference_key: str | None = None,
+        subject_id_str: str | None = None,
+        fix_date_to_time: bool | None = None,
+    ) -> pl.LazyFrame:
+        df = self.lazy_load(
+            table=table,
+            filter_expr=filter_expr,
+            with_col_expr=with_col_expr,
+            subject_id_str=subject_id_str,
+        )
+        if fix_date_to_time:
+            df = df.with_columns(
+                pl.col(time)
+                .cast(pl.Datetime(time_unit="ms"))
+                .dt.replace(hour=23, minute=59, second=59)
+            )
+        if reference_key is not None:
+            df = df.join(self.reference_frame, on=reference_key, how="inner").filter(
+                pl.col(time)
+                .cast(pl.Datetime(time_unit="ms"))
+                .is_between(
+                    self.config["reference"]["start_time"],
+                    self.config["reference"]["end_time"],
+                )
+            )
+        return df
+
+    def _numeric_event_frame(
+        self,
+        df: pl.LazyFrame,
+        *,
+        time: str,
+        code: str,
+        numeric_value: str,
+    ) -> pl.DataFrame:
+        columns: list[pl.Expr | str] = [
+            pl.col(self.config["subject_id"]),
+            pl.col(time).cast(pl.Datetime(time_unit="ms")).alias("event_time"),
+            self._prefixed_word_expr(
+                pl.col(code),
+                "",
+                lowercase=True,
+                strip_periods=True,
+            )
+            .str.strip_prefix("_")
+            .alias("category"),
+            pl.col(numeric_value).alias("value"),
+        ]
+        if self.include_ref_ranges and {
+            "ref_range_lower",
+            "ref_range_upper",
+        }.issubset(set(df.collect_schema().keys())):
+            columns += ["ref_range_lower", "ref_range_upper"]
+        return df.select(*columns).collect()
+
+    def _prepare_numeric_metadata(
+        self,
+        data: pl.DataFrame,
+        *,
+        prefix: str,
+    ) -> set[str]:
+        candidates: set[str] = set()
+        has_reference_ranges = self.include_ref_ranges and {
+            "ref_range_lower",
+            "ref_range_upper",
+        }.issubset(set(data.schema))
+
+        for category in sorted(
+            data.get_column("category").drop_nulls().unique().to_list()
+        ):
+            group = data.filter(pl.col("category") == category)
+            values = group.get_column("value").to_numpy()
+            reference_lower = reference_upper = None
+            if has_reference_ranges:
+                lower = group.select(pl.col("ref_range_lower").drop_nulls().mode())
+                upper = group.select(pl.col("ref_range_upper").drop_nulls().mode())
+                reference_lower = lower.row(0)[0] if lower.height else None
+                reference_upper = upper.row(0)[0] if upper.height else None
+
+            self.set_quants(
+                v=values,
+                c=category,
+                prefix=prefix,
+                ref_range_lower=reference_lower,
+                ref_range_upper=reference_upper,
+            )
+            candidates.add(f"{prefix}_{category}")
+
+            if self.fused_category_values:
+                designator = f"{prefix}_{category}"
+                quantiles = np.where(
+                    np.isfinite(values),
+                    self.digitize_quantiles(values, bins=self.vocab.get_aux(designator))
+                    if self.vocab.has_aux(designator)
+                    else self.vocab.lookup[None],
+                    self.vocab.lookup["nan"],
+                )
+                candidates.update(
+                    f"{prefix}_{category}_Q{int(quantile)}"
+                    for quantile in np.unique(quantiles)
+                )
+        return candidates
+
+    def _reference_vocab_candidates(self, reference: pl.LazyFrame) -> set[str]:
+        candidates: set[str] = set()
+        for end_type in ("prefix", "suffix"):
+            for column in self.config[end_type]:
+                name = column["column"]
+                prefix = column["prefix"]
+                if name.startswith("quantized"):
+                    if self.fused_category_values:
+                        words = reference.select(
+                            pl.concat_str(
+                                [
+                                    pl.lit(f"{prefix}_Q"),
+                                    pl.col(name).cast(pl.String),
+                                ]
+                            ).alias("word")
+                        )
+                    else:
+                        continue
+                elif column.get("is_list", False):
+                    words = reference.select(
+                        pl.col(name)
+                        .list.eval(
+                            self._prefixed_word_expr(pl.element(), prefix)
+                        )
+                        .alias("words")
+                    ).explode("words").rename({"words": "word"})
+                else:
+                    words = reference.select(
+                        self._prefixed_word_expr(pl.col(name), prefix).alias("word")
+                    )
+                candidates.update(words.collect().get_column("word").drop_nulls())
+        return candidates
+
+    def prepare_deterministic_vocabulary(self) -> None:
+        """Freeze a deterministic training vocabulary before bulk tokenization."""
+        if not self.deterministic_vocab or self._deterministic_vocab_prepared:
+            return
+        if not self.vocab.is_training:
+            self._deterministic_vocab_prepared = True
+            return
+
+        candidates = self._reference_vocab_candidates(self.get_reference_frame())
+        for event in self.config["events"]:
+            df = self._event_frame(
+                table=event["table"],
+                time=event["time"],
+                filter_expr=event.get("filter_expr"),
+                with_col_expr=event.get("with_col_expr"),
+                reference_key=event.get("reference_key"),
+                subject_id_str=event.get("subject_id_str"),
+                fix_date_to_time=event.get("fix_date_to_time"),
+            )
+            prefix = event.get("prefix")
+            numeric_value = event.get("numeric_value")
+            if numeric_value is not None:
+                candidates.update(
+                    self._prepare_numeric_metadata(
+                        self._numeric_event_frame(
+                            df,
+                            time=event["time"],
+                            code=event["code"],
+                            numeric_value=numeric_value,
+                        ),
+                        prefix=prefix,
+                    )
+                )
+                continue
+
+            category_list = [event["code"]]
+            if (text_value := event.get("text_value")) is not None:
+                category_list += (
+                    [text_value]
+                    if isinstance(text_value, str)
+                    else text_value
+                )
+            for category in category_list:
+                words = df.select(
+                    self._prefixed_word_expr(
+                        pl.col(category),
+                        prefix,
+                        strip_periods=True,
+                    ).alias("word")
+                )
+                candidates.update(words.collect().get_column("word").drop_nulls())
+
+        self.vocab.add_words(sorted(candidates))
+        self.vocab.is_training = False
+        self._deterministic_vocab_prepared = True
 
     def run_times_qc(self, reference_frame: Frame) -> Frame:
         return (
@@ -216,15 +441,71 @@ class Tokenizer21(BaseTokenizer):
             )  # note this is a no-op if quants are already set for AGE
             df = df.with_columns(quantized_age=self.get_quants(v=age, c="AGE"))
             if self.fused_category_values:
-                df = df.with_columns(
-                    pl.col("quantized_age").map_elements(
-                        lambda x: self.vocab(f"AGE_Q{x}"),
-                        return_dtype=pl.Int64,
-                        skip_nulls=False,
+                if self.deterministic_vocab:
+                    # Keep the quantile ordinal until prepare_deterministic_vocabulary()
+                    # allocates AGE_Q* tokens and get_end resolves them natively.
+                    df = df.with_columns(
+                        pl.col("quantized_age").cast(pl.Int64)
                     )
-                )
+                else:
+                    df = df.with_columns(
+                        pl.col("quantized_age").map_elements(
+                            lambda x: self.vocab(f"AGE_Q{x}"),
+                            return_dtype=pl.Int64,
+                            skip_nulls=False,
+                        )
+                    )
         self.reference_frame = self.run_times_qc(df)  # save to cache
         return self.reference_frame
+
+    def _end_token_expr(self, column: dict) -> pl.Expr:
+        name = column["column"]
+        prefix = column["prefix"]
+        if name.startswith("quantized"):
+            if self.deterministic_vocab and self.fused_category_values:
+                return self._vocab_lookup_expr(
+                    pl.concat_str(
+                        [
+                            pl.lit(f"{prefix}_Q"),
+                            pl.col(name).cast(pl.String),
+                        ]
+                    )
+                )
+            return pl.col(name).cast(pl.Int64)
+
+        if self.deterministic_vocab:
+            if column.get("is_list", False):
+                words = pl.col(name).list.eval(
+                    self._prefixed_word_expr(pl.element(), prefix)
+                )
+                return (
+                    pl.when(pl.col(name).is_null())
+                    .then(pl.lit([], dtype=pl.List(pl.Int64)))
+                    .otherwise(
+                        words.list.eval(self._vocab_lookup_expr(pl.element()))
+                    )
+                )
+            return self._vocab_lookup_expr(
+                self._prefixed_word_expr(pl.col(name), prefix)
+            )
+
+        if column.get("is_list", False):
+            return pl.col(name).map_elements(
+                lambda x: []
+                if x is None
+                else [self.vocab(f"{prefix}_{y}") for y in x],
+                return_dtype=pl.List(pl.Int64),
+                skip_nulls=False,
+            )
+        return (
+            pl.col(name)
+            .str.replace_all(" ", "_")
+            .map_elements(
+                lambda x: self.vocab(f"{prefix}_{x}"),
+                return_dtype=pl.Int64,
+                skip_nulls=False,
+            )
+        )
 
     def get_end(self, end_type: typing.Literal["prefix", "suffix"]) -> Frame:
         """create the prefix or suffix tokens"""
@@ -236,35 +517,7 @@ class Tokenizer21(BaseTokenizer):
         df = self.get_reference_frame().with_columns(
             pl.concat_list(
                 ([self.vocab("TL_START")] if end_type == "prefix" else [])
-                + [
-                    (
-                        (
-                            pl.col(col["column"])
-                            .str.replace_all(" ", "_")
-                            .map_elements(
-                                lambda x, prefix=col["prefix"]: self.vocab(
-                                    f"{prefix}_{x}"
-                                ),
-                                return_dtype=pl.Int64,
-                                skip_nulls=False,
-                            )
-                            if not col["column"].startswith("quantized")
-                            else pl.col(col["column"])
-                        )
-                        if "is_list" not in col or not col["is_list"]
-                        else pl.col(col["column"]).map_elements(
-                            # If the source list is null (e.g., the upstream dataset
-                            # does not include that code family), treat it as empty
-                            # rather than nulling-out the entire concat_list result.
-                            lambda x, prefix=col["prefix"]: []
-                            if x is None
-                            else [self.vocab(f"{prefix}_{y}") for y in x],
-                            return_dtype=pl.List(pl.Int64),
-                            skip_nulls=False,
-                        )
-                    )
-                    for col in self.config[end_type]
-                ]
+                + [self._end_token_expr(col) for col in self.config[end_type]]
                 + ([self.vocab("TL_END")] if end_type == "suffix" else [])
             ).alias("tokens")
         )
@@ -294,51 +547,27 @@ class Tokenizer21(BaseTokenizer):
         fix_date_to_time: bool = None,
     ) -> Frame | None:
         """create tokens corresponding to a configured event"""
-        df = self.lazy_load(
+        df = self._event_frame(
             table=table,
+            time=time,
             filter_expr=filter_expr,
             with_col_expr=with_col_expr,
+            reference_key=reference_key,
             subject_id_str=subject_id_str,
+            fix_date_to_time=fix_date_to_time,
         )
-        if fix_date_to_time:
-            # if a date was cast to a time,
-            # the default of 00:00:00 should be replaced with 23:59:59
-            df = df.with_columns(
-                pl.col(time)
-                .cast(pl.Datetime(time_unit="ms"))
-                .dt.replace(hour=23, minute=59, second=59)
-            )
-        if reference_key is not None:
-            df = df.join(self.reference_frame, on=reference_key, how="inner").filter(
-                pl.col(time)
-                .cast(pl.Datetime(time_unit="ms"))
-                .is_between(
-                    self.config["reference"]["start_time"],
-                    self.config["reference"]["end_time"],
-                )
-            )
         if numeric_value is not None:
-            cols = [
-                pl.col(self.config["subject_id"]),
-                pl.col(time).cast(pl.Datetime(time_unit="ms")).alias("event_time"),
-                pl.col(code)
-                .cast(str)
-                .str.to_lowercase()
-                .str.replace_all(" ", "_")
-                .str.strip_chars(".")
-                .alias("category"),
-                pl.col(numeric_value).alias("value"),
-            ]
-            if self.include_ref_ranges and {
-                "ref_range_lower",
-                "ref_range_upper",
-            }.issubset(set(df.collect_schema().keys())):
-                cols += ["ref_range_lower", "ref_range_upper"]
+            df_cv = self._numeric_event_frame(
+                df,
+                time=time,
+                code=code,
+                numeric_value=numeric_value,
+            )
             return (
                 self.process_cat_val_frame(df_cv, label=prefix).select(
                     self.config["subject_id"], "event_time", "tokens", "numeric_values"
                 )
-                if len(df_cv := df.select(*cols).collect()) > 0
+                if len(df_cv) > 0
                 else None
             )
         else:
@@ -347,25 +576,36 @@ class Tokenizer21(BaseTokenizer):
                 category_list += (
                     [text_value] if isinstance(text_value, str) else text_value
                 )
+            if self.deterministic_vocab:
+                token_exprs = [
+                    self._vocab_lookup_expr(
+                        self._prefixed_word_expr(
+                            pl.col(category),
+                            prefix,
+                            strip_periods=True,
+                        )
+                    )
+                    for category in category_list
+                ]
+            else:
+                token_exprs = [
+                    pl.col(category)
+                    .cast(str)
+                    .str.replace_all(" ", "_")
+                    .str.strip_chars(".")
+                    .map_elements(
+                        lambda x, prefix=prefix: self.vocab(f"{prefix}_{x}"),
+                        return_dtype=pl.Int64,
+                        skip_nulls=False,
+                    )
+                    for category in category_list
+                ]
             # tokenize provided categories directly
             return (
                 df.select(
                 pl.col(self.config["subject_id"]),
                 pl.col(time).cast(pl.Datetime(time_unit="ms")).alias("event_time"),
-                pl.concat_list(
-                    [
-                        pl.col(cat)
-                        .cast(str)
-                        .str.replace_all(" ", "_")
-                        .str.strip_chars(".")
-                        .map_elements(
-                            lambda x, prefix=prefix: self.vocab(f"{prefix}_{x}"),
-                            return_dtype=pl.Int64,
-                            skip_nulls=False,
-                        )
-                        for cat in category_list
-                    ]
-                ).alias("tokens"),
+                pl.concat_list(token_exprs).alias("tokens"),
             )
                 .with_columns(
                     numeric_values=pl.lit(None)
@@ -375,9 +615,66 @@ class Tokenizer21(BaseTokenizer):
                 .collect()
             )
 
+    def _insert_time_spacing_natively(self, event_rows: pl.LazyFrame) -> pl.LazyFrame:
+        previous_time = pl.col("event_time").shift(1).over(
+            self.config["subject_id"]
+        )
+        current_seconds = (
+            pl.col("event_time").cast(pl.Datetime(time_unit="ms")).cast(pl.Int64)
+            // 1000
+        )
+        previous_seconds = (
+            previous_time.cast(pl.Datetime(time_unit="ms")).cast(pl.Int64) // 1000
+        )
+        gap_seconds = (current_seconds - previous_seconds).alias("_gap_seconds")
+
+        gap_token: pl.Expr = pl.lit(None).cast(pl.Int64)
+        for breakpoint, token in zip(
+            self.t_breakpoints, self.t_tokens, strict=True
+        ):
+            gap_token = pl.when(pl.col("_gap_seconds") >= breakpoint).then(
+                pl.lit(self.vocab.lookup[token]).cast(pl.Int64)
+            ).otherwise(gap_token)
+
+        return (
+            event_rows.with_columns(_previous_time=previous_time)
+            .with_columns(gap_seconds)
+            .with_columns(_gap_token=gap_token)
+            .with_columns(
+                tokens=pl.when(pl.col("_gap_token").is_not_null())
+                .then(pl.concat_list("_gap_token", "tokens"))
+                .otherwise(pl.concat_list("tokens")),
+                times=pl.when(pl.col("_gap_token").is_not_null())
+                .then(pl.concat_list("event_time", "event_time"))
+                .otherwise(pl.concat_list("event_time")),
+                numeric_values=pl.when(pl.col("_gap_token").is_not_null())
+                .then(
+                    pl.concat_list(
+                        pl.lit(None).cast(pl.Float32),
+                        "numeric_values",
+                    )
+                )
+                .otherwise(pl.concat_list("numeric_values")),
+            )
+            .group_by(self.config["subject_id"], maintain_order=True)
+            .agg(
+                pl.col("tokens").flatten().alias("tokens"),
+                pl.col("times").flatten().alias("times"),
+                pl.col("numeric_values").flatten().alias("numeric_values"),
+            )
+            .with_columns(
+                pl.col("times")
+                .cast(pl.List(pl.Datetime(time_unit="ms")))
+                .alias("times"),
+                pl.col("numeric_values")
+                .cast(pl.List(pl.Float32))
+                .alias("numeric_values"),
+            )
+        )
+
     def get_events(self) -> Frame:
         """create all events as configured"""
-        event_tokens = (
+        event_rows = (
             pl.concat(
                 e
                 for evt in self.config["events"]
@@ -388,14 +685,18 @@ class Tokenizer21(BaseTokenizer):
             .sort("event_time", pl.col("tokens").list.first())
             .explode(["tokens", "numeric_values"])
             .filter(~pl.col("tokens").is_in([self.vocab(None), self.vocab("nan")]))
-            .group_by(self.config["subject_id"], maintain_order=True)
-            .agg(
-                "tokens",
-                pl.col("event_time").alias("times"),
-                pl.col("numeric_values").alias("numeric_values"),
-            )
         )
 
+        if self.deterministic_vocab and self.include_time_spacing_tokens:
+            return self._insert_time_spacing_natively(event_rows)
+
+        event_tokens = event_rows.group_by(
+            self.config["subject_id"], maintain_order=True
+        ).agg(
+            "tokens",
+            pl.col("event_time").alias("times"),
+            pl.col("numeric_values").alias("numeric_values"),
+        )
         if self.include_time_spacing_tokens:
             event_tokens = (
                 event_tokens.with_columns(
@@ -431,6 +732,7 @@ class Tokenizer21(BaseTokenizer):
 
     def get_tokens_timelines(self) -> Frame:
         """combine the prefix tokens, event tokens, and suffix tokens"""
+        self.prepare_deterministic_vocabulary()
         tt = (
             self.get_end("prefix")
             .with_columns(

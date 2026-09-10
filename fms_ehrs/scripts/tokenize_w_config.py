@@ -23,6 +23,13 @@ parser.add_argument("--data_dir", type=pathlib.Path, default="../../tmp-test/")
 parser.add_argument("--data_version_in", type=str, default="raw")
 parser.add_argument("--data_version_out", type=str, default="test")
 parser.add_argument("--vocab_path", type=pathlib.Path, default=None)
+parser.add_argument(
+    "--splits",
+    nargs="+",
+    choices=("train", "val", "test"),
+    default=("train", "val", "test"),
+    help="Tokenize only these splits; validation/test require an existing train vocabulary.",
+)
 parser.add_argument("--include_24h_cut", action="store_true")
 parser.add_argument(
     "--only_24h_cut",
@@ -31,6 +38,23 @@ parser.add_argument(
         "If set, ONLY write <data_version_out>_first_24h-tokenized outputs and skip "
         "writing <data_version_out>-tokenized outputs. This avoids tokenizing the "
         "full-length timelines when downstream stages only consume the 24h-cut data."
+    ),
+)
+parser.add_argument(
+    "--skip_summary",
+    action="store_true",
+    help=(
+        "Skip descriptive token/timeline reporting. This avoids expanding full-length "
+        "timelines solely for logging."
+    ),
+)
+parser.add_argument(
+    "--deterministic_vocab",
+    action=argparse.BooleanOptionalAction,
+    default=False,
+    help=(
+        "Build the training vocabulary before bulk tokenization, then use native "
+        "Polars lookups and time-spacing operations."
     ),
 )
 parser.add_argument(
@@ -93,257 +117,189 @@ args, unknowns = parser.parse_known_args()
 for k, v in vars(args).items():
     logger.info(f"{k}: {v}")
 
+
+def summarize_if_enabled(tokenizer: Tokenizer21, timelines: pl.DataFrame) -> None:
+    if args.skip_summary:
+        logger.info("Skipping timeline summary.")
+    else:
+        summarize(tokenizer, timelines, logger=logger)
+
+
 # make output sub-directories
 data_dir = pathlib.Path(args.data_dir).expanduser().resolve()
-splits = ("train", "val", "test")
+all_splits = ("train", "val", "test")
+requested_splits = tuple(split for split in all_splits if split in args.splits)
 
-dirs_in = dict()
-dirs_out = dict()
-dirs_out_24h = dict()
-for s in splits:
-    # Input layout:
-    # - CLIF typically uses versioned dirs: <data_dir>/<data_version_in>/<split>/
-    # - MEDS extraction pipelines often place shards directly under: <data_dir>/<split>/
-    #   (no "raw/" version directory). For convenience and backwards compatibility,
-    #   if data_version_in=="raw" and <data_dir>/raw does not exist, we fall back
-    #   to the no-version layout.
-    base_in = data_dir.joinpath(args.data_version_in)
-    if args.data_version_in == "raw" and not base_in.exists():
-        base_in = data_dir
+dirs_in: dict[str, pathlib.Path] = {}
+dirs_out: dict[str, pathlib.Path] = {}
+dirs_out_24h: dict[str, pathlib.Path] = {}
+base_in = data_dir.joinpath(args.data_version_in)
+if args.data_version_in == "raw" and not base_in.exists():
+    base_in = data_dir
 
-    # MEDS pipelines sometimes name validation split `tuning` instead of `val`.
-    split_in = s
-    if s == "val":
-        cand = base_in.joinpath(s)
-        if not cand.exists():
-            split_in = "tuning"
-    dirs_in[s] = base_in.joinpath(split_in)
-
+for split in all_splits:
+    split_in = "tuning" if split == "val" and not base_in.joinpath("val").exists() else split
+    dirs_in[split] = base_in.joinpath(split_in)
+    if split not in requested_splits:
+        continue
     if not args.only_24h_cut:
-        dirs_out[s] = data_dir.joinpath(args.data_version_out + "-tokenized", s)
-        dirs_out[s].mkdir(exist_ok=True, parents=True)
-        fix_perms(data_dir.joinpath(args.data_version_out + "-tokenized"))
-        fix_perms(dirs_out[s])
-
+        dirs_out[split] = data_dir.joinpath(f"{args.data_version_out}-tokenized", split)
+        dirs_out[split].mkdir(exist_ok=True, parents=True)
+        fix_perms(data_dir.joinpath(f"{args.data_version_out}-tokenized"))
+        fix_perms(dirs_out[split])
     if args.include_24h_cut or args.only_24h_cut:
-        dirs_out_24h[s] = data_dir.joinpath(args.data_version_out + "_first_24h-tokenized", s)
-        dirs_out_24h[s].mkdir(exist_ok=True, parents=True)
-        fix_perms(data_dir.joinpath(args.data_version_out + "_first_24h-tokenized"))
-        fix_perms(dirs_out_24h[s])
+        dirs_out_24h[split] = data_dir.joinpath(
+            f"{args.data_version_out}_first_24h-tokenized", split
+        )
+        dirs_out_24h[split].mkdir(exist_ok=True, parents=True)
+        fix_perms(data_dir.joinpath(f"{args.data_version_out}_first_24h-tokenized"))
+        fix_perms(dirs_out_24h[split])
+
+
+def tokenizer_for(
+    split: str,
+    *,
+    vocab_path: pathlib.Path | None,
+    cut_at_24h: bool,
+) -> Tokenizer21:
+    return Tokenizer21(
+        data_dir=dirs_in[split],
+        vocab_path=vocab_path,
+        cut_at_24h=cut_at_24h,
+        config_file=args.config_loc,
+        max_padded_len=args.max_padded_len,
+        quantizer=args.quantizer,
+        clinical_anchoring=args.clinical_anchoring,
+        numeric_encoding=args.numeric_encoding,
+        include_ref_ranges=args.include_ref_ranges,
+        include_time_spacing_tokens=args.include_time_spacing_tokens,
+        fused_category_values=args.fused_category_values,
+        detect_discrete=args.detect_discrete,
+        deterministic_vocab=args.deterministic_vocab,
+    )
+
+
+def truncate_only(timelines: pl.DataFrame, tokenizer: Tokenizer21) -> pl.DataFrame:
+    if args.max_padded_len is None:
+        return timelines
+    max_len = int(args.max_padded_len)
+    trunc_id = tokenizer.vocab("TRUNC")
+    return (
+        timelines.lazy()
+        .with_columns(seq_len=pl.col("tokens").list.len())
+        .with_columns(
+            tokens=pl.when(pl.col("seq_len") > max_len)
+            .then(
+                pl.concat_list(
+                    pl.col("tokens").list.slice(offset=0, length=max_len - 1),
+                    pl.lit(trunc_id),
+                )
+            )
+            .otherwise(pl.col("tokens")),
+            times=pl.when(pl.col("seq_len") > max_len)
+            .then(
+                pl.concat_list(
+                    pl.col("times").list.slice(offset=0, length=max_len - 1),
+                    pl.lit(None).cast(pl.Datetime(time_unit="ms")),
+                )
+            )
+            .otherwise(pl.col("times")),
+            numeric_values=pl.when(pl.col("seq_len") > max_len)
+            .then(
+                pl.concat_list(
+                    pl.col("numeric_values").list.slice(offset=0, length=max_len - 1),
+                    pl.lit(None).cast(pl.Float32),
+                )
+            )
+            .otherwise(pl.col("numeric_values")),
+        )
+        .drop("seq_len")
+        .collect()
+    )
+
+
+def configured_vocab_path(*, first_24h: bool) -> pathlib.Path | None:
+    if args.vocab_path is not None:
+        return pathlib.Path(args.vocab_path).expanduser().resolve()
+    suffix = "_first_24h-tokenized" if first_24h else "-tokenized"
+    path = data_dir / f"{args.data_version_out}{suffix}" / "train" / "vocab.gzip"
+    return path if path.exists() else None
+
+
+provided_vocab_path = (
+    pathlib.Path(args.vocab_path).expanduser().resolve()
+    if args.vocab_path is not None
+    else None
+)
+
+
+def save_training_metadata(tokenizer: Tokenizer21, output_dir: pathlib.Path) -> None:
+    tokenizer.vocab.save(output_dir / "vocab.gzip")
+    tokenizer.save_numeric_stats(output_dir / "numeric_stats.json")
+    fix_perms(output_dir / "numeric_stats.json")
+
 
 if args.only_24h_cut:
-    # Tokenize directly with a 24h cut to avoid materializing full-length timelines.
-    logger.info("train (24h cut only) ...")
-    tkzr = Tokenizer21(
-        data_dir=dirs_in["train"],
-        vocab_path=(
-            pathlib.Path(args.vocab_path).expanduser().resolve()
-            if args.vocab_path is not None
-            else None
-        ),
-        cut_at_24h=True,
-        config_file=args.config_loc,
-        max_padded_len=args.max_padded_len,
-        quantizer=args.quantizer,
-        clinical_anchoring=args.clinical_anchoring,
-        numeric_encoding=args.numeric_encoding,
-        include_ref_ranges=args.include_ref_ranges,
-        include_time_spacing_tokens=args.include_time_spacing_tokens,
-        fused_category_values=args.fused_category_values,
-        detect_discrete=args.detect_discrete,
-    )
-    tokens_timelines_24h = tkzr.get_tokens_timelines()
-    summarize(tkzr, tokens_timelines_24h, logger=logger)
-    # IMPORTANT (Stage0E use-case): do NOT materialize a fully-padded (max_len) column
-    # for all timelines at tokenization time. For large cohorts and max_padded_len=4096,
-    # writing padded sequences to parquet is prohibitively expensive (I/O + storage).
-    #
-    # Instead, we only truncate sequences that exceed max_padded_len (by appending TRUNC),
-    # and downstream scripts (e.g., extract_hidden_states.py) dynamically pad per-batch.
-    if args.max_padded_len is not None:
-        max_len = int(args.max_padded_len)
-        trunc_id = tkzr.vocab("TRUNC")
-        tokens_timelines_24h = (
-            tokens_timelines_24h.lazy()
-            .with_columns(seq_len=pl.col("tokens").list.len())
-            .with_columns(
-                tokens=pl.when(pl.col("seq_len") > max_len)
-                .then(
-                    pl.concat_list(
-                        pl.col("tokens").list.slice(offset=0, length=max_len - 1),
-                        pl.lit(trunc_id),
-                    )
-                )
-                .otherwise(pl.col("tokens")),
-                times=pl.when(pl.col("seq_len") > max_len)
-                .then(
-                    pl.concat_list(
-                        pl.col("times").list.slice(offset=0, length=max_len - 1),
-                        pl.lit(None).cast(pl.Datetime(time_unit="ms")),
-                    )
-                )
-                .otherwise(pl.col("times")),
-                numeric_values=pl.when(pl.col("seq_len") > max_len)
-                .then(
-                    pl.concat_list(
-                        pl.col("numeric_values").list.slice(offset=0, length=max_len - 1),
-                        pl.lit(None).cast(pl.Float32),
-                    )
-                )
-                .otherwise(pl.col("numeric_values")),
-            )
-            .drop("seq_len")
-            .collect()
+    for split in requested_splits:
+        is_train = split == "train"
+        vocab_path = (
+            provided_vocab_path
+            if is_train
+            else configured_vocab_path(first_24h=True)
         )
-    set_perms(tokens_timelines_24h.write_parquet)(
-        dirs_out_24h["train"].joinpath("tokens_timelines.parquet")
-    )
-    tkzr.vocab.save(dirs_out_24h["train"].joinpath("vocab.gzip"))
-    tkzr.save_numeric_stats(dirs_out_24h["train"].joinpath("numeric_stats.json"))
-    fix_perms(dirs_out_24h["train"].joinpath("numeric_stats.json"))
-
-    # take the learned/fixed tokenizer and tokenize the validation and test sets
-    train_vocab_path = (
-        pathlib.Path(args.vocab_path).expanduser().resolve()
-        if args.vocab_path is not None
-        else data_dir.joinpath(f"{args.data_version_out}_first_24h-tokenized", "train", "vocab.gzip")
-    )
-    for s in ("val", "test"):
-        logger.info(f"{s} (24h cut only) ...")
-        tkzr = Tokenizer21(
-            data_dir=dirs_in[s],
-            vocab_path=train_vocab_path,
+        if not is_train and vocab_path is None:
+            raise FileNotFoundError(
+                "Validation/test tokenization requires the existing train 24h vocabulary."
+            )
+        logger.info(f"{split} (24h cut only) ...")
+        tokenizer = tokenizer_for(
+            split,
+            vocab_path=vocab_path,
             cut_at_24h=True,
-            config_file=args.config_loc,
-            max_padded_len=args.max_padded_len,
-            quantizer=args.quantizer,
-            clinical_anchoring=args.clinical_anchoring,
-            numeric_encoding=args.numeric_encoding,
-            include_ref_ranges=args.include_ref_ranges,
-            include_time_spacing_tokens=args.include_time_spacing_tokens,
-            fused_category_values=args.fused_category_values,
-            detect_discrete=args.detect_discrete,
         )
-        tokens_timelines_24h = tkzr.get_tokens_timelines()
-        summarize(tkzr, tokens_timelines_24h, logger=logger)
-        if args.max_padded_len is not None:
-            max_len = int(args.max_padded_len)
-            trunc_id = tkzr.vocab("TRUNC")
-            tokens_timelines_24h = (
-                tokens_timelines_24h.lazy()
-                .with_columns(seq_len=pl.col("tokens").list.len())
-                .with_columns(
-                    tokens=pl.when(pl.col("seq_len") > max_len)
-                    .then(
-                        pl.concat_list(
-                            pl.col("tokens").list.slice(offset=0, length=max_len - 1),
-                            pl.lit(trunc_id),
-                        )
-                    )
-                    .otherwise(pl.col("tokens")),
-                    times=pl.when(pl.col("seq_len") > max_len)
-                    .then(
-                        pl.concat_list(
-                            pl.col("times").list.slice(offset=0, length=max_len - 1),
-                            pl.lit(None).cast(pl.Datetime(time_unit="ms")),
-                        )
-                    )
-                    .otherwise(pl.col("times")),
-                    numeric_values=pl.when(pl.col("seq_len") > max_len)
-                    .then(
-                        pl.concat_list(
-                            pl.col("numeric_values").list.slice(offset=0, length=max_len - 1),
-                            pl.lit(None).cast(pl.Float32),
-                        )
-                    )
-                    .otherwise(pl.col("numeric_values")),
-                )
-                .drop("seq_len")
-                .collect()
-            )
-        set_perms(tokens_timelines_24h.write_parquet)(
-            dirs_out_24h[s].joinpath("tokens_timelines.parquet")
+        timelines = truncate_only(tokenizer.get_tokens_timelines(), tokenizer)
+        summarize_if_enabled(tokenizer, timelines)
+        set_perms(timelines.write_parquet)(
+            dirs_out_24h[split] / "tokens_timelines.parquet"
         )
+        if is_train:
+            save_training_metadata(tokenizer, dirs_out_24h[split])
 else:
-    # tokenize training set (full timelines)
-    tkzr = Tokenizer21(
-        data_dir=dirs_in["train"],
-        vocab_path=(
-            pathlib.Path(args.vocab_path).expanduser().resolve()
-            if args.vocab_path is not None
-            else None
-        ),
-        cut_at_24h=False,
-        config_file=args.config_loc,
-        max_padded_len=args.max_padded_len,
-        quantizer=args.quantizer,
-        clinical_anchoring=args.clinical_anchoring,
-        numeric_encoding=args.numeric_encoding,
-        include_ref_ranges=args.include_ref_ranges,
-        include_time_spacing_tokens=args.include_time_spacing_tokens,
-        fused_category_values=args.fused_category_values,
-        detect_discrete=args.detect_discrete,
-    )
-    tokens_timelines = tkzr.get_tokens_timelines()
-    logger.info("train...")
-    summarize(tkzr, tokens_timelines, logger=logger)
-    tokens_timelines = tkzr.pad_and_truncate(tokens_timelines)
-    set_perms(tokens_timelines.write_parquet)(
-        dirs_out["train"].joinpath("tokens_timelines.parquet")
-    )
-    tkzr.vocab.save(dirs_out["train"].joinpath("vocab.gzip"))
-    # Save raw-value numeric stats (train split) for quantizer/anchoring-independent scaling.
-    tkzr.save_numeric_stats(dirs_out["train"].joinpath("numeric_stats.json"))
-    fix_perms(dirs_out["train"].joinpath("numeric_stats.json"))
-
-    if args.include_24h_cut:
-        tokens_timelines_24h = tkzr.cut_at_time(tokens_timelines)
-        logger.info("24h cut...")
-        summarize(tkzr, tokens_timelines_24h, logger=logger)
-        tokens_timelines_24h = tkzr.pad_and_truncate(tokens_timelines_24h)
-        set_perms(tokens_timelines_24h.write_parquet)(
-            dirs_out_24h["train"].joinpath("tokens_timelines.parquet")
+    for split in requested_splits:
+        is_train = split == "train"
+        vocab_path = (
+            provided_vocab_path
+            if is_train
+            else configured_vocab_path(first_24h=False)
         )
-        tkzr.vocab.save(dirs_out_24h["train"].joinpath("vocab.gzip"))
-        tkzr.save_numeric_stats(dirs_out_24h["train"].joinpath("numeric_stats.json"))
-        fix_perms(dirs_out_24h["train"].joinpath("numeric_stats.json"))
-
-    # take the learned tokenizer and tokenize the validation and test sets
-    for s in ("val", "test"):
-        tkzr = Tokenizer21(
-            data_dir=dirs_in[s],
-            vocab_path=(
-                pathlib.Path(args.vocab_path).expanduser().resolve()
-                if args.vocab_path is not None
-                else data_dir.joinpath(
-                    f"{args.data_version_out}-tokenized", "train", "vocab.gzip"
-                )
-            ),
-            cut_at_24h=False,
-            config_file=args.config_loc,
-            max_padded_len=args.max_padded_len,
-            quantizer=args.quantizer,
-            clinical_anchoring=args.clinical_anchoring,
-            numeric_encoding=args.numeric_encoding,
-            include_ref_ranges=args.include_ref_ranges,
-            include_time_spacing_tokens=args.include_time_spacing_tokens,
-            fused_category_values=args.fused_category_values,
-            detect_discrete=args.detect_discrete,
-        )
-        tokens_timelines = tkzr.get_tokens_timelines()
-        logger.info(f"{s}...")
-        summarize(tkzr, tokens_timelines, logger=logger)
-        tokens_timelines = tkzr.pad_and_truncate(tokens_timelines)
-        set_perms(tokens_timelines.write_parquet)(
-            dirs_out[s].joinpath("tokens_timelines.parquet")
-        )
-        if args.include_24h_cut:
-            tokens_timelines_24h = tkzr.cut_at_time(tokens_timelines)
-            logger.info("24h cut...")
-            summarize(tkzr, tokens_timelines_24h, logger=logger)
-            tokens_timelines_24h = tkzr.pad_and_truncate(tokens_timelines_24h)
-            set_perms(tokens_timelines_24h.write_parquet)(
-                dirs_out_24h[s].joinpath("tokens_timelines.parquet")
+        if not is_train and vocab_path is None:
+            raise FileNotFoundError(
+                "Validation/test tokenization requires the existing train full vocabulary."
             )
+        tokenizer = tokenizer_for(
+            split,
+            vocab_path=vocab_path,
+            cut_at_24h=False,
+        )
+        timelines = tokenizer.get_tokens_timelines()
+        logger.info(f"{split}...")
+        summarize_if_enabled(tokenizer, timelines)
+        timelines = tokenizer.pad_and_truncate(timelines)
+        set_perms(timelines.write_parquet)(
+            dirs_out[split] / "tokens_timelines.parquet"
+        )
+        if is_train:
+            save_training_metadata(tokenizer, dirs_out[split])
+
+        if args.include_24h_cut:
+            timelines_24h = tokenizer.cut_at_time(timelines)
+            logger.info("24h cut...")
+            summarize_if_enabled(tokenizer, timelines_24h)
+            timelines_24h = tokenizer.pad_and_truncate(timelines_24h)
+            set_perms(timelines_24h.write_parquet)(
+                dirs_out_24h[split] / "tokens_timelines.parquet"
+            )
+            if is_train:
+                save_training_metadata(tokenizer, dirs_out_24h[split])
 
 logger.info("---fin")
