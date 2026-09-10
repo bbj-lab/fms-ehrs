@@ -72,8 +72,11 @@ class TestPredictionAggregation(unittest.TestCase):
 
             self.assertIn("roc_auc", set(metrics_df["metric"]))
             self.assertIn("pr_auc", set(metrics_df["metric"]))
+            self.assertFalse(metrics_df["ci_lo"].isna().all())
             self.assertIn("p_raw", pairwise_df.columns)
             self.assertIn("p_adj", pairwise_df.columns)
+            self.assertTrue(pairwise_df["delta_ci_lo_raw"].isna().all())
+            self.assertTrue(pairwise_df["delta_ci_hi_raw"].isna().all())
             self.assertEqual(set(pairwise_df["handle0"]), {"baseline"})
             self.assertEqual(set(pairwise_df["handle1"]), {"candidate"})
 

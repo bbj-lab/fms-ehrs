@@ -38,6 +38,7 @@ import polars as pl
 import scipy.stats
 from sklearn import metrics as skl_mets
 
+from fms_ehrs.framework.artifacts import model_artifact_stem
 from fms_ehrs.framework.logger import get_logger
 from fms_ehrs.framework.plotting import (
     plot_calibration_curve,
@@ -343,6 +344,9 @@ def _derive_pred_paths(
     model_loc: pathlib.Path,
 ) -> list[pathlib.Path]:
     paths: list[pathlib.Path] = []
+    # Only the run's own stem is accepted. Resolved-checkpoint fallbacks are
+    # ambiguous whenever several runs publish the same checkpoint basename.
+    model_stems = [model_artifact_stem(model_loc)]
     for dv in data_versions:
         test_dir = data_dir.joinpath(f"{dv}-tokenized", "test")
         classifier_prefixes = [classifier]
@@ -351,10 +355,11 @@ def _derive_pred_paths(
 
         matches: list[pathlib.Path] = []
         for prefix in classifier_prefixes:
-            legacy = test_dir.joinpath(f"{prefix}-preds-{model_loc.stem}.pkl")
-            if legacy.exists():
-                matches.append(legacy)
-            matches.extend(sorted(test_dir.glob(f"{prefix}-preds-*-{model_loc.stem}.pkl")))
+            for model_stem in model_stems:
+                legacy = test_dir.joinpath(f"{prefix}-preds-{model_stem}.pkl")
+                if legacy.exists():
+                    matches.append(legacy)
+                matches.extend(sorted(test_dir.glob(f"{prefix}-preds-*-{model_stem}.pkl")))
 
         deduped_matches = list(dict.fromkeys(matches))
         if len(deduped_matches) == 1:
@@ -363,12 +368,12 @@ def _derive_pred_paths(
         if len(deduped_matches) == 0:
             raise FileNotFoundError(
                 f"No prediction pickle found for data_version={dv!r}, classifier={classifier!r}, "
-                f"model={model_loc.stem!r} under {test_dir}. "
+                f"model={model_artifact_stem(model_loc)!r} under {test_dir}. "
                 "Provide --pred_paths explicitly if you are using a nonstandard layout."
             )
         raise ValueError(
             f"Multiple tagged prediction pickles match data_version={dv!r}, classifier={classifier!r}, "
-            f"model={model_loc.stem!r} under {test_dir}: {[p.name for p in deduped_matches]}. "
+                f"model={model_artifact_stem(model_loc)!r} under {test_dir}: {[p.name for p in deduped_matches]}. "
             "Provide --pred_paths explicitly."
         )
     return paths
@@ -539,6 +544,12 @@ def main() -> int:
     parser.add_argument("--out_dir", type=pathlib.Path, default=pathlib.Path("./aggregation"))
     parser.add_argument("--alpha", type=float, default=0.05)
     parser.add_argument("--bootstrap_n", type=int, default=2000)
+    parser.add_argument(
+        "--pairwise_bootstrap_n",
+        type=int,
+        default=0,
+        help="Bootstrap samples for pairwise delta CIs. Defaults to 0 because family-level summaries only need metric CIs.",
+    )
     parser.add_argument("--permutation_n", type=int, default=2000)
     parser.add_argument("--ece_bins", type=int, default=15)
     parser.add_argument("--alternative", choices=["one-sided", "two-sided"], default="two-sided")
@@ -571,7 +582,7 @@ def main() -> int:
                 "--data_dir/--data_versions/--classifier/--model_loc/--handles set."
             )
         data_dir = pathlib.Path(args.data_dir).expanduser().resolve()
-        model_loc = pathlib.Path(args.model_loc).expanduser().resolve()
+        model_loc = pathlib.Path(args.model_loc).expanduser()
         pred_paths = _derive_pred_paths(
             data_dir=data_dir,
             data_versions=list(args.data_versions),
@@ -702,16 +713,19 @@ def main() -> int:
                     metric0 = float("nan")
                     metric1 = float("nan")
                     delta = float("nan")
-                ci_lo, ci_hi = _paired_bootstrap_diff_ci(
-                    y_true,
-                    y0,
-                    y1,
-                    metric_fn=spec.fn,
-                    n_samples=int(args.bootstrap_n),
-                    alpha=float(args.alpha),
-                    seed=123,
-                    require_two_classes=require_two_classes,
-                )
+                if int(args.pairwise_bootstrap_n) > 0:
+                    ci_lo, ci_hi = _paired_bootstrap_diff_ci(
+                        y_true,
+                        y0,
+                        y1,
+                        metric_fn=spec.fn,
+                        n_samples=int(args.pairwise_bootstrap_n),
+                        alpha=float(args.alpha),
+                        seed=123,
+                        require_two_classes=require_two_classes,
+                    )
+                else:
+                    ci_lo, ci_hi = float("nan"), float("nan")
                 p_raw = _paired_permutation_pval(
                     y_true,
                     y0,
