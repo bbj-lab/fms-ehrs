@@ -9,6 +9,14 @@
       ]
     },
     {
+      "script": "fms_ehrs/scripts/collate_clif_with_cocoa.py",
+      "dryrun": "fms_ehrs/tests/dryrun/run_fms_ehrs__scripts__collate_clif_with_cocoa.sh",
+      "mode": "execute",
+      "args": [
+        "--help"
+      ]
+    },
+    {
       "script": "fms_ehrs/scripts/eval_token_ce.py",
       "dryrun": "fms_ehrs/tests/dryrun/run_fms_ehrs__scripts__eval_token_ce.sh",
       "mode": "compile",

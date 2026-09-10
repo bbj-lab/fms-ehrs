@@ -1,0 +1,92 @@
+%YAML 1.2
+---
+# Shared Exp3 tokenizer for the frozen H_ICU raw-MIMIC and Cocoa-collated CLIF
+# arms. Both inputs expose the benchmark MEDS columns:
+# subject_id, hadm_id, time, code, numeric_value, text_value.
+#
+# The Exp3 anchor is fixed: population deciles, no reference-range anchoring,
+# unfused discrete value tokens, and explicit time-spacing tokens.
+subject_id: hadm_id
+group_id: subject_id
+
+options:
+  day_stay_filter: !!bool true
+  max_padded_len: !!int 4096
+  quantizer: deciles
+  clinical_anchoring: none
+  include_ref_ranges: !!bool false
+  include_time_spacing_tokens: !!bool true
+  fused_category_values: !!bool false
+  numeric_encoding: quantile
+
+reference:
+  table: meds
+  filter_expr:
+    - pl.col("hadm_id").is_not_null()
+    - pl.col("code").str.starts_with("HOSPITAL_ADMISSION//")
+  with_col_expr:
+    - pl.col("time").alias("admission_time")
+    - pl.col("code").str.split("//").list.get(1).alias("admission_type")
+  start_time: admission_time
+  end_time: discharge_time
+  augmentation_tables:
+    - table: meds
+      key: hadm_id
+      filter_expr:
+        - pl.col("hadm_id").is_not_null()
+        - pl.col("code").str.starts_with("HOSPITAL_DISCHARGE//")
+      validation: "1:1"
+      agg_expr:
+        - pl.col("time").first().alias("discharge_time")
+        - pl.col("code").str.split("//").list.get(1).first().alias("discharge_type")
+
+prefix:
+  - column: admission_type
+    prefix: ADMISSION
+
+events:
+  # Numeric events are quantized per code. Categorical events remain discrete
+  # code/text tokens, so no null numeric values enter the numeric quantizer.
+  - table: meds
+    prefix: EVENT
+    filter_expr:
+      - pl.col("hadm_id").is_not_null()
+      - pl.col("code").is_not_null()
+      - ~pl.col("code").str.starts_with("HOSPITAL_ADMISSION//")
+      - ~pl.col("code").str.starts_with("HOSPITAL_DISCHARGE//")
+      - pl.col("numeric_value").is_not_null()
+    code: code
+    numeric_value: numeric_value
+    time: time
+    reference_key: hadm_id
+
+  - table: meds
+    prefix: EVENT
+    filter_expr:
+      - pl.col("hadm_id").is_not_null()
+      - pl.col("code").is_not_null()
+      - ~pl.col("code").str.starts_with("HOSPITAL_ADMISSION//")
+      - ~pl.col("code").str.starts_with("HOSPITAL_DISCHARGE//")
+      - pl.col("numeric_value").is_null()
+      - 'pl.col("text_value").is_null() | pl.col("text_value").cast(pl.String).str.strip_chars().str.to_lowercase().is_in(["", "none", "null", "nan"])'
+    code: code
+    time: time
+    reference_key: hadm_id
+
+  - table: meds
+    prefix: EVENT
+    filter_expr:
+      - pl.col("hadm_id").is_not_null()
+      - pl.col("code").is_not_null()
+      - ~pl.col("code").str.starts_with("HOSPITAL_ADMISSION//")
+      - ~pl.col("code").str.starts_with("HOSPITAL_DISCHARGE//")
+      - pl.col("numeric_value").is_null()
+      - 'pl.col("text_value").is_not_null() & ~pl.col("text_value").cast(pl.String).str.strip_chars().str.to_lowercase().is_in(["", "none", "null", "nan"])'
+    code: code
+    text_value: text_value
+    time: time
+    reference_key: hadm_id
+
+suffix:
+  - column: discharge_type
+    prefix: DISCHARGE

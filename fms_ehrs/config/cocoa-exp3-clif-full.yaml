@@ -1,0 +1,339 @@
+%YAML 1.2
+---
+# Locked Exp3 CLIF 2.1 collation policy.
+#
+# This file is intentionally owned by fms-ehrs.  It uses Cocoa only as a
+# library and never asks Cocoa to create chronological train/tuning/test splits.
+# The FMS adapter applies the frozen H_ICU patient split after collation.
+subject_id: hospitalization_id
+group_id: patient_id
+
+reference:
+  table: clif_hospitalization
+  start_time: admission_dttm
+  end_time: discharge_dttm
+
+entries:
+  # Keep reference events first so their hospital windows are established before
+  # the patient-keyed code-status join.
+  - table: REFERENCE
+    prefix: HOSPITAL_ADMISSION
+    code: admission_type_category
+    time: admission_dttm
+
+  - table: REFERENCE
+    prefix: HOSPITAL_DISCHARGE
+    code: discharge_category
+    time: discharge_dttm
+
+  # 1. ADT
+  - table: clif_adt
+    prefix: ADT-IN
+    code: location_category
+    time: in_dttm
+    reference_key: hospitalization_id
+
+  - table: clif_adt
+    prefix: ADT-OUT
+    code: location_category
+    time: out_dttm
+    reference_key: hospitalization_id
+
+  # 2. Labs
+  - table: clif_labs
+    prefix: LAB-ORDER
+    code: lab_category
+    time: lab_order_dttm
+    reference_key: hospitalization_id
+
+  - table: clif_labs
+    prefix: LAB-RESULT
+    code: lab_category
+    numeric_value: lab_value_numeric
+    time: lab_result_dttm
+    reference_key: hospitalization_id
+
+  # 3. Vitals
+  - table: clif_vitals
+    prefix: VITAL
+    code: vital_category
+    numeric_value: vital_value
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  # 4. Patient assessments
+  - table: clif_patient_assessments
+    prefix: ASSESSMENT
+    filter_expr: pl.col("numerical_value").is_not_null()
+    code: assessment_category
+    numeric_value: numerical_value
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  - table: clif_patient_assessments
+    prefix: ASSESSMENT
+    filter_expr:
+      - pl.col("numerical_value").is_null()
+      - pl.col("categorical_value").is_not_null()
+    code: assessment_category
+    text_value: categorical_value
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  # 5. Position
+  - table: clif_position
+    prefix: POSITION
+    code: position_category
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  # 6. Raw respiratory support; do not use the derived *_processed table.
+  - table: clif_respiratory_support
+    prefix: RESP
+    code: device_category
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  - table: clif_respiratory_support
+    prefix: RESP
+    code: mode_category
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  - table: clif_respiratory_support
+    prefix: RESP
+    filter_expr: pl.col("tracheostomy") == True
+    with_col_expr: pl.lit("tracheostomy_present").alias("event_code")
+    code: event_code
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  - table: clif_respiratory_support
+    prefix: RESP
+    filter_expr: pl.col("fio2_set").is_finite()
+    with_col_expr: pl.lit("fio2_set").alias("event_code")
+    code: event_code
+    numeric_value: fio2_set
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  - table: clif_respiratory_support
+    prefix: RESP
+    filter_expr: pl.col("lpm_set").is_finite()
+    with_col_expr: pl.lit("lpm_set").alias("event_code")
+    code: event_code
+    numeric_value: lpm_set
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  - table: clif_respiratory_support
+    prefix: RESP
+    filter_expr: pl.col("tidal_volume_set").is_finite()
+    with_col_expr: pl.lit("tidal_volume_set").alias("event_code")
+    code: event_code
+    numeric_value: tidal_volume_set
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  - table: clif_respiratory_support
+    prefix: RESP
+    filter_expr: pl.col("resp_rate_set").is_finite()
+    with_col_expr: pl.lit("resp_rate_set").alias("event_code")
+    code: event_code
+    numeric_value: resp_rate_set
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  - table: clif_respiratory_support
+    prefix: RESP
+    filter_expr: pl.col("pressure_control_set").is_finite()
+    with_col_expr: pl.lit("pressure_control_set").alias("event_code")
+    code: event_code
+    numeric_value: pressure_control_set
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  - table: clif_respiratory_support
+    prefix: RESP
+    filter_expr: pl.col("pressure_support_set").is_finite()
+    with_col_expr: pl.lit("pressure_support_set").alias("event_code")
+    code: event_code
+    numeric_value: pressure_support_set
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  - table: clif_respiratory_support
+    prefix: RESP
+    filter_expr: pl.col("flow_rate_set").is_finite()
+    with_col_expr: pl.lit("flow_rate_set").alias("event_code")
+    code: event_code
+    numeric_value: flow_rate_set
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  - table: clif_respiratory_support
+    prefix: RESP
+    filter_expr: pl.col("peak_inspiratory_pressure_set").is_finite()
+    with_col_expr: pl.lit("peak_inspiratory_pressure_set").alias("event_code")
+    code: event_code
+    numeric_value: peak_inspiratory_pressure_set
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  - table: clif_respiratory_support
+    prefix: RESP
+    filter_expr: pl.col("inspiratory_time_set").is_finite()
+    with_col_expr: pl.lit("inspiratory_time_set").alias("event_code")
+    code: event_code
+    numeric_value: inspiratory_time_set
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  - table: clif_respiratory_support
+    prefix: RESP
+    filter_expr: pl.col("peep_set").is_finite()
+    with_col_expr: pl.lit("peep_set").alias("event_code")
+    code: event_code
+    numeric_value: peep_set
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  - table: clif_respiratory_support
+    prefix: RESP
+    filter_expr: pl.col("tidal_volume_obs").is_finite()
+    with_col_expr: pl.lit("tidal_volume_obs").alias("event_code")
+    code: event_code
+    numeric_value: tidal_volume_obs
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  - table: clif_respiratory_support
+    prefix: RESP
+    filter_expr: pl.col("resp_rate_obs").is_finite()
+    with_col_expr: pl.lit("resp_rate_obs").alias("event_code")
+    code: event_code
+    numeric_value: resp_rate_obs
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  - table: clif_respiratory_support
+    prefix: RESP
+    filter_expr: pl.col("plateau_pressure_obs").is_finite()
+    with_col_expr: pl.lit("plateau_pressure_obs").alias("event_code")
+    code: event_code
+    numeric_value: plateau_pressure_obs
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  - table: clif_respiratory_support
+    prefix: RESP
+    filter_expr: pl.col("peak_inspiratory_pressure_obs").is_finite()
+    with_col_expr: pl.lit("peak_inspiratory_pressure_obs").alias("event_code")
+    code: event_code
+    numeric_value: peak_inspiratory_pressure_obs
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  - table: clif_respiratory_support
+    prefix: RESP
+    filter_expr: pl.col("peep_obs").is_finite()
+    with_col_expr: pl.lit("peep_obs").alias("event_code")
+    code: event_code
+    numeric_value: peep_obs
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  - table: clif_respiratory_support
+    prefix: RESP
+    filter_expr: pl.col("minute_vent_obs").is_finite()
+    with_col_expr: pl.lit("minute_vent_obs").alias("event_code")
+    code: event_code
+    numeric_value: minute_vent_obs
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  - table: clif_respiratory_support
+    prefix: RESP
+    filter_expr: pl.col("mean_airway_pressure_obs").is_finite()
+    with_col_expr: pl.lit("mean_airway_pressure_obs").alias("event_code")
+    code: event_code
+    numeric_value: mean_airway_pressure_obs
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  # 7. Raw medication administrations; no *_converted doses.
+  - table: clif_medication_admin_continuous
+    prefix: MED-CONT
+    code: med_category
+    numeric_value: med_dose
+    time: admin_dttm
+    reference_key: hospitalization_id
+
+  # 8. Keep only documented intermittent administrations.
+  - table: clif_medication_admin_intermittent
+    prefix: MED-INT
+    filter_expr: pl.col("mar_action_category") == "given"
+    code: med_category
+    numeric_value: med_dose
+    time: admin_dttm
+    reference_key: hospitalization_id
+
+  # 9. CRRT.
+  - table: clif_crrt_therapy
+    prefix: CRRT
+    code: crrt_mode_category
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  - table: clif_crrt_therapy
+    prefix: CRRT
+    filter_expr: pl.col("blood_flow_rate").is_finite()
+    with_col_expr: pl.lit("blood_flow_rate").alias("event_code")
+    code: event_code
+    numeric_value: blood_flow_rate
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  - table: clif_crrt_therapy
+    prefix: CRRT
+    filter_expr: pl.col("pre_filter_replacement_fluid_rate").is_finite()
+    with_col_expr: pl.lit("pre_filter_replacement_fluid_rate").alias("event_code")
+    code: event_code
+    numeric_value: pre_filter_replacement_fluid_rate
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  - table: clif_crrt_therapy
+    prefix: CRRT
+    filter_expr: pl.col("post_filter_replacement_fluid_rate").is_finite()
+    with_col_expr: pl.lit("post_filter_replacement_fluid_rate").alias("event_code")
+    code: event_code
+    numeric_value: post_filter_replacement_fluid_rate
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  - table: clif_crrt_therapy
+    prefix: CRRT
+    filter_expr: pl.col("dialysate_flow_rate").is_finite()
+    with_col_expr: pl.lit("dialysate_flow_rate").alias("event_code")
+    code: event_code
+    numeric_value: dialysate_flow_rate
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  - table: clif_crrt_therapy
+    prefix: CRRT
+    filter_expr: pl.col("ultrafiltration_out").is_finite()
+    with_col_expr: pl.lit("ultrafiltration_out").alias("event_code")
+    code: event_code
+    numeric_value: ultrafiltration_out
+    time: recorded_dttm
+    reference_key: hospitalization_id
+
+  # 10. Patient-keyed code status is assigned only within a hospitalization
+  # window by the reference join. Boundary rows are audited by the adapter.
+  - table: clif_code_status
+    prefix: CODE-STATUS
+    code: code_status_category
+    time: start_dttm
+    reference_key: patient_id
