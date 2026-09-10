@@ -9,26 +9,47 @@ import json
 import os
 import pathlib
 import typing
+from datetime import datetime, timezone
 
 import fire as fi
 import numpy as np
 import torch as t
 from transformers import (
-    AutoConfig,
     AutoModelForCausalLM,
     EarlyStoppingCallback,
     LlamaConfig,
+    Qwen3Config,
+    Trainer,
     TrainerCallback,
+    TrainingArguments,
 )
-from trl import SFTConfig, SFTTrainer
 
 from fms_ehrs.framework.dataset import Datasets
 from fms_ehrs.framework.logger import get_logger
 from fms_ehrs.framework.storage import set_perms
+from fms_ehrs.framework.training_telemetry import LiveProgressCallback
+from fms_ehrs.scripts.train_representation import (
+    PeriodicCheckpointCallback,
+    SignalCheckpointCallback,
+    _latest_complete_checkpoint,
+    _mark_checkpoint_complete,
+)
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
 logger.log_env()
+
+
+class CheckpointCompletionCallback(TrainerCallback):
+    """Mark regular Trainer checkpoints complete for safe automatic resume."""
+
+    def on_save(self, args, state, control, **kwargs):
+        if state.is_world_process_zero:
+            _mark_checkpoint_complete(
+                pathlib.Path(args.output_dir) / f"checkpoint-{state.global_step}",
+                state,
+            )
+        return control
 
 
 def _parse_bool(x: typing.Any, *, default: bool) -> bool:
@@ -111,12 +132,11 @@ def _log_wandb_directory_artifact(
         return
 
     if str(os.getenv("WANDB_MODE", "")).strip().lower() == "offline":
-        msg = (
-            f"WANDB_MODE=offline; cannot upload artifact {artifact_name} from {directory}"
+        logger.info(
+            "WANDB_MODE=offline; retaining local artifact %s at %s.",
+            artifact_name,
+            directory,
         )
-        if require_wandb:
-            raise RuntimeError(msg)
-        logger.warning(msg)
         return
 
     try:
@@ -172,6 +192,67 @@ class NanStoppingCallback(TrainerCallback):
                     control.should_training_stop = True
 
 
+def _with_perplexity(logs: dict[str, float]) -> dict[str, float]:
+    enriched = dict(logs)
+    for loss_key, perplexity_key in (
+        ("loss", "train_perplexity"),
+        ("train_loss", "final_train_perplexity"),
+        ("eval_loss", "eval_perplexity"),
+    ):
+        if loss_key not in enriched or perplexity_key in enriched:
+            continue
+        value = float(enriched[loss_key])
+        if np.isfinite(value):
+            enriched[perplexity_key] = float(np.exp(min(value, 50.0)))
+    return enriched
+
+
+def _write_loss_history(output_dir: pathlib.Path, log_history: list[dict[str, typing.Any]]) -> None:
+    keys = [
+        "step",
+        "epoch",
+        "loss",
+        "train_loss",
+        "eval_loss",
+        "train_perplexity",
+        "final_train_perplexity",
+        "eval_perplexity",
+        "learning_rate",
+        "grad_norm",
+        "grad_norm_clipped",
+        "train_runtime",
+        "train_samples_per_second",
+        "train_steps_per_second",
+        "train_tokens_per_second",
+    ]
+    rows = [
+        {key: _with_perplexity(entry).get(key, "") for key in keys}
+        for entry in log_history
+        if any(key in entry for key in ("loss", "train_loss", "eval_loss"))
+    ]
+    with (output_dir / "loss_perplexity_curve.jsonl").open("w", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, sort_keys=True) + "\n")
+    with (output_dir / "loss_perplexity_curve.csv").open("w", newline="", encoding="utf-8") as handle:
+        import csv
+
+        writer = csv.DictWriter(handle, fieldnames=keys)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+class PackedIRBTrainer(Trainer):
+    """Trainer for packed token sequences with AdamW via HuggingFace defaults."""
+
+    def log(self, logs: dict[str, float], *args, **kwargs):
+        enriched = _with_perplexity(logs)
+        if "grad_norm" in enriched:
+            enriched["grad_norm_clipped"] = float(
+                float(enriched["grad_norm"]) > float(self.args.max_grad_norm)
+            )
+        return super().log(enriched, *args, **kwargs)
+
+
 class _PretokenizedProcessingStub:
     """Minimal processing stub for pretokenized `input_ids` datasets."""
 
@@ -212,21 +293,35 @@ def main(
     data_version: str = "day_stays",
     model_version: str = "llama1b",
     model_name: str = "meta-llama/Llama-3.2-1B",
-    per_device_train_batch_size: int = 4,
-    # max_grad_norm: float = 1.0,
+    rope_theta: float = 10000.0,
+    per_device_train_batch_size: int = int(
+        os.getenv("IRB_PER_DEVICE_TRAIN_BATCH_SIZE", "4")
+    ),
+    per_device_eval_batch_size: int = int(
+        os.getenv("IRB_PER_DEVICE_EVAL_BATCH_SIZE", "4")
+    ),
     # Policy control:
     # - do_hpo=True: run Optuna HPO (expensive; may exceed cluster walltime)
     # - do_hpo=False: run a single fixed-hyperparameter training
     do_hpo: bool = True,
     # Optional resume path for continuing an interrupted fixed-hyperparameter run.
-    resume_from_checkpoint: str | None = None,
+    resume_from_checkpoint: str | None = os.getenv("IRB_RESUME_FROM_CHECKPOINT", "auto"),
     learning_rate: float = 5e-5,
     lr_min: float = 5e-5,
     lr_max: float = 5e-4,
-    # NOTE (benchmark fairness): gradient_accumulation_steps controls *data exposure*
-    # (how many microbatches are consumed per optimizer step). We fix it to avoid
-    # inadvertently giving some configurations more effective training tokens/compute.
-    gradient_accumulation_steps: int = 2,
+    adam_beta1: float = 0.9,
+    adam_beta2: float = 0.999,
+    weight_decay: float = 0.01,
+    max_grad_norm: float = 1.0,
+    lr_scheduler_type: str = "linear",
+    warmup_ratio: float = 0.0,
+    logging_steps: int = 100,
+    progress_interval_seconds: float = float(
+        os.getenv("IRB_PROGRESS_INTERVAL_SECONDS", "60")
+    ),
+    gradient_accumulation_steps: int = int(
+        os.getenv("IRB_GRADIENT_ACCUMULATION_STEPS", "1")
+    ),
     # Optional performance settings (objective-preserving):
     # - use_bf16: enable bf16 mixed precision (A100 supports bf16).
     # - attn_implementation: attention backend ("sdpa" or "flash_attention_2").
@@ -237,7 +332,19 @@ def main(
     collation: typing.Literal["padded", "packed"] = "packed",
     jid: str = os.getenv("SLURM_JOB_ID", ""),
     wandb_project: str = None,
+    seed: int = 42,
     n_trials: int = 5,
+    save_total_limit: int = 6,
+    eval_steps: int | None = None,
+    evaluations_per_epoch: int = int(
+        os.getenv("IRB_STAGE1_EVALUATIONS_PER_EPOCH", "1")
+    ),
+    early_stopping_patience: int = int(
+        os.getenv("IRB_STAGE1_EARLY_STOPPING_PATIENCE", "3")
+    ),
+    checkpoint_interval_seconds: float = float(
+        os.getenv("IRB_STAGE1_CHECKPOINT_INTERVAL_SECONDS", "600")
+    ),
     # Referring to the "Quantifying-Surprise-EHRs" reference implementation:
     # Packed collation is trained using an IterableDataset (no materialization).
     iterable_dataset: bool = True,
@@ -248,6 +355,8 @@ def main(
     do_hpo = _parse_bool(do_hpo, default=True)
     iterable_dataset = _parse_bool(iterable_dataset, default=True)
     use_bf16 = _parse_bool(use_bf16, default=True)
+    t.manual_seed(seed)
+    np.random.seed(seed)
     if isinstance(resume_from_checkpoint, str):
         s = resume_from_checkpoint.strip()
         if s.lower() in ("", "none", "null"):
@@ -255,10 +364,32 @@ def main(
         else:
             resume_from_checkpoint = s
 
-    if int(gradient_accumulation_steps) != 2:
+    if int(gradient_accumulation_steps) <= 0:
         raise ValueError(
-            "For benchmark fairness, gradient_accumulation_steps is fixed to 2 "
+            "gradient_accumulation_steps must be positive "
             f"(got {gradient_accumulation_steps})."
+        )
+    if rope_theta <= 0:
+        raise ValueError(f"rope_theta must be positive (got {rope_theta}).")
+    if max_grad_norm <= 0:
+        raise ValueError(f"max_grad_norm must be positive (got {max_grad_norm}).")
+    if not 0.0 <= warmup_ratio < 1.0:
+        raise ValueError(f"warmup_ratio must be in [0, 1) (got {warmup_ratio}).")
+    if logging_steps <= 0:
+        raise ValueError(f"logging_steps must be positive (got {logging_steps}).")
+    if progress_interval_seconds <= 0:
+        raise ValueError(
+            "progress_interval_seconds must be positive "
+            f"(got {progress_interval_seconds})."
+        )
+    if evaluations_per_epoch <= 0:
+        raise ValueError(
+            f"evaluations_per_epoch must be positive (got {evaluations_per_epoch})."
+        )
+    if checkpoint_interval_seconds <= 0:
+        raise ValueError(
+            "checkpoint_interval_seconds must be positive "
+            f"(got {checkpoint_interval_seconds})."
         )
 
     attn_implementation = _normalize_attn_impl(attn_implementation)
@@ -289,6 +420,12 @@ def main(
 
     output_dir = model_dir.joinpath("{m}-{j}".format(m=model_version, j=jid))
     output_dir.mkdir(exist_ok=True, parents=True)
+    if resume_from_checkpoint == "auto":
+        resume_from_checkpoint = _latest_complete_checkpoint(output_dir)
+        if resume_from_checkpoint is None:
+            logger.info("No completed checkpoint found under %s; starting fresh.", output_dir)
+        else:
+            logger.info("Auto-resuming from checkpoint: %s", resume_from_checkpoint)
 
     dataset = Datasets(
         data_version=data_version,
@@ -301,38 +438,40 @@ def main(
         cfg_kwargs = dict(kwargs)
         if attn_implementation is not None:
             cfg_kwargs["attn_implementation"] = attn_implementation
-        try:
-            config = AutoConfig.from_pretrained(
-                model_name,
-                vocab_size=len(dataset.vocab),
-                bos_token_id=dataset.vocab("TL_START"),
-                eos_token_id=dataset.vocab("TL_END"),
-                pad_token_id=dataset.vocab("PAD"),
-                **cfg_kwargs,
+        cfg_kwargs.setdefault("rope_theta", float(rope_theta))
+        model_name_lower = str(model_name).lower()
+        if "llama" in model_name_lower:
+            config_type = LlamaConfig
+            # Llama keeps separate input and output embedding matrices.
+            cfg_kwargs.setdefault("tie_word_embeddings", False)
+        elif "qwen3" in model_name_lower:
+            config_type = Qwen3Config
+            # Match the Qwen3-0.6B configuration after reducing attention
+            # width: multi-head attention and tied input/output embeddings.
+            cfg_kwargs.setdefault(
+                "num_key_value_heads",
+                int(cfg_kwargs.get("num_attention_heads", 32)),
             )
-        except OSError as e:
-            # Exp1 also trains from scratch, so only the base architecture config is needed.
-            # Mirror Exp2/Exp3 behavior: if the upstream config repo is gated, fall back to
-            # a local LlamaConfig with the same hyperparameters.
-            msg = str(e).lower()
-            is_gated = ("gated repo" in msg) or ("401 client error" in msg) or ("access to model" in msg)
-            is_llama = "llama" in str(model_name).lower()
-            if not (is_gated and is_llama):
-                raise
-            logger.warning(
-                "AutoConfig.from_pretrained(%r) failed due to gated/unauthenticated access. "
-                "Falling back to local LlamaConfig (random init; config-only). "
-                "To use the upstream config, authenticate with HuggingFace and ensure you have access.",
-                model_name,
+            cfg_kwargs.setdefault("tie_word_embeddings", True)
+        else:
+            raise ValueError(
+                "ML4H supports only the Llama and Qwen3 backbones; "
+                f"received model_name={model_name!r}."
             )
-            config = LlamaConfig(
-                vocab_size=len(dataset.vocab),
-                bos_token_id=dataset.vocab("TL_START"),
-                eos_token_id=dataset.vocab("TL_END"),
-                pad_token_id=dataset.vocab("PAD"),
-                **cfg_kwargs,
-            )
+        # The model is initialized from scratch, so use the matching local
+        # config and keep training independent of compute-node network access.
+        config = config_type(
+            vocab_size=len(dataset.vocab),
+            bos_token_id=dataset.vocab("TL_START"),
+            eos_token_id=dataset.vocab("TL_END"),
+            pad_token_id=dataset.vocab("PAD"),
+            **cfg_kwargs,
+        )
         config._name_or_path = str(model_name)
+        logger.info(
+            "tie_word_embeddings=%s (True for Qwen, False for Llama)",
+            bool(getattr(config, "tie_word_embeddings", False)),
+        )
         mdl = AutoModelForCausalLM.from_config(config)
         mdl_params = sum(p.numel() for p in mdl.parameters())
         logger.info("Model initialized, n. param = {}".format(mdl_params))
@@ -348,12 +487,17 @@ def main(
     # Reference computes max_steps explicitly for packed/iterable training.
     # This keeps walltime predictable and avoids relying on "epoch" semantics
     # when using an IterableDataset that repeats admissions `n_epochs` times.
-    max_steps = (
-            dataset.n_train
-            * n_epochs
-            // per_device_train_batch_size
-            // t.cuda.device_count()
-            // gradient_accumulation_steps
+    world_size = max(1, t.cuda.device_count())
+    max_steps = max(
+        1,
+        dataset.n_train
+        * n_epochs
+        // per_device_train_batch_size
+        // world_size
+        // gradient_accumulation_steps,
+    )
+    resolved_eval_steps = int(eval_steps) if eval_steps is not None else max(
+        1, max_steps // max(1, n_epochs * evaluations_per_epoch)
     )
 
     pad_token_id = int(dataset.vocab("PAD"))
@@ -382,32 +526,47 @@ def main(
             "labels": labels,
         }
 
-    # train model
+    # Train directly from pretokenized packed sequences. This avoids SFTTrainer
+    # formatting/tokenization paths and exposes the same optimizer/checkpoint
+    # contract used by Exp2/3.
     use_bf16 = bool(use_bf16) and t.cuda.is_available()
-    training_args = SFTConfig(
+    training_args = TrainingArguments(
         report_to="wandb",
         run_name="{m}-{j}".format(m=model_version, j=jid),
-        max_seq_length=max_seq_length,
         output_dir=str(output_dir),
         per_device_train_batch_size=per_device_train_batch_size,
-        per_device_eval_batch_size=4,
+        per_device_eval_batch_size=per_device_eval_batch_size,
         gradient_accumulation_steps=gradient_accumulation_steps,
+        learning_rate=learning_rate,
+        weight_decay=weight_decay,
+        adam_beta1=float(adam_beta1),
+        adam_beta2=float(adam_beta2),
         bf16=use_bf16,
         bf16_full_eval=use_bf16,
         tf32=True,
-        # max_grad_norm=max_grad_norm,
-        num_train_epochs=1,  # this is handled in our dataset object
-        save_total_limit=1,
+        max_grad_norm=max_grad_norm,
+        lr_scheduler_type=lr_scheduler_type,
+        warmup_ratio=warmup_ratio,
+        logging_strategy="steps",
+        logging_steps=logging_steps,
+        logging_first_step=True,
+        include_num_input_tokens_seen="all",
+        num_train_epochs=n_epochs,
+        save_total_limit=save_total_limit,
         metric_for_best_model="eval_loss",
         load_best_model_at_end=True,
         greater_is_better=False,
         eval_strategy="steps",
-        save_strategy="best",
+        eval_steps=resolved_eval_steps,
+        save_strategy="steps",
+        save_steps=resolved_eval_steps,
         max_steps=max_steps,
         ddp_find_unused_parameters=False,
+        seed=seed,
+        data_seed=seed,
     )
 
-    trainer = SFTTrainer(
+    trainer = PackedIRBTrainer(
         model=model_init(),
         model_init=model_init,
         train_dataset=dataset.get_train_dataset(
@@ -416,11 +575,21 @@ def main(
         eval_dataset=dataset.get_val_dataset(iterable=iterable_dataset),
         args=training_args,
         data_collator=_collate_pretokenized_batch,
-        processing_class=processing_stub,
-        formatting_func=_format_pretokenized,
         callbacks=[
-            EarlyStoppingCallback(early_stopping_patience=3),
+            # Shared across Exp1-Exp3 via IRB_STAGE1_EARLY_STOPPING_PATIENCE.
+            *(
+                [EarlyStoppingCallback(early_stopping_patience=early_stopping_patience)]
+                if early_stopping_patience > 0
+                else []
+            ),
             NanStoppingCallback(),
+            LiveProgressCallback(
+                output_dir,
+                interval_seconds=progress_interval_seconds,
+            ),
+            PeriodicCheckpointCallback(checkpoint_interval_seconds),
+            SignalCheckpointCallback(),
+            CheckpointCompletionCallback(),
         ],
     )
 
@@ -456,19 +625,115 @@ def main(
             if resume_from_checkpoint
             else None
         )
+        if t.cuda.is_available():
+            t.cuda.reset_peak_memory_stats()
+            t.cuda.empty_cache()
         trainer.train(resume_from_checkpoint=resume_ckpt)
 
         if trainer.is_world_process_zero():
-            best_ckpt = _resolve_latest_checkpoint(output_dir)
+            best_ckpt = (
+                pathlib.Path(trainer.state.best_model_checkpoint)
+                if trainer.state.best_model_checkpoint is not None
+                else (
+                    pathlib.Path(_latest_complete_checkpoint(output_dir))
+                    if _latest_complete_checkpoint(output_dir) is not None
+                    else _resolve_latest_checkpoint(output_dir)
+                )
+            )
             if best_ckpt is None:
                 raise RuntimeError(
-                    "No checkpoints found after training under "
+                    "No best checkpoint found after training under "
                     f"{output_dir} (checked checkpoint-* and run-*/checkpoint-*)."
                 )
 
     if trainer.is_world_process_zero():
         if best_ckpt is None:
             raise RuntimeError("best_ckpt was not resolved on rank0.")
+        _write_loss_history(output_dir, list(trainer.state.log_history))
+        grad_norms = [
+            float(entry["grad_norm"])
+            for entry in trainer.state.log_history
+            if entry.get("grad_norm") is not None
+        ]
+        run_record = {
+            "created_at_utc": datetime.now(timezone.utc).isoformat(),
+            "run_name": training_args.run_name,
+            "model_name": model_name,
+            "model_version": model_version,
+            "rope_theta": rope_theta,
+            "data_version": data_version,
+            "seed": training_args.seed,
+            "optimizer": {
+                "name": "adamw",
+                "learning_rate": float(learning_rate),
+                "adam_beta1": float(adam_beta1),
+                "adam_beta2": float(adam_beta2),
+                "weight_decay": weight_decay,
+                "max_grad_norm": max_grad_norm,
+                "lr_scheduler_type": str(training_args.lr_scheduler_type),
+                "warmup_ratio": warmup_ratio,
+            },
+            "checkpoint_selection": {
+                "best_model_checkpoint": str(best_ckpt),
+                "best_metric": trainer.state.best_metric,
+                "load_best_model_at_end": training_args.load_best_model_at_end,
+                "eval_steps": resolved_eval_steps,
+                "save_steps": resolved_eval_steps,
+            },
+            "training": {
+                "global_step": trainer.state.global_step,
+                "epoch": trainer.state.epoch,
+                "collation": collation,
+                "max_steps": int(max_steps),
+                "evaluations_per_epoch": int(evaluations_per_epoch),
+                "per_device_train_batch_size": int(
+                    training_args.per_device_train_batch_size
+                ),
+                "per_device_eval_batch_size": int(
+                    training_args.per_device_eval_batch_size
+                ),
+                "gradient_accumulation_steps": int(
+                    training_args.gradient_accumulation_steps
+                ),
+                "effective_batch_sequences": int(
+                    training_args.per_device_train_batch_size
+                    * training_args.gradient_accumulation_steps
+                    * max(1, int(os.getenv("WORLD_SIZE", "1")))
+                ),
+                "max_sequence_length": int(max_seq_length),
+                "max_input_tokens_seen": max(
+                    (
+                        int(entry["num_input_tokens_seen"])
+                        for entry in trainer.state.log_history
+                        if entry.get("num_input_tokens_seen") is not None
+                    ),
+                    default=None,
+                ),
+                "gpu_max_memory_allocated_bytes": (
+                    int(t.cuda.max_memory_allocated()) if t.cuda.is_available() else None
+                ),
+                "gpu_max_memory_reserved_bytes": (
+                    int(t.cuda.max_memory_reserved()) if t.cuda.is_available() else None
+                ),
+                "parameter_count": int(
+                    sum(p.numel() for p in trainer.model.parameters())
+                ),
+                "gradient_norm_observations": len(grad_norms),
+                "gradient_norm_clipped_observations": sum(
+                    value > max_grad_norm for value in grad_norms
+                ),
+                "gradient_norm_clipped_fraction": (
+                    sum(value > max_grad_norm for value in grad_norms) / len(grad_norms)
+                    if grad_norms
+                    else None
+                ),
+                "arguments": training_args.to_dict(),
+            },
+        }
+        (output_dir / "run_record.json").write_text(
+            json.dumps(run_record, indent=2, sort_keys=True, default=str) + "\n",
+            encoding="utf-8",
+        )
         best_mdl_loc.parent.mkdir(parents=True, exist_ok=True)
         best_mdl_loc.symlink_to(best_ckpt, target_is_directory=True)
 
@@ -485,6 +750,7 @@ def main(
             artifact_type="model-checkpoint",
             metadata={
                 "model_version": model_version,
+                "rope_theta": rope_theta,
                 "data_version": data_version,
                 "slurm_jid": jid,
                 "do_hpo": bool(do_hpo),

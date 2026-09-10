@@ -11,7 +11,7 @@ The wrapper intercepts the embedding layer and modifies embeddings based on:
 - Soft discretization: Replace quantile-token embeddings with convex combinations, and train quantile-token positions with a soft target
 - xVal: Handled by a separate wrapper (XValModelWrapper) that operates on [NUM] tokenization and adds a numeric head loss.
   We support both standard multiplicative xVal ("xval") and an affine-shifted
-  variant ("xval_affine") that avoids zeroing near-median values.
+  variant ("xval_affine") that adds a learned bias after scaling.
 - Time-Aware RoPE: Use relative timestamps as position IDs for rotary embeddings
 
 Architecture:
@@ -36,7 +36,7 @@ import torch.nn.functional as F
 from transformers import PreTrainedModel
 
 from fms_ehrs.framework.soft_discretization import SoftDiscretizationEncoder
-
+from fms_ehrs.framework.temporal import admission_relative_position_ids
 from fms_ehrs.framework.vocabulary import Vocabulary
 from fms_ehrs.framework.xval import XValModelWrapper
 
@@ -60,14 +60,17 @@ class RepresentationModelWrapper(nn.Module):
         - soft: Convex combinations of adjacent bin embeddings
         - xval: standard xVal wrapper ([NUM] tokenization + multiplicative scaling + numeric head loss)
         - xval_affine: xVal with affine numeric injection (z*e + b)
-    temporal : {"time_tokens", "time_rope"}
+    temporal : {"time_tokens", "time_rope", "event_order"}
         Temporal encoding method:
         - time_tokens: Use existing time spacing tokens (baseline)
         - time_rope: Use relative timestamps as continuous position IDs for RoPE
+        - event_order: No spacing tokens and no admission-relative position IDs;
+          the model falls back to its default sequential positions, so ordinary
+          RoPE rotates over token index rather than elapsed clinical time.
     num_bins : int
         Number of quantile bins (for soft discretization)
-    time_rope_scaling : float
-        Scaling factor for converting relative hours to position IDs
+    seconds_per_position : float
+        Admission-relative seconds represented by one RoPE position
     """
 
     def __init__(
@@ -75,9 +78,11 @@ class RepresentationModelWrapper(nn.Module):
         base_model: PreTrainedModel,
         vocab: Vocabulary,
         representation: typing.Literal["discrete", "soft"] = "discrete",
-        temporal: typing.Literal["time_tokens", "time_rope"] = "time_tokens",
+        temporal: typing.Literal[
+            "time_tokens", "time_rope", "event_order"
+        ] = "time_tokens",
         num_bins: int = 20,
-        time_rope_scaling: float = 60.0,
+        seconds_per_position: float = 60.0,
         **kwargs,
     ):
         super().__init__()
@@ -85,7 +90,7 @@ class RepresentationModelWrapper(nn.Module):
         self.vocab = vocab
         self.representation = representation
         self.temporal = temporal
-        self.time_rope_scaling = time_rope_scaling
+        self.seconds_per_position = float(seconds_per_position)
 
         # Get model hidden size
         self.hidden_size = base_model.config.hidden_size
@@ -131,6 +136,32 @@ class RepresentationModelWrapper(nn.Module):
                 token_id_lookup=vocab.lookup,
                 vocab_size=len(vocab),
             )
+            self._seed_bin_embeddings_from_quantile_tokens()
+
+    def _seed_bin_embeddings_from_quantile_tokens(self) -> None:
+        """Copy the model's own Q0..Qn-1 rows into the soft bin embeddings.
+
+        `nn.Embedding` initializes from N(0, 1), but the backbones initialize
+        token embeddings at `initializer_range` (0.02). Left untouched, the soft
+        table starts roughly 50x wider than every other token embedding in the
+        same sequence. Seeding from the quantile rows fixes that scale and also
+        starts each bin's input representation in agreement with the output
+        representation the LM head scores against.
+        """
+        if self.q_token_id_by_bin is None or self.value_encoder is None:
+            return
+        embeddings = self.get_input_embeddings()
+        weight = getattr(embeddings, "weight", None)
+        if weight is None:
+            return
+        target = self.value_encoder.bin_embeddings.weight
+        bins = self.q_token_id_by_bin.to(device=weight.device)
+        if int(bins.max()) >= weight.shape[0]:
+            return
+        with torch.no_grad():
+            target.copy_(
+                weight[bins].to(dtype=target.dtype, device=target.device)
+            )
 
 
     def _build_quantile_token_lookup(self) -> None:
@@ -151,6 +182,7 @@ class RepresentationModelWrapper(nn.Module):
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
         numeric_values: torch.Tensor | None = None,
+        relative_times_seconds: torch.Tensor | None = None,
         relative_times: torch.Tensor | None = None,
         labels: torch.Tensor | None = None,
         **kwargs,
@@ -166,9 +198,12 @@ class RepresentationModelWrapper(nn.Module):
         numeric_values : torch.Tensor, optional
             Raw numeric values aligned to tokens, shape (batch_size, seq_len).
             NaN indicates non-numeric positions.
-        relative_times : torch.Tensor, optional
-            Relative time in hours since admission, shape (batch_size, seq_len).
+        relative_times_seconds : torch.Tensor, optional
+            Relative seconds since admission, shape (batch_size, seq_len).
             Required when temporal="time_rope".
+        relative_times : torch.Tensor, optional
+            Legacy hour-based relative times. New callers must use
+            ``relative_times_seconds``.
         labels : torch.Tensor, optional
             Labels for language modeling loss
 
@@ -200,19 +235,18 @@ class RepresentationModelWrapper(nn.Module):
             )
 
 
-        # Handle Time-Aware RoPE (pass position_ids to base model)
-        position_ids = None
-        if self.temporal == "time_rope" and relative_times is not None:
-            # Convert hours to integer steps (e.g. minutes)
-            # relative_times shape: (batch, seq)
-            # fill nan with 0 (usually padding or non-time tokens, though pad tokens are masked anyway)
-            rt = relative_times.nan_to_num(0.0)
-            position_ids = (rt * self.time_rope_scaling).long()
-            
-            # Ensure position_ids are within model limits if possible? 
-            # Or reliance on RoPE implementation handling large IDs.
-            # Usually we pass position_ids to the model forward.
-            kwargs["position_ids"] = position_ids
+        # Handle Time-Aware RoPE (pass position_ids to base model).
+        if self.temporal == "time_rope":
+            if relative_times_seconds is None and relative_times is not None:
+                relative_times_seconds = relative_times * 3600.0
+            if relative_times_seconds is None:
+                raise ValueError(
+                    "time_rope requires admission-relative times in seconds."
+                )
+            kwargs["position_ids"] = admission_relative_position_ids(
+                relative_times_seconds,
+                seconds_per_position=self.seconds_per_position,
+            )
 
         # Ensure dtype matches the base model parameters.
         #
@@ -234,6 +268,12 @@ class RepresentationModelWrapper(nn.Module):
         if self.representation == "soft" and labels is not None and numeric_values is not None:
             model_kwargs = dict(kwargs)
             model_kwargs.pop("labels", None)
+            # HF Trainer passes num_items_in_batch when the model accepts loss
+            # kwargs (our forward has **kwargs). The contract is: return
+            # sum(loss) / num_items_in_batch so gradient accumulation and
+            # cross-device token averaging stay exact. The base model is called
+            # with labels=None here, so we must honor it in our custom loss.
+            num_items_in_batch = model_kwargs.pop("num_items_in_batch", None)
             model_kwargs.setdefault("return_dict", True)
             outputs = self.base_model(
                 inputs_embeds=embeddings,
@@ -247,6 +287,7 @@ class RepresentationModelWrapper(nn.Module):
                 input_ids=input_ids,
                 labels=labels,
                 numeric_values=numeric_values,
+                num_items_in_batch=num_items_in_batch,
             )
             out = {"loss": loss, "logits": logits}
             if isinstance(outputs, dict):
@@ -278,6 +319,7 @@ class RepresentationModelWrapper(nn.Module):
         input_ids: torch.Tensor,
         labels: torch.Tensor,
         numeric_values: torch.Tensor,
+        num_items_in_batch: torch.Tensor | int | None = None,
     ) -> torch.Tensor:
         """Causal-LM loss with soft targets at quantile-token positions.
 
@@ -285,6 +327,12 @@ class RepresentationModelWrapper(nn.Module):
         value v is available, we replace hard cross-entropy with a two-point target
         distribution over adjacent bins determined by the within-boundary interpolation
         weight alpha (from the same construction used for the soft embedding).
+
+        When `num_items_in_batch` is provided (HF Trainer loss-kwargs contract),
+        the loss is normalized as sum / num_items_in_batch instead of a per-batch
+        mean, so the Trainer's gradient-accumulation handling stays exact.
+        Ignoring it would inflate the logged train loss (and gradients) by the
+        gradient accumulation factor.
         """
         if self.value_encoder is None or not isinstance(self.value_encoder, SoftDiscretizationEncoder):
             raise ValueError("Soft discretization loss requires SoftDiscretizationEncoder.")
@@ -314,7 +362,7 @@ class RepresentationModelWrapper(nn.Module):
 
         # Soft-target positions: quantile label + present numeric value + boundaries available.
         is_q_label = self.is_q_token.to(device=labels_next.device)[labels_next.clamp(min=0)]
-        has_value = ~torch.isnan(values_next)
+        has_value = torch.isfinite(values_next)
 
         # Determine which codes have boundaries.
         n_boundaries_by_id = self.value_encoder.n_boundaries_by_id
@@ -322,10 +370,17 @@ class RepresentationModelWrapper(nn.Module):
             n_boundaries_by_id = n_boundaries_by_id.to(code_ids.device)
         has_boundaries = n_boundaries_by_id[code_ids] > 0
 
+        def _normalize(loss_sum: torch.Tensor) -> torch.Tensor:
+            if num_items_in_batch is not None:
+                denom = num_items_in_batch
+                if torch.is_tensor(denom):
+                    denom = denom.to(loss_sum.device)
+                return loss_sum / denom
+            return loss_sum / valid.sum().clamp(min=1)
+
         soft_mask = valid & is_q_label & has_value & has_boundaries
         if not torch.any(soft_mask):
-            denom = valid.sum().clamp(min=1)
-            return hard[valid].sum() / denom
+            return _normalize(hard[valid].sum())
 
         # Compute (lower_bin, upper_bin, alpha) for each soft position.
         flat_pos = soft_mask.nonzero(as_tuple=False)  # (N, 2): (batch, pos_in_Sminus1)
@@ -346,16 +401,23 @@ class RepresentationModelWrapper(nn.Module):
         valid_b = idx < n_b.unsqueeze(1)
         b_eff = b.masked_fill(~valid_b, float("inf"))
 
-        # Bin index = number of boundaries strictly less than v.
+        # Bin index = number of boundaries strictly less than v. A value
+        # exactly on b_k stays in bin k, matching digitize(..., right=True).
         bin_idx = torch.sum(v.unsqueeze(1) > b_eff, dim=1)  # (N,)
-        eff_bin = torch.where(bin_idx >= n_b, n_b, bin_idx)  # last bin is n_b
-        eff_bin = eff_bin.clamp(0, self.value_encoder.num_bins - 1)
-
-        lower = (eff_bin - 1).clamp(0, self.value_encoder.num_bins - 1)
-        upper = eff_bin.clamp(0, self.value_encoder.num_bins - 1)
+        last_bin = n_b.clamp(max=self.value_encoder.num_bins - 1)
+        lo = bin_idx == 0
+        hi = bin_idx >= n_b
+        # Interior bins interpolate (bin_idx-1, bin_idx). Tails are hard on
+        # the same endpoint embedding the encoder uses (Q0 or Q_{K-1}).
+        lower = (bin_idx - 1).clamp(0, self.value_encoder.num_bins - 1)
+        upper = bin_idx.clamp(0, self.value_encoder.num_bins - 1)
+        lower = torch.where(lo, torch.zeros_like(lower), lower)
+        upper = torch.where(lo, torch.zeros_like(upper), upper)
+        lower = torch.where(hi, last_bin, lower)
+        upper = torch.where(hi, last_bin, upper)
 
         alpha = torch.zeros_like(v)
-        mid = (bin_idx > 0) & (bin_idx < n_b)
+        mid = (~lo) & (~hi)
         if torch.any(mid):
             bi = bin_idx[mid].to(torch.long)
             b_mid = b_eff[mid]
@@ -365,7 +427,7 @@ class RepresentationModelWrapper(nn.Module):
             denom = upper_b - lower_b
             a = torch.where(
                 denom.abs() < 1e-8,
-                torch.full_like(denom, 0.5),
+                torch.zeros_like(denom),
                 (v_mid - lower_b) / denom,
             ).clamp(0.0, 1.0)
             alpha[mid] = a
@@ -383,8 +445,7 @@ class RepresentationModelWrapper(nn.Module):
         # Replace losses at soft positions.
         out = hard.clone()
         out[soft_mask] = soft_loss.to(dtype=out.dtype)
-        denom = valid.sum().clamp(min=1)
-        return out[valid].sum() / denom
+        return _normalize(out[valid].sum())
 
     def _apply_value_encoding(
         self,
@@ -410,8 +471,8 @@ class RepresentationModelWrapper(nn.Module):
         """
         modified = embeddings.clone()
 
-        # Create mask for numeric positions (non-NaN values)
-        numeric_mask = ~torch.isnan(numeric_values)
+        # Create mask for numeric positions with finite measurements.
+        numeric_mask = torch.isfinite(numeric_values)
 
         # Only modify quantile token positions (Q0..Qn-1) and skip position 0
         q_mask = self.is_q_token[input_ids]
@@ -523,8 +584,11 @@ def create_representation_model(
 ) -> RepresentationModelWrapper | PreTrainedModel:
     """Factory function to create a representation model.
 
-    If representation is "discrete" and temporal is "time_tokens", returns
-    the base model unchanged. Otherwise, wraps it with RepresentationModelWrapper.
+    Returns the base model unchanged when no representation mechanics are
+    needed: the discrete encoder combined with either "time_tokens" or
+    "event_order". Both leave embeddings and position IDs untouched, differing
+    only in whether the tokenizer inserted spacing tokens. Otherwise, wraps it
+    with RepresentationModelWrapper.
 
     Parameters
     ----------
@@ -543,24 +607,33 @@ def create_representation_model(
     -------
     Model with representation mechanics applied
     """
-    if representation == "discrete" and temporal == "time_tokens":
+    if representation == "discrete" and temporal in ("time_tokens", "event_order"):
         # No modifications needed - return base model
         return base_model
 
     if representation in ("xval", "xval_affine"):
         # xVal wrapper (requires [NUM] tokenization + numeric_values).
         numeric_injection = "mul" if representation == "xval" else "affine"
+        seconds_per_position = kwargs.get("seconds_per_position")
+        if seconds_per_position is None and kwargs.get("time_rope_scaling") is not None:
+            seconds_per_position = 3600.0 / float(kwargs["time_rope_scaling"])
         return XValModelWrapper(
             base_model=base_model,
             vocab=vocab,
             temporal=temporal,
-            time_rope_scaling=float(kwargs.get("time_rope_scaling", 60.0)),
+            seconds_per_position=float(seconds_per_position or 60.0),
             clip_sigma=float(kwargs.get("clip_sigma", 5.0)),
             numeric_stats=kwargs.get("numeric_stats", None),
             numeric_loss_weight=float(kwargs.get("numeric_loss_weight", 1.0)),
             numeric_injection=numeric_injection,
         )
 
+    if (
+        kwargs.get("seconds_per_position") is None
+        and kwargs.get("time_rope_scaling") is not None
+    ):
+        kwargs = dict(kwargs)
+        kwargs["seconds_per_position"] = 3600.0 / float(kwargs["time_rope_scaling"])
     return RepresentationModelWrapper(
         base_model=base_model,
         vocab=vocab,

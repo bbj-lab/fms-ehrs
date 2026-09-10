@@ -53,7 +53,8 @@ from datasets import load_dataset
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM
 
-from fms_ehrs.framework.dataset import compute_relative_times_hours
+from fms_ehrs.framework.artifacts import model_artifact_stem
+from fms_ehrs.framework.dataset import compute_relative_times_seconds
 from fms_ehrs.framework.logger import get_logger
 from fms_ehrs.framework.model_wrapper import create_representation_model
 from fms_ehrs.framework.storage import set_perms
@@ -170,9 +171,11 @@ def main(
     save_per_position : bool
         If True, save per-sequence CE arrays as .npz files.
     """
-    data_dir, model_loc = map(
-        lambda d: pathlib.Path(d).expanduser().resolve(), (data_dir, model_loc)
-    )
+    data_dir = pathlib.Path(data_dir).expanduser().resolve()
+    # Artifact identity follows the requested per-run path, not its symlink target.
+    model_loc_given = pathlib.Path(model_loc).expanduser().absolute()
+    model_stem = model_artifact_stem(model_loc_given)
+    model_loc = model_loc_given.resolve()
 
     device = t.device("cuda" if t.cuda.is_available() else "cpu")
     if device.type == "cuda":
@@ -257,8 +260,8 @@ def main(
         if needs_times:
             raw_key = "padded_times" if (use_padded and has_padded_times) else "times"
             if raw_key in batch:
-                result["relative_times"] = [
-                    compute_relative_times_hours(seq) for seq in batch[raw_key]
+                result["relative_times_seconds"] = [
+                    compute_relative_times_seconds(seq) for seq in batch[raw_key]
                 ]
         return result
 
@@ -288,7 +291,11 @@ def main(
             for k, v in state.items():
                 if k.startswith("base_model."):
                     base_state[k[len("base_model."):]] = v
-                elif not k.startswith("number_head.") and not k.endswith("_by_id"):
+                elif (
+                    not k.startswith("number_head.")
+                    and k != "num_bias"
+                    and not k.endswith("_by_id")
+                ):
                     base_state[k] = v
             base_model.load_state_dict(base_state, strict=False)
 
@@ -296,7 +303,10 @@ def main(
         wrapper_kwargs = {}
         if rep_meta is not None:
             wrapper_kwargs["num_bins"] = rep_meta.get("num_bins", 10)
-            wrapper_kwargs["time_rope_scaling"] = rep_meta.get("time_rope_scaling", 60.0)
+            wrapper_kwargs["seconds_per_position"] = rep_meta.get(
+                "seconds_per_position",
+                3600.0 / float(rep_meta.get("time_rope_scaling", 60.0)),
+            )
         if representation in ("xval", "xval_affine"):
             stats_path = data_dir / f"{data_version}-tokenized" / "train" / "numeric_stats.json"
             if stats_path.exists():
@@ -321,12 +331,21 @@ def main(
                 model.value_encoder.load_state_dict(rep_meta["value_encoder_state"])
                 logger.info("Loaded value_encoder weights")
 
-        # Load xVal number_head weights
+        # Load xVal number_head weights, and trained affine bias when present.
         if representation in ("xval", "xval_affine"):
-            from fms_ehrs.framework.xval import XValModelWrapper
+            from fms_ehrs.framework.xval import XValModelWrapper, apply_xval_mechanics
             if isinstance(model, XValModelWrapper):
-                if rep_meta is not None and rep_meta.get("number_head_state") is not None:
-                    model.number_head.load_state_dict(rep_meta["number_head_state"])
+                if representation == "xval_affine":
+                    if rep_meta is None:
+                        raise RuntimeError(
+                            "xval_affine evaluation requires representation_mechanics.pt "
+                            "with trained num_bias."
+                        )
+                    apply_xval_mechanics(model, rep_meta)
+                    logger.info("Loaded xVal-affine mechanics from representation_mechanics.pt")
+                elif rep_meta is not None and rep_meta.get("number_head_state") is not None:
+                    apply_xval_mechanics(model, rep_meta)
+                    logger.info("Loaded xVal mechanics from representation_mechanics.pt")
                 else:
                     wp = model_loc / "pytorch_model.bin"
                     if wp.exists():
@@ -408,11 +427,11 @@ def main(
                             nv[i, :len(seq)] = t.tensor(seq, dtype=t.float32, device=device)
                 fwd_kwargs["numeric_values"] = nv
 
-            if needs_times and "relative_times" in dataset[s].column_names:
+            if needs_times and "relative_times_seconds" in dataset[s].column_names:
                 if use_padded:
-                    rt = dataset[s]["relative_times"][batch_idx].to(device)
+                    rt = dataset[s]["relative_times_seconds"][batch_idx].to(device)
                 else:
-                    rt_seqs = dataset[s]["relative_times"][batch_idx.tolist()]
+                    rt_seqs = dataset[s]["relative_times_seconds"][batch_idx.tolist()]
                     rt = t.full(
                         (len(rt_seqs), max_len), fill_value=float("nan"),
                         dtype=t.float32, device=device,
@@ -420,7 +439,7 @@ def main(
                     for i, seq in enumerate(rt_seqs):
                         if seq is not None and len(seq) > 0:
                             rt[i, :len(seq)] = t.tensor(seq, dtype=t.float32, device=device)
-                fwd_kwargs["relative_times"] = rt
+                fwd_kwargs["relative_times_seconds"] = rt
 
             with t.inference_mode():
                 outputs = model.forward(**fwd_kwargs)
@@ -515,7 +534,7 @@ def main(
 
         # Save per-sequence CE if requested
         if save_per_position and per_seq_ce:
-            out_path = data_dirs[s] / f"token_ce-{model_loc.stem}.npz"
+            out_path = data_dirs[s] / f"token_ce-{model_stem}.npz"
             set_perms(np.savez)(
                 out_path,
                 per_sequence_ce=np.array(per_seq_ce, dtype=np.float32),
@@ -524,7 +543,9 @@ def main(
 
     # Print final JSON summary (useful for programmatic parsing)
     summary = {
-        "model": str(model_loc),
+        "model": str(model_loc_given),
+        "model_target": str(model_loc),
+        "model_stem": model_stem,
         "representation": representation,
         "temporal": temporal,
         "data_version": data_version,
@@ -535,15 +556,16 @@ def main(
     print("=" * 60)
     print(json.dumps(summary, indent=2))
 
-    # Also save as JSON
-    out_json = model_loc / "token_ce_results.json"
+    # Also save as JSON. Several runs can publish the same checkpoint directory,
+    # so the filename carries the run stem.
+    out_json = model_loc / f"token_ce_results-{model_stem}.json"
     try:
         out_json.write_text(json.dumps(summary, indent=2))
         logger.info("Saved results to %s", out_json)
     except PermissionError:
         # Model dir may be read-only; try the data dir instead
         for s in split_list:
-            alt_path = data_dirs[s] / f"token_ce_results-{model_loc.stem}.json"
+            alt_path = data_dirs[s] / f"token_ce_results-{model_stem}.json"
             alt_path.write_text(json.dumps(summary, indent=2))
             logger.info("Saved results to %s (fallback)", alt_path)
             break

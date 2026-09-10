@@ -10,7 +10,6 @@ xVal, Time-Aware RoPE) by auto-detecting representation_mechanics.pt in the mode
 import json
 import os
 import pathlib
-import re
 import shutil
 
 import fire as fi
@@ -20,7 +19,15 @@ from datasets import load_dataset
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM
 
-from fms_ehrs.framework.dataset import compute_relative_times_hours
+from fms_ehrs.framework.artifacts import (
+    build_provenance,
+    feature_filename,
+    model_artifact_stem,
+    provenance_mismatch,
+    read_provenance,
+    write_provenance,
+)
+from fms_ehrs.framework.dataset import compute_relative_times_seconds
 from fms_ehrs.framework.logger import get_logger
 from fms_ehrs.framework.model_wrapper import create_representation_model
 from fms_ehrs.framework.storage import set_perms
@@ -31,28 +38,36 @@ logger.info("running {}".format(__file__))
 logger.log_env()
 
 
-def _sanitize_model_stem(stem: str) -> str:
-    return re.sub(r"[^A-Za-z0-9_.-]+", "_", stem).strip("_")
-
-
-def _feature_model_stem(model_loc: pathlib.Path) -> str:
-    if model_loc.name.startswith("model-") and model_loc.parent.name:
-        return _sanitize_model_stem(f"{model_loc.parent.name}-{model_loc.name}")
-    return _sanitize_model_stem(model_loc.stem)
-
-
 def _dist_barrier(world_size: int) -> None:
     if world_size > 1:
         t.distributed.barrier()
 
 
 def _feature_path(data_dir: pathlib.Path, *, all_layers: bool, model_stem: str) -> pathlib.Path:
-    return data_dir.joinpath(
-        "features{x}-{m}.npy".format(
-            x="-all-layers" if all_layers else "",
-            m=model_stem,
-        )
-    )
+    return data_dir.joinpath(feature_filename(model_stem, all_layers=all_layers))
+
+
+def _is_valid_feature_file(path: pathlib.Path, expected_shape: tuple[int, ...]) -> bool:
+    """Return whether an existing feature file is complete and usable."""
+    if not path.is_file():
+        return False
+    try:
+        array = np.load(path, mmap_mode="r", allow_pickle=False)
+        valid = array.shape == expected_shape and array.dtype == np.float16
+        del array
+        return valid
+    except (OSError, ValueError):
+        return False
+
+
+def _atomic_save_features(path: pathlib.Path, features: np.ndarray) -> None:
+    """Write a feature array atomically so preemption cannot expose a partial file."""
+    temporary = path.with_name(f".{path.stem}.{os.getpid()}.tmp{path.suffix}")
+    try:
+        set_perms(np.save)(temporary, features)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _shard_dir_for(feature_path: pathlib.Path) -> pathlib.Path:
@@ -107,7 +122,7 @@ def _merge_feature_shards(
             f"Merged extraction is missing {missing.size} row(s); first missing: {preview}"
         )
 
-    set_perms(np.save)(output_path, features)
+    _atomic_save_features(output_path, features)
 
 
 def _load_representation_meta(model_loc: pathlib.Path) -> dict | None:
@@ -115,7 +130,7 @@ def _load_representation_meta(model_loc: pathlib.Path) -> dict | None:
 
     Returns
     -------
-    dict with keys 'representation', 'temporal', 'num_bins', 'time_rope_scaling',
+    dict with keys 'representation', 'temporal', 'num_bins', 'seconds_per_position',
     'value_encoder_state', or None if not found.
     """
     rep_path = model_loc / "representation_mechanics.pt"
@@ -168,9 +183,17 @@ def main(
     batch_sz: int = 2**5,
     all_layers: bool = False,
 ):
-    data_dir, model_loc = map(
-        lambda d: pathlib.Path(d).expanduser().resolve(), (data_dir, model_loc)
-    )
+    data_dir = pathlib.Path(data_dir).expanduser().resolve()
+    force_reextract = os.environ.get("IRB_STAGE2_FORCE_REEXTRACT", "").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    # Keep the requested path (usually a per-run symlink) for artifact identity;
+    # only the resolved path is used to load weights.
+    model_loc_given = pathlib.Path(model_loc).expanduser().absolute()
+    model_stem = model_artifact_stem(model_loc_given)
+    model_loc = model_loc_given.resolve()
 
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
     rank = int(os.environ.get("RANK", "0"))
@@ -277,13 +300,13 @@ def main(
 
         if needs_times:
             if use_padded and has_padded_times:
-                result["relative_times"] = [
-                    compute_relative_times_hours(seq)
+                result["relative_times_seconds"] = [
+                    compute_relative_times_seconds(seq)
                     for seq in batch["padded_times"]
                 ]
             elif has_times:
-                result["relative_times"] = [
-                    compute_relative_times_hours(seq)
+                result["relative_times_seconds"] = [
+                    compute_relative_times_seconds(seq)
                     for seq in batch["times"]
                 ]
 
@@ -330,7 +353,11 @@ def main(
             for k, v in state.items():
                 if k.startswith("base_model."):
                     base_state[k[len("base_model."):]] = v
-                elif not k.startswith("number_head.") and not k.endswith("_by_id"):
+                elif (
+                    not k.startswith("number_head.")
+                    and k != "num_bias"
+                    and not k.endswith("_by_id")
+                ):
                     base_state[k] = v
             base_model.load_state_dict(base_state, strict=False)
             logger.info("Loaded base model weights from legacy wrapper format")
@@ -345,7 +372,10 @@ def main(
         wrapper_kwargs = {}
         if rep_meta is not None:
             wrapper_kwargs["num_bins"] = rep_meta.get("num_bins", 10)
-            wrapper_kwargs["time_rope_scaling"] = rep_meta.get("time_rope_scaling", 60.0)
+            wrapper_kwargs["seconds_per_position"] = rep_meta.get(
+                "seconds_per_position",
+                3600.0 / float(rep_meta.get("time_rope_scaling", 60.0)),
+            )
 
         # Load numeric_stats for xVal if available
         if representation in ("xval", "xval_affine"):
@@ -373,14 +403,21 @@ def main(
                 model.value_encoder.load_state_dict(rep_meta["value_encoder_state"])
                 logger.info("Loaded value_encoder weights from representation_mechanics.pt")
 
-        # Load xVal number_head weights
+        # Load xVal number_head weights, and trained affine bias when present.
         if representation in ("xval", "xval_affine"):
-            from fms_ehrs.framework.xval import XValModelWrapper
+            from fms_ehrs.framework.xval import XValModelWrapper, apply_xval_mechanics
             if isinstance(model, XValModelWrapper):
-                # Try representation_mechanics.pt first (new format)
-                if rep_meta is not None and rep_meta.get("number_head_state") is not None:
-                    model.number_head.load_state_dict(rep_meta["number_head_state"])
-                    logger.info("Loaded number_head weights from representation_mechanics.pt")
+                if representation == "xval_affine":
+                    if rep_meta is None:
+                        raise RuntimeError(
+                            "xval_affine extraction requires representation_mechanics.pt "
+                            "with trained num_bias."
+                        )
+                    apply_xval_mechanics(model, rep_meta)
+                    logger.info("Loaded xVal-affine mechanics from representation_mechanics.pt")
+                elif rep_meta is not None and rep_meta.get("number_head_state") is not None:
+                    apply_xval_mechanics(model, rep_meta)
+                    logger.info("Loaded xVal mechanics from representation_mechanics.pt")
                 else:
                     # Fall back to pytorch_model.bin (legacy format)
                     weights_path = model_loc / "pytorch_model.bin"
@@ -440,9 +477,38 @@ def main(
         output_path = _feature_path(
             data_dirs[s],
             all_layers=all_layers,
-            model_stem=_feature_model_stem(model_loc),
+            model_stem=model_stem,
         )
         shard_dir = _shard_dir_for(output_path)
+        expected_shape = (n, *feature_shape)
+        expected_provenance = build_provenance(
+            model_loc=model_loc_given,
+            data_version=data_version,
+            split=s,
+            all_layers=all_layers,
+            shape=expected_shape,
+            dtype="float16",
+        )
+        if _is_valid_feature_file(output_path, expected_shape) and not force_reextract:
+            reason = provenance_mismatch(read_provenance(output_path), expected_provenance)
+            if reason is None:
+                logger.info(
+                    "Split %s already has a complete feature file at %s; skipping.", s, output_path
+                )
+                continue
+            logger.warning(
+                "Recomputing split %s: existing %s cannot be attributed to this run (%s).",
+                s,
+                output_path,
+                reason,
+            )
+        elif force_reextract and output_path.is_file():
+            logger.warning(
+                "Forcing re-extraction of split %s at %s due to "
+                "IRB_STAGE2_FORCE_REEXTRACT.",
+                s,
+                output_path,
+            )
         _prepare_shard_dir(shard_dir, rank=rank, world_size=world_size)
 
         local_indices = t.arange(rank, n, world_size, dtype=t.long)
@@ -495,22 +561,22 @@ def main(
                 fwd_kwargs["numeric_values"] = nv
 
             # Add relative_times for time_rope models
-            if needs_times and "relative_times" in dataset[s].column_names:
+            if needs_times and "relative_times_seconds" in dataset[s].column_names:
                 if use_padded:
-                    rt_raw = dataset[s]["relative_times"][batch_idx]
+                    rt_raw = dataset[s]["relative_times_seconds"][batch_idx]
                     rt = (
                         rt_raw.to(device)
                         if hasattr(rt_raw, "to")
                         else _as_padded_float(rt_raw, max_len=max_len, fill_value=float("nan"))
                     )
                 else:
-                    rt_seqs = dataset[s]["relative_times"][batch_idx.tolist()]
+                    rt_seqs = dataset[s]["relative_times_seconds"][batch_idx.tolist()]
                     rt = _as_padded_float(
                         rt_seqs,
                         max_len=max_len,
                         fill_value=float("nan"),
                     )
-                fwd_kwargs["relative_times"] = rt
+                fwd_kwargs["relative_times_seconds"] = rt
 
             stop_mask = t.isin(batch, stop_tokens)
             has_stop = stop_mask.any(dim=1, keepdim=True)
@@ -560,7 +626,8 @@ def main(
             )
 
         if world_size == 1:
-            set_perms(np.save)(output_path, local_features)
+            _atomic_save_features(output_path, local_features)
+            write_provenance(output_path, expected_provenance)
             continue
 
         shard_path = shard_dir / f"rank-{rank:05d}-of-{world_size:05d}.npz"
@@ -580,6 +647,7 @@ def main(
                 feature_shape=feature_shape,
                 world_size=world_size,
             )
+            write_provenance(output_path, expected_provenance)
             shutil.rmtree(shard_dir)
 
         _dist_barrier(world_size)
