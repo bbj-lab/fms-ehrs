@@ -164,7 +164,11 @@ class BaseTokenizer:
         #   should be independent of the discretization/anchoring choice for fairness.
         #
         # We therefore compute robust per-code stats directly from raw values:
-        #   mu_c = median(v_c), sigma_c = IQR(v_c)/1.35 (approx std under normality)
+        #   location_c = median(v_c)
+        #   scale_c    = IQR(v_c) / 1.35
+        #
+        # For a Gaussian, IQR ≈ 1.349σ, so 1.35 is the usual rounding of that
+        # consistency factor. The stored scale is not sample SD.
         #
         # We store these as a mapping from code designator -> dict for export.
         self.numeric_stats: dict[str, dict[str, float]] = {}
@@ -194,14 +198,14 @@ class BaseTokenizer:
             q25 = float(np.nanquantile(vv, 0.25))
             q75 = float(np.nanquantile(vv, 0.75))
             iqr = q75 - q25
-            # Robust std estimate (avoid div-by-zero downstream)
-            std = float(max(iqr / 1.35, 1e-8))
+            # Robust IQR-scale; floor avoids a zero divisor downstream.
+            scale = float(max(iqr / 1.35, 1e-8))
             self.numeric_stats[designator] = {
                 "median": med,
                 "q25": q25,
                 "q75": q75,
                 "iqr": iqr,
-                "std": std,
+                "scale": scale,
                 "n": float(vv.size),
             }
         
@@ -255,15 +259,18 @@ class BaseTokenizer:
     def save_numeric_stats(self, filepath: Pathlike) -> None:
         """Save per-code numeric stats computed from the training split.
 
-        Stored as JSON so downstream training scripts can load \\mu_c,\\sigma_c
-        independently of binning/anchoring choices.
+        Stored as JSON so downstream training scripts can load median_c and
+        scale_c = IQR_c/1.35 independently of binning/anchoring choices.
+
+        Schema version 2 uses the key ``scale``. Version 1 stored the same
+        quantity under the misnomer ``std``; loaders still accept that key.
         """
         fp = pathlib.Path(filepath).expanduser().resolve()
         fp.parent.mkdir(parents=True, exist_ok=True)
         with fp.open("w", encoding="utf-8") as f:
             json.dump(
                 {
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "method": "median_iqr",
                     "clip_sigma": 5.0,
                     "stats": self.numeric_stats,
@@ -337,6 +344,17 @@ class BaseTokenizer:
 
         return sorted(breaks)
 
+    @staticmethod
+    def digitize_quantiles(values: np.ndarray, bins) -> np.ndarray:
+        """Assign quantile indices with the same ties as soft discretization.
+
+        Soft counts boundaries strictly less than ``v``, so a value exactly on
+        ``b_k`` stays in bin ``k``. ``np.digitize(..., right=True)`` is the
+        matching rule (``bins[i-1] < x <= bins[i]``). The numpy default
+        ``right=False`` would send that tie to ``Q_{k+1}``.
+        """
+        return np.digitize(values, bins=bins, right=True)
+
     def get_quants(self, v: np.ndarray, c: str, prefix: str = None) -> pl.Expr:
         """obtain corresponding quantiles using self.vocab object"""
         designator = f"{prefix}_{c}" if prefix is not None else c
@@ -345,7 +363,7 @@ class BaseTokenizer:
                 pl.Series(
                     np.where(
                         np.isfinite(v),
-                        np.digitize(v, bins=self.vocab.get_aux(designator)),
+                        self.digitize_quantiles(v, bins=self.vocab.get_aux(designator)),
                         self.vocab("nan"),
                     )
                 )
@@ -358,16 +376,11 @@ class BaseTokenizer:
         """
         Quantize a sub-table consisting of a single category
 
-        The way our quantization works, if a category takes on only a single
-        value, then this value is sent to the Q9 token, because, e.g.
-        `np.digitize(1, bins=[1] * 9) == 9`
-        and:
-        `np.digitize(
-        [1, 2],
-        bins=np.nanquantile([1, 1, 1, 2, 2, 2, 2], np.arange(0.1, 1.0, 0.1)),
-        ) == [3, 9]`
-        This is why the Q9 token appears quite a bit more often in our dataset than
-        certain other quantile tokens.
+        Ties sit on a boundary. Soft discretization keeps that value in bin
+        ``k``; ``digitize_quantiles`` uses ``right=True`` so the discrete
+        tokenizer does the same instead of sending the tie to ``Q_{k+1}``.
+        A constant category whose breaks are all equal therefore lands on
+        ``Q0``, matching the soft encoder's first-bin tail.
         """
         v = x.select("value").to_numpy().ravel()
         c = x.select("category").row(0)[0]
@@ -436,8 +449,31 @@ class BaseTokenizer:
                 .drop("token", "token_quantile")
             )
         else:
+            quantile = self.get_quants(v=v, c=c, prefix=prefix)
+            if getattr(self, "deterministic_vocab", False):
+                token_words = pl.concat_str(
+                    [
+                        pl.lit(f"{prefix}_{c}_Q"),
+                        quantile.cast(pl.String),
+                    ]
+                )
+                return (
+                    x.with_columns(quantile=quantile)
+                    .with_columns(
+                        tokens=pl.concat_list(
+                            token_words.replace_strict(
+                                self.vocab.lookup,
+                                default=self.vocab.lookup[None],
+                            ).cast(pl.Int64)
+                        )
+                    )
+                    .with_columns(
+                        numeric_values=pl.concat_list(pl.col("value").cast(pl.Float32))
+                    )
+                    .drop("quantile")
+                )
             return (
-                x.with_columns(quantile=self.get_quants(v=v, c=c, prefix=prefix))
+                x.with_columns(quantile=quantile)
                 .with_columns(
                     tokens=pl.concat_list(
                         pl.col("quantile").map_elements(

@@ -56,6 +56,16 @@ class Vocabulary:
                 )
                 return self.lookup[None] if None in self.lookup else None
 
+    def add_words(self, words: typing.Iterable[Hashable]) -> None:
+        """Add missing words in the supplied deterministic order."""
+        if not self._is_training:
+            raise RuntimeError("Tokenizer vocabulary is frozen.")
+        for word in words:
+            if word not in self.lookup:
+                token = len(self.lookup)
+                self.lookup[word] = token
+                self.reverse[token] = word
+
     def __repr__(self):
         return "{sp} of {sz} words {md}".format(
             sp=super().__repr__(),
