@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 
 from fms_ehrs.framework.model_wrapper import RepresentationModelWrapper
+from fms_ehrs.framework.soft_discretization import SoftDiscretizationEncoder
 from fms_ehrs.framework.vocabulary import Vocabulary
 
 
@@ -94,6 +95,88 @@ class TestSoftTargetLoss(unittest.TestCase):
 
         # Soft-target should be strictly smaller because it assigns weight to Q0.
         self.assertLess(out["loss"].item(), hard_loss.item())
+
+    def test_top_bin_soft_target_is_the_last_quantile_token(self):
+        vocab = Vocabulary()
+        code_id = vocab("CODE_A")
+        q_ids = [vocab(f"Q{k}") for k in range(4)]
+        pad = vocab("PAD")
+        vocab("TL_START")
+        vocab("TL_END")
+        vocab.set_aux("CODE_A", [0.0, 1.0, 2.0])
+        vocab.is_training = False
+
+        base = _FixedLogitsCausalLM(vocab_size=len(vocab), hidden_size=4)
+        wrapper = RepresentationModelWrapper(
+            base_model=base,
+            vocab=vocab,
+            representation="soft",
+            temporal="time_tokens",
+            num_bins=4,
+        )
+
+        input_ids = torch.tensor([[code_id, q_ids[3], pad]], dtype=torch.long)
+        labels = input_ids.clone()
+        # Above the last boundary: encoder uses E_{K-1}; loss must target Q3, not Q2.
+        numeric_values = torch.tensor([[float("nan"), 3.0, float("nan")]], dtype=torch.float32)
+        logits = torch.full((1, 3, len(vocab)), -4.0, dtype=torch.float32)
+        logits[0, 0, q_ids[3]] = 3.0
+        base.fixed_logits = logits
+
+        out = wrapper(
+            input_ids=input_ids,
+            numeric_values=numeric_values,
+            labels=labels,
+            return_dict=True,
+        )
+        logits_next = logits[:, :-1, :]
+        labels_next = labels[:, 1:]
+        hard = nn.CrossEntropyLoss(reduction="none")(
+            logits_next.reshape(-1, logits_next.size(-1)),
+            labels_next.reshape(-1),
+        )
+        self.assertAlmostEqual(out["loss"].item(), hard.mean().item(), places=5)
+
+    def test_soft_discretization_rejects_invalid_boundaries(self):
+        encoder = SoftDiscretizationEncoder(num_bins=3, embed_dim=2)
+        with self.assertRaisesRegex(ValueError, "finite"):
+            encoder.set_boundaries("CODE_A", torch.tensor([0.0, float("nan")]))
+        with self.assertRaisesRegex(ValueError, "non-decreasing"):
+            encoder.set_boundaries("CODE_A", torch.tensor([2.0, 1.0]))
+
+    def test_bin_embeddings_are_seeded_from_the_models_quantile_rows(self):
+        """Soft bin embeddings must start at the backbone's embedding scale.
+
+        A bare nn.Embedding initializes from N(0, 1) while the backbones use
+        initializer_range=0.02, so an unseeded table would start ~50x wider than
+        every other token embedding in the sequence.
+        """
+        vocab = Vocabulary()
+        vocab("CODE_A")
+        quantile_ids = [vocab(f"Q{k}") for k in range(4)]
+        vocab("PAD")
+        vocab("TL_START")
+        vocab("TL_END")
+        vocab.set_aux("CODE_A", [0.0, 1.0, 2.0])
+        vocab.is_training = False
+
+        base = _FixedLogitsCausalLM(vocab_size=len(vocab), hidden_size=4)
+        with torch.no_grad():
+            # Give each quantile row a distinct, small-scale signature.
+            for bin_index, token_id in enumerate(quantile_ids):
+                base.model.embed_tokens.weight[token_id] = 0.02 * (bin_index + 1)
+
+        wrapper = RepresentationModelWrapper(
+            base_model=base,
+            vocab=vocab,
+            representation="soft",
+            temporal="time_tokens",
+            num_bins=4,
+        )
+
+        seeded = wrapper.value_encoder.bin_embeddings.weight
+        expected = base.model.embed_tokens.weight[torch.tensor(quantile_ids)]
+        self.assertTrue(torch.allclose(seeded, expected))
 
 
 if __name__ == "__main__":

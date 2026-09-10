@@ -3,9 +3,9 @@
 """
 Unified training script for Experiment 2 representation mechanics.
 
-This script supports all 6 Exp2 configurations:
-- representation ∈ {discrete, soft, xval}
-- temporal ∈ {time_tokens, time_rope}
+This script supports Exp2 configurations:
+- representation ∈ {discrete, soft, xval, xval_affine}
+- temporal ∈ {time_tokens, time_rope, event_order}
 
 The script uses padded collation (one hospitalization per row) to preserve
 per-admission temporal structure needed for:
@@ -40,31 +40,36 @@ Note:
 """
 
 import csv
+import hashlib
+import importlib.util
 import json
+import math
 import os
 import pathlib
+import signal
+import subprocess
+import time
 import typing
-import importlib.util
+from datetime import datetime, timezone
 
 import fire as fi
 import numpy as np
 import torch as t
 from transformers import (
-    AutoConfig,
     AutoModelForCausalLM,
+    EarlyStoppingCallback,
     LlamaConfig,
+    Qwen3Config,
     Trainer,
     TrainerCallback,
     TrainingArguments,
 )
-from transformers.trainer_utils import get_last_checkpoint
-
 from fms_ehrs.framework.dataset import Datasets
 from fms_ehrs.framework.logger import get_logger
 from fms_ehrs.framework.model_wrapper import create_representation_model
 from fms_ehrs.framework.model_wrapper import RepresentationModelWrapper
-from fms_ehrs.framework.optim import AdamWConfig, MuonConfig, build_muon_with_aux_adamw
 from fms_ehrs.framework.storage import set_perms
+from fms_ehrs.framework.training_telemetry import LiveProgressCallback
 
 logger = get_logger()
 logger.info("running {}".format(__file__))
@@ -158,6 +163,15 @@ def _write_loss_perplexity_curve(
         "eval_perplexity",
         "learning_rate",
         "grad_norm",
+        "grad_norm_clipped",
+        "token_loss",
+        "numeric_loss",
+        "eval_token_loss",
+        "eval_numeric_loss",
+        "train_runtime",
+        "train_samples_per_second",
+        "train_steps_per_second",
+        "train_tokens_per_second",
     ]
     for entry in log_history:
         enriched = _add_perplexity_metrics(entry)
@@ -180,6 +194,194 @@ def _write_loss_perplexity_curve(
         for row in rows:
             f.write(json.dumps(row) + "\n")
     logger.info("Wrote loss/perplexity curves to %s and %s", csv_path, jsonl_path)
+
+
+def _sha256_file(path: pathlib.Path) -> str | None:
+    if not path.is_file():
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _git_commit(repo_dir: pathlib.Path) -> str | None:
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_dir,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return completed.stdout.strip() or None
+
+
+def _validate_checkpoint_contract(
+    *,
+    save_strategy: str,
+    eval_strategy: str,
+    save_steps: int,
+    eval_steps: int | None,
+    load_best_model_at_end: bool,
+) -> None:
+    if not load_best_model_at_end:
+        return
+
+    if save_strategy == "no" or eval_strategy == "no":
+        raise ValueError(
+            "load_best_model_at_end requires both save_strategy and eval_strategy."
+        )
+    if save_strategy != eval_strategy:
+        raise ValueError(
+            "load_best_model_at_end requires matching save_strategy and eval_strategy "
+            f"(got save={save_strategy!r}, eval={eval_strategy!r})."
+        )
+    if save_strategy == "steps":
+        if eval_steps is None or eval_steps <= 0:
+            raise ValueError(
+                "Step-based best-checkpoint selection requires a positive eval_steps."
+            )
+        if save_steps <= 0 or save_steps % eval_steps != 0:
+            raise ValueError(
+                "Step-based save_steps must be a positive multiple of eval_steps "
+                f"(got save_steps={save_steps}, eval_steps={eval_steps})."
+            )
+
+
+def _write_run_record(
+    *,
+    output_dir: pathlib.Path,
+    trainer: Trainer,
+    training_args: TrainingArguments,
+    model_name: str,
+    model_version: str,
+    rope_theta: float,
+    seconds_per_position: float,
+    data_version: str,
+    representation: str,
+    temporal: str,
+    seed: int,
+    jid: str,
+    dataset: Datasets,
+    optimizer: str,
+    learning_rate: float,
+    adam_beta1: float,
+    adam_beta2: float,
+    checkpoint_interval_seconds: float,
+    exported_model_path: pathlib.Path,
+) -> None:
+    model_config_path = exported_model_path / "config.json"
+    vocab_path = exported_model_path / "vocab.gzip"
+    log_history = list(trainer.state.log_history)
+    grad_norms = [
+        float(entry["grad_norm"])
+        for entry in log_history
+        if entry.get("grad_norm") is not None
+    ]
+    clipped = [
+        value
+        for value in grad_norms
+        if value > float(training_args.max_grad_norm)
+    ]
+    record = {
+        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "run_name": training_args.run_name,
+        "model": {
+            "name": model_name,
+            "version": model_version,
+            "rope_theta": float(rope_theta),
+            "seconds_per_position": float(seconds_per_position),
+            "parameter_count": int(sum(p.numel() for p in trainer.model.parameters())),
+            "exported_path": str(exported_model_path),
+            "config_sha256": _sha256_file(model_config_path),
+            "vocab_sha256": _sha256_file(vocab_path),
+        },
+        "data": {
+            "version": data_version,
+            "n_train": int(dataset.n_train),
+            "n_val": int(dataset.n_val),
+        },
+        "representation": representation,
+        "temporal": temporal,
+        "seed": int(seed),
+        "slurm": {
+            "jid": jid,
+            "job_id": os.getenv("SLURM_JOB_ID"),
+            "array_task_id": os.getenv("SLURM_ARRAY_TASK_ID"),
+            "partition": os.getenv("SLURM_JOB_PARTITION"),
+            "nproc_per_node": os.getenv("IRB_NPROC_PER_NODE"),
+            "world_size": os.getenv("WORLD_SIZE"),
+        },
+        "optimizer": {
+            "name": optimizer,
+            "learning_rate": float(learning_rate),
+            "adam_beta1": float(adam_beta1),
+            "adam_beta2": float(adam_beta2),
+            "weight_decay": float(training_args.weight_decay),
+            "max_grad_norm": float(training_args.max_grad_norm),
+            "lr_scheduler_type": str(training_args.lr_scheduler_type),
+            "warmup_ratio": float(training_args.warmup_ratio),
+        },
+        "checkpoint_selection": {
+            "metric_for_best_model": training_args.metric_for_best_model,
+            "greater_is_better": training_args.greater_is_better,
+            "load_best_model_at_end": training_args.load_best_model_at_end,
+            "best_model_checkpoint": trainer.state.best_model_checkpoint,
+            "best_metric": trainer.state.best_metric,
+            "latest_checkpoint": _latest_complete_checkpoint(output_dir),
+            "periodic_checkpoint_seconds": float(checkpoint_interval_seconds),
+        },
+        "training": {
+            "global_step": int(trainer.state.global_step),
+            "epoch": float(trainer.state.epoch) if trainer.state.epoch is not None else None,
+            "per_device_train_batch_size": int(
+                training_args.per_device_train_batch_size
+            ),
+            "gradient_accumulation_steps": int(
+                training_args.gradient_accumulation_steps
+            ),
+            "effective_batch_windows": int(
+                training_args.per_device_train_batch_size
+                * training_args.gradient_accumulation_steps
+                * max(1, int(os.getenv("WORLD_SIZE", "1")))
+            ),
+            "max_sequence_length": int(os.getenv("IRB_MAX_SEQ_LENGTH", "4096")),
+            "max_input_tokens_seen": max(
+                (
+                    int(entry["num_input_tokens_seen"])
+                    for entry in log_history
+                    if entry.get("num_input_tokens_seen") is not None
+                ),
+                default=None,
+            ),
+            "gpu_max_memory_allocated_bytes": (
+                int(t.cuda.max_memory_allocated()) if t.cuda.is_available() else None
+            ),
+            "gpu_max_memory_reserved_bytes": (
+                int(t.cuda.max_memory_reserved()) if t.cuda.is_available() else None
+            ),
+            "gradient_norm_observations": len(grad_norms),
+            "gradient_norm_clipped_observations": len(clipped),
+            "gradient_norm_clipped_fraction": (
+                len(clipped) / len(grad_norms) if grad_norms else None
+            ),
+            "arguments": training_args.to_dict(),
+        },
+        "source": {
+            "fms_ehrs_commit": _git_commit(pathlib.Path(__file__).resolve().parents[2]),
+            "benchmark_commit": os.getenv("IRB_BENCHMARK_COMMIT"),
+        },
+    }
+    record_path = output_dir / "run_record.json"
+    record_path.write_text(
+        json.dumps(record, indent=2, sort_keys=True, default=str) + "\n",
+        encoding="utf-8",
+    )
+    logger.info("Wrote run record to %s", record_path)
 
 
 def _normalize_saved_config(path: pathlib.Path) -> None:
@@ -210,15 +412,16 @@ def _representation_state(
     representation: str,
     temporal: str,
     num_bins: int,
-    time_rope_scaling: float,
+    seconds_per_position: float,
 ) -> dict[str, typing.Any]:
-    from fms_ehrs.framework.xval import XValModelWrapper
+    from fms_ehrs.framework.xval import XValModelWrapper, persist_xval_mechanics
 
     state = {
         "representation": representation,
         "temporal": temporal,
         "num_bins": num_bins,
-        "time_rope_scaling": float(time_rope_scaling),
+        "time_unit": "seconds",
+        "seconds_per_position": float(seconds_per_position),
         "value_encoder_state": (
             model.value_encoder.state_dict()
             if hasattr(model, "value_encoder") and model.value_encoder is not None
@@ -226,8 +429,62 @@ def _representation_state(
         ),
     }
     if isinstance(model, XValModelWrapper):
-        state["number_head_state"] = model.number_head.state_dict()
+        state.update(persist_xval_mechanics(model))
     return state
+
+
+_CHECKPOINT_COMPLETE_FILE = "checkpoint_complete.json"
+
+
+def _latest_complete_checkpoint(output_dir: pathlib.Path) -> str | None:
+    """Return the newest fully-written Trainer checkpoint, if one exists."""
+    checkpoints: list[tuple[int, pathlib.Path]] = []
+    for path in output_dir.glob("checkpoint-*"):
+        try:
+            step = int(path.name.removeprefix("checkpoint-"))
+        except ValueError:
+            continue
+        if (
+            path.is_dir()
+            and (path / "trainer_state.json").is_file()
+            and (path / _CHECKPOINT_COMPLETE_FILE).is_file()
+        ):
+            checkpoints.append((step, path))
+    if not checkpoints:
+        return None
+    return str(max(checkpoints, key=lambda item: item[0])[1])
+
+
+def _mark_checkpoint_complete(checkpoint_dir: pathlib.Path, state) -> None:
+    """Write a completion marker only after every checkpoint payload is durable."""
+    marker = checkpoint_dir / _CHECKPOINT_COMPLETE_FILE
+    temporary_marker = marker.with_suffix(".tmp")
+    temporary_marker.write_text(
+        json.dumps(
+            {
+                "global_step": int(state.global_step),
+                "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    temporary_marker.replace(marker)
+
+
+def _append_checkpoint_event(args, state) -> None:
+    event = {
+        "event": "checkpoint_saved",
+        "checkpoint": str(pathlib.Path(args.output_dir) / f"checkpoint-{state.global_step}"),
+        "global_step": int(state.global_step),
+        "epoch": float(state.epoch) if state.epoch is not None else None,
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+    }
+    with (pathlib.Path(args.output_dir) / "checkpoint_events.jsonl").open(
+        "a", encoding="utf-8"
+    ) as handle:
+        handle.write(json.dumps(event, sort_keys=True) + "\n")
 
 
 class WrapperCheckpointCallback(TrainerCallback):
@@ -239,40 +496,106 @@ class WrapperCheckpointCallback(TrainerCallback):
         representation: str,
         temporal: str,
         num_bins: int,
-        time_rope_scaling: float,
+        seconds_per_position: float,
     ):
         super().__init__()
         self.representation = representation
         self.temporal = temporal
         self.num_bins = int(num_bins)
-        self.time_rope_scaling = float(time_rope_scaling)
+        self.seconds_per_position = float(seconds_per_position)
 
     def on_save(self, args, state, control, model=None, **kwargs):
-        if not state.is_world_process_zero or model is None:
+        if not state.is_world_process_zero:
             return control
-
-        from fms_ehrs.framework.xval import XValModelWrapper
-
-        unwrapped = _unwrap_model(model)
-        if not isinstance(unwrapped, (RepresentationModelWrapper, XValModelWrapper)):
-            return control
-
+        _append_checkpoint_event(args, state)
         checkpoint_dir = pathlib.Path(args.output_dir) / f"checkpoint-{state.global_step}"
-        checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        set_perms(lambda f, obj: t.save(obj, f))(
-            str(checkpoint_dir / "pytorch_model.bin"),
-            unwrapped.state_dict(),
-        )
-        set_perms(lambda f, obj: t.save(obj, f))(
-            str(checkpoint_dir / "representation_mechanics.pt"),
-            _representation_state(
-                model=unwrapped,
-                representation=self.representation,
-                temporal=self.temporal,
-                num_bins=self.num_bins,
-                time_rope_scaling=self.time_rope_scaling,
-            ),
-        )
+        if model is not None:
+            from fms_ehrs.framework.xval import XValModelWrapper
+
+            unwrapped = _unwrap_model(model)
+            if isinstance(unwrapped, (RepresentationModelWrapper, XValModelWrapper)):
+                checkpoint_dir.mkdir(parents=True, exist_ok=True)
+                set_perms(lambda f, obj: t.save(obj, f))(
+                    str(checkpoint_dir / "pytorch_model.bin"),
+                    unwrapped.state_dict(),
+                )
+                set_perms(lambda f, obj: t.save(obj, f))(
+                    str(checkpoint_dir / "representation_mechanics.pt"),
+                    _representation_state(
+                        model=unwrapped,
+                        representation=self.representation,
+                        temporal=self.temporal,
+                        num_bins=self.num_bins,
+                        seconds_per_position=self.seconds_per_position,
+                    ),
+                )
+        _mark_checkpoint_complete(checkpoint_dir, state)
+        return control
+
+
+class PeriodicCheckpointCallback(TrainerCallback):
+    """Request a full Trainer checkpoint at a wall-clock interval."""
+
+    def __init__(self, interval_seconds: float):
+        super().__init__()
+        self.interval_seconds = float(interval_seconds)
+        self._last_checkpoint_at: float | None = None
+
+    def on_train_begin(self, args, state, control, **kwargs):
+        self._last_checkpoint_at = time.monotonic()
+        return control
+
+    def on_step_end(self, args, state, control, **kwargs):
+        if self._last_checkpoint_at is None:
+            self._last_checkpoint_at = time.monotonic()
+        if time.monotonic() - self._last_checkpoint_at >= self.interval_seconds:
+            logger.info(
+                "Requesting defensive checkpoint at global step %s after %.0f seconds.",
+                state.global_step,
+                self.interval_seconds,
+            )
+            control.should_save = True
+        return control
+
+    def on_save(self, args, state, control, **kwargs):
+        self._last_checkpoint_at = time.monotonic()
+        return control
+
+
+class SignalCheckpointCallback(TrainerCallback):
+    """Request a checkpoint at the next safe step after a Slurm checkpoint signal."""
+
+    def __init__(self):
+        super().__init__()
+        self._requested_at: float | None = None
+        self._requested_signal: int | None = None
+        self._previous_handlers: dict[int, typing.Any] = {}
+
+    def _request_checkpoint(self, signum, frame) -> None:
+        self._requested_at = time.monotonic()
+        self._requested_signal = signum
+
+    def on_train_begin(self, args, state, control, **kwargs):
+        for signum in (signal.SIGUSR1, signal.SIGTERM):
+            self._previous_handlers[signum] = signal.getsignal(signum)
+            signal.signal(signum, self._request_checkpoint)
+        return control
+
+    def on_step_end(self, args, state, control, **kwargs):
+        if self._requested_at is not None:
+            logger.warning(
+                "Received Slurm checkpoint signal %s; saving at safe global step %s.",
+                self._requested_signal,
+                state.global_step,
+            )
+            self._requested_at = None
+            self._requested_signal = None
+            control.should_save = True
+        return control
+
+    def on_train_end(self, args, state, control, **kwargs):
+        for signum, handler in self._previous_handlers.items():
+            signal.signal(signum, handler)
         return control
 
 
@@ -294,12 +617,11 @@ def _log_wandb_directory_artifact(
         return
 
     if str(os.getenv("WANDB_MODE", "")).strip().lower() == "offline":
-        msg = (
-            f"WANDB_MODE=offline; cannot upload artifact {artifact_name} from {directory}"
+        logger.info(
+            "WANDB_MODE=offline; retaining local artifact %s at %s.",
+            artifact_name,
+            directory,
         )
-        if require_wandb:
-            raise RuntimeError(msg)
-        logger.warning(msg)
         return
 
     try:
@@ -356,11 +678,11 @@ class NanStoppingCallback(TrainerCallback):
 
 
 class RepresentationDataCollator:
-    """Data collator that handles numeric_values and relative_times.
+    """Data collator that handles numeric_values and relative_times_seconds.
 
     For Exp2, we need to pass additional tensors beyond input_ids:
     - numeric_values: For soft discretization and xVal
-    - relative_times: For Time-Aware RoPE temporal encoding
+    - relative_times_seconds: For Time-Aware RoPE temporal encoding
 
     """
 
@@ -396,56 +718,62 @@ class RepresentationDataCollator:
                 [f["numeric_values"] for f in features]
             )
 
-        if self.include_times and "relative_times" in features[0]:
-            batch["relative_times"] = t.stack(
-                [f["relative_times"] for f in features]
+        if self.include_times and "relative_times_seconds" in features[0]:
+            batch["relative_times_seconds"] = t.stack(
+                [f["relative_times_seconds"] for f in features]
             )
 
         return batch
 
 
 class IRBTrainer(Trainer):
-    """Trainer with explicit optimizer selection.
+    """Trainer with representation aux-loss logging and AdamW via HF defaults."""
 
-    Rationale: Muon is not one of the built-in HF Trainer optimizer strings, and
-    for transformer models it is typically used on 2D hidden-layer matrices while
-    keeping embeddings/heads/1D params on AdamW. We implement this explicitly to
-    keep Experiment 2/3 training reproducible and free of implicit HPO behavior.
-    """
-
-    def __init__(
-        self,
-        *args,
-        optimizer_name: typing.Literal["adamw", "muon"] = "adamw",
-        muon_cfg: MuonConfig | None = None,
-        aux_adamw_cfg: AdamWConfig | None = None,
-        **kwargs,
-    ):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._optimizer_name = optimizer_name
-        self._muon_cfg = muon_cfg
-        self._aux_adamw_cfg = aux_adamw_cfg
+        self._last_aux_losses: dict[str, float] = {}
 
-    def create_optimizer(self):
-        if self.optimizer is not None:
-            return
-
-        if self._optimizer_name != "muon":
-            return super().create_optimizer()
-
-        if self._muon_cfg is None or self._aux_adamw_cfg is None:
-            raise ValueError("Muon optimizer requested but optimizer configs were not provided.")
-
-        self.optimizer = build_muon_with_aux_adamw(
-            model=self.model,
-            muon=self._muon_cfg,
-            adamw=self._aux_adamw_cfg,
+    def compute_loss(self, *args, return_outputs: bool = False, **kwargs):
+        loss, outputs = super().compute_loss(
+            *args,
+            return_outputs=True,
+            **kwargs,
         )
+        losses = {}
+        for name in ("token_loss", "numeric_loss"):
+            value = outputs.get(name) if isinstance(outputs, dict) else getattr(outputs, name, None)
+            if value is not None:
+                losses[name] = float(value.detach().float().mean().cpu())
+        if losses:
+            prefix = "" if self.model.training else "eval_"
+            self._last_aux_losses = {f"{prefix}{name}": value for name, value in losses.items()}
+        return (loss, outputs) if return_outputs else loss
 
     def log(self, logs: dict[str, float], *args, **kwargs):
         # HF logs cross-entropy losses by default. Add perplexity before the
         # integrations run so W&B and trainer_state.json carry the curves.
-        return super().log(_add_perplexity_metrics(logs), *args, **kwargs)
+        enriched = _add_perplexity_metrics(logs)
+        if "eval_loss" in enriched:
+            enriched.update(
+                {
+                    key: value
+                    for key, value in self._last_aux_losses.items()
+                    if key.startswith("eval_")
+                }
+            )
+        elif "loss" in enriched:
+            enriched.update(
+                {
+                    key: value
+                    for key, value in self._last_aux_losses.items()
+                    if not key.startswith("eval_")
+                }
+            )
+        if "grad_norm" in enriched:
+            enriched["grad_norm_clipped"] = float(
+                float(enriched["grad_norm"]) > float(self.args.max_grad_norm)
+            )
+        return super().log(enriched, *args, **kwargs)
 
 
 @logger.log_calls
@@ -458,47 +786,43 @@ def main(
     model_dir: os.PathLike = None,
     model_name: str = "meta-llama/Llama-3.2-1B",
     model_version: str = "llama1b",
+    rope_theta: float = float(os.getenv("IRB_ROPE_THETA", "10000.0")),
     # Optional performance settings (objective-preserving):
     use_bf16: bool = _parse_bool(os.getenv("IRB_USE_BF16", "true"), default=True),
     attn_implementation: str | None = _normalize_attn_impl(os.getenv("IRB_ATTN_IMPL", "sdpa")),
     # Representation parameters
     representation: typing.Literal["discrete", "soft", "xval", "xval_affine"] = "discrete",
-    temporal: typing.Literal["time_tokens", "time_rope"] = "time_tokens",
+    temporal: typing.Literal[
+        "time_tokens", "time_rope", "event_order"
+    ] = "time_tokens",
     num_bins: int = 20,
-    # Time-Aware RoPE setting: scale factor to convert hours -> position IDs.
-    # Default 60.0 means 1 unit = 1 minute.
-    time_rope_scaling: float = float(os.getenv("IRB_TIME_ROPE_SCALING", "60.0")),
+    # Time-Aware RoPE setting: admission-relative seconds per integer position.
+    seconds_per_position: float = float(
+        os.getenv("IRB_SECONDS_PER_POSITION", "60.0")
+    ),
     # xVal tuning setting
     numeric_loss_weight: float = float(os.getenv("IRB_XVAL_NUMERIC_LOSS_WEIGHT", "1.0")),
     clip_sigma: float = float(os.getenv("IRB_XVAL_CLIP_SIGMA", "5.0")),
     # Training parameters
-    n_epochs: int = int(os.getenv("IRB_EXP23_STAGE1_EPOCHS", os.getenv("IRB_STAGE1_EPOCHS", "1"))),
-    per_device_train_batch_size: int = 4,
-    per_device_eval_batch_size: int = 4,
-    # NOTE (benchmark fairness): fixed to remove token-exposure confounding across arms.
-    gradient_accumulation_steps: int = 2,
-    # Base LR (used for non-Muon runs, and as a backward-compat default for Muon+aux).
-    learning_rate: float = float(os.getenv("IRB_STAGE1_LR", "1e-4")),
-    # If optimizer="muon", we allow explicit LR splitting:
-    # - Muon LR for 2D hidden-layer matrices
-    # - Aux AdamW LR for embeddings/heads/1D params
-    #
-    # Defaults preserve prior behavior: both fall back to `learning_rate`.
-    muon_learning_rate: float | None = None,
-    aux_adamw_learning_rate: float | None = None,
-    weight_decay: float = float(os.getenv("IRB_STAGE1_WEIGHT_DECAY", "0.01")),
-    optimizer: typing.Literal["adamw", "muon"] = typing.cast(
-        typing.Literal["adamw", "muon"],
-        os.getenv("IRB_STAGE1_OPTIMIZER", "muon"),
+    n_epochs: float = float(os.getenv("IRB_EXP23_STAGE1_EPOCHS", os.getenv("IRB_STAGE1_EPOCHS", "1"))),
+    per_device_train_batch_size: int = int(
+        os.getenv("IRB_PER_DEVICE_TRAIN_BATCH_SIZE", "1")
     ),
-    # Muon settings (defaults follow torch.optim.Muon defaults where applicable).
-    muon_momentum: float = 0.95,
-    muon_nesterov: bool = True,
-    muon_ns_steps: int = 5,
-    # Aux AdamW settings (used when optimizer="muon"; also matches our Exp1 defaults).
-    adam_beta1: float = 0.9,
-    adam_beta2: float = 0.999,
-    adam_epsilon: float = 1.0e-8,
+    per_device_eval_batch_size: int = int(
+        os.getenv("IRB_PER_DEVICE_EVAL_BATCH_SIZE", "1")
+    ),
+    gradient_accumulation_steps: int = int(
+        os.getenv("IRB_GRADIENT_ACCUMULATION_STEPS", "1")
+    ),
+    # Base AdamW learning rate for all Stage-1 representation runs.
+    learning_rate: float = float(os.getenv("IRB_STAGE1_LR", "1e-4")),
+    weight_decay: float = float(os.getenv("IRB_STAGE1_WEIGHT_DECAY", "0.01")),
+    adam_beta1: float = float(os.getenv("IRB_ADAM_BETA1", "0.9")),
+    adam_beta2: float = float(os.getenv("IRB_ADAM_BETA2", "0.999")),
+    max_grad_norm: float = float(os.getenv("IRB_STAGE1_MAX_GRAD_NORM", "1.0")),
+    lr_scheduler_type: str = os.getenv("IRB_STAGE1_LR_SCHEDULER", "linear"),
+    warmup_ratio: float = float(os.getenv("IRB_STAGE1_WARMUP_RATIO", "0.0")),
+    logging_steps: int = int(os.getenv("IRB_STAGE1_LOGGING_STEPS", "100")),
     max_seq_length: int = int(os.getenv("IRB_MAX_SEQ_LENGTH", "4096")),
     # Full-timeline padded-mode training via windowing (Exp2/Exp3):
     # When enabled, we train on *all* tokens in a hospitalization by slicing the
@@ -512,11 +836,28 @@ def main(
     save_strategy: str = os.getenv("IRB_STAGE1_SAVE_STRATEGY", "epoch"),
     save_steps: int = int(os.getenv("IRB_STAGE1_SAVE_STEPS", "2000")),
     save_total_limit: int = int(os.getenv("IRB_STAGE1_SAVE_TOTAL_LIMIT", "2")),
+    checkpoint_interval_seconds: float = float(
+        os.getenv("IRB_STAGE1_CHECKPOINT_INTERVAL_SECONDS", "600")
+    ),
+    progress_interval_seconds: float = float(
+        os.getenv("IRB_PROGRESS_INTERVAL_SECONDS", "60")
+    ),
     eval_strategy: str = os.getenv("IRB_STAGE1_EVAL_STRATEGY", "epoch"),
-    eval_steps: int | None = None,
+    eval_steps: int | None = (
+        int(os.environ["IRB_STAGE1_EVAL_STEPS"])
+        if os.getenv("IRB_STAGE1_EVAL_STEPS")
+        else None
+    ),
+    evaluations_per_epoch: int = int(
+        os.getenv("IRB_STAGE1_EVALUATIONS_PER_EPOCH", "1")
+    ),
+    max_steps: int = int(os.getenv("IRB_STAGE1_MAX_STEPS", "-1")),
     load_best_model_at_end: bool = _parse_bool(
         os.getenv("IRB_LOAD_BEST_MODEL_AT_END", "true"),
         default=True,
+    ),
+    early_stopping_patience: int = int(
+        os.getenv("IRB_STAGE1_EARLY_STOPPING_PATIENCE", "3")
     ),
     # Experiment tracking
     jid: str = os.getenv("SLURM_JOB_ID", ""),
@@ -538,13 +879,13 @@ def main(
         HuggingFace model name for config
     model_version : str
         Version tag for saved model
-    representation : {"discrete", "soft", "xval"}
+    representation : {"discrete", "soft", "xval", "xval_affine"}
         Value representation method
-    temporal : {"time_tokens", "time_rope"}
+    temporal : {"time_tokens", "time_rope", "event_order"}
         Temporal encoding method
     num_bins : int
         Number of quantile bins for soft discretization
-    n_epochs : int
+    n_epochs : float
         Number of training epochs
     per_device_train_batch_size : int
         Training batch size per device
@@ -572,9 +913,9 @@ def main(
     np.random.seed(seed)
 
     # Validate configuration
-    if int(gradient_accumulation_steps) != 2:
+    if int(gradient_accumulation_steps) <= 0:
         raise ValueError(
-            "For benchmark fairness, gradient_accumulation_steps is fixed to 2 "
+            "gradient_accumulation_steps must be positive "
             f"(got {gradient_accumulation_steps})."
         )
     attn_implementation = _normalize_attn_impl(attn_implementation)
@@ -588,6 +929,8 @@ def main(
         logger.warning(
             "This is valid but typically paired with time_rope for Exp2."
         )
+    if rope_theta <= 0:
+        raise ValueError(f"rope_theta must be positive (got {rope_theta}).")
 
     # Determine what additional data to load
     needs_numeric_values = representation in ("soft", "xval", "xval_affine")
@@ -615,22 +958,51 @@ def main(
     output_dir.mkdir(exist_ok=True, parents=True)
 
     use_bf16 = _parse_bool(use_bf16, default=True)
-    muon_nesterov = _parse_bool(muon_nesterov, default=True)
     windowed_padded = _parse_bool(windowed_padded, default=False)
     add_cont_token = _parse_bool(add_cont_token, default=True)
     load_best_model_at_end = _parse_bool(load_best_model_at_end, default=True)
-
+    save_strategy = str(save_strategy).strip().lower()
+    eval_strategy = str(eval_strategy).strip().lower()
+    if max_grad_norm <= 0:
+        raise ValueError(f"max_grad_norm must be positive (got {max_grad_norm}).")
+    if not 0.0 <= warmup_ratio < 1.0:
+        raise ValueError(f"warmup_ratio must be in [0, 1) (got {warmup_ratio}).")
+    if logging_steps <= 0:
+        raise ValueError(f"logging_steps must be positive (got {logging_steps}).")
+    if evaluations_per_epoch <= 0:
+        raise ValueError(
+            f"evaluations_per_epoch must be positive (got {evaluations_per_epoch})."
+        )
+    if max_steps == 0 or max_steps < -1:
+        raise ValueError(f"max_steps must be -1 or positive (got {max_steps}).")
+    if checkpoint_interval_seconds <= 0:
+        raise ValueError(
+            "checkpoint_interval_seconds must be positive "
+            f"(got {checkpoint_interval_seconds})."
+        )
+    if progress_interval_seconds <= 0:
+        raise ValueError(
+            "progress_interval_seconds must be positive "
+            f"(got {progress_interval_seconds})."
+        )
+    if seconds_per_position <= 0:
+        raise ValueError(
+            f"seconds_per_position must be positive (got {seconds_per_position})."
+        )
     resolved_resume_from_checkpoint: str | None = None
     if resume_from_checkpoint is not None:
         resume_value = str(resume_from_checkpoint).strip()
         if resume_value and resume_value.lower() not in ("0", "false", "none", "null", "no"):
             if resume_value.lower() == "auto":
-                last_checkpoint = get_last_checkpoint(str(output_dir))
+                last_checkpoint = _latest_complete_checkpoint(output_dir)
                 if last_checkpoint is not None:
                     resolved_resume_from_checkpoint = last_checkpoint
                     logger.info("Auto-resuming from checkpoint: %s", last_checkpoint)
                 else:
-                    logger.info("No existing checkpoint found under %s; starting fresh.", output_dir)
+                    logger.info(
+                        "No completed checkpoint found under %s; starting fresh.",
+                        output_dir,
+                    )
             else:
                 resolved_resume_from_checkpoint = str(
                     pathlib.Path(resume_value).expanduser().resolve()
@@ -670,6 +1042,29 @@ def main(
         max_windows_per_admission=resolved_max_windows_per_admission,
     )
 
+    if evaluations_per_epoch > 1:
+        if eval_strategy != "epoch" or save_strategy != "epoch":
+            raise ValueError(
+                "evaluations_per_epoch > 1 owns the evaluation schedule; "
+                "set save_strategy and eval_strategy to 'epoch' before invocation."
+            )
+        updates_per_epoch = math.ceil(
+            dataset.n_train
+            / (int(per_device_train_batch_size) * int(gradient_accumulation_steps))
+        )
+        eval_steps = max(1, math.ceil(updates_per_epoch / evaluations_per_epoch))
+        save_steps = eval_steps
+        eval_strategy = "steps"
+        save_strategy = "steps"
+
+    _validate_checkpoint_contract(
+        save_strategy=save_strategy,
+        eval_strategy=eval_strategy,
+        save_steps=int(save_steps),
+        eval_steps=eval_steps,
+        load_best_model_at_end=load_best_model_at_end,
+    )
+
     logger.info(f"Loaded {dataset.n_train} train, {dataset.n_val} val samples")
     logger.info(f"Vocabulary size: {len(dataset.vocab)}")
 
@@ -678,8 +1073,9 @@ def main(
     # These are produced by tokenization as:
     #   <data_dir>/<data_version>-tokenized/train/numeric_stats.json
     #
-    # If present, we use them to define (\mu_c, \sigma_c) for the continuous encoder,
-    # decoupling continuous scaling from discretization choices (e.g., 5-10-5 anchoring).
+    # If present, we use them to define (median_c, IQR-scale_c) for the continuous
+    # encoder, decoupling continuous scaling from discretization choices
+    # (e.g., 5-10-5 anchoring).
     numeric_stats: dict[str, dict[str, float]] | None = None
     stats_path = data_dir / f"{data_version}-tokenized" / "train" / "numeric_stats.json"
     if stats_path.exists():
@@ -697,7 +1093,7 @@ def main(
         model,
         *,
         selected_num_bins: int,
-        time_rope_scaling: float,
+        selected_seconds_per_position: float,
         selected_numeric_loss_weight: float,
     ):
         if isinstance(model, RepresentationModelWrapper):
@@ -709,21 +1105,21 @@ def main(
             )
             total_params = base_params + value_params
             logger.info(
-                "params: base=%s value=%s total=%s | settings: num_bins=%s time_rope=%s numeric_loss_weight=%s",
+                "params: base=%s value=%s total=%s | settings: num_bins=%s seconds_per_position=%s numeric_loss_weight=%s",
                 f"{base_params:,}",
                 f"{value_params:,}",
                 f"{total_params:,}",
                 selected_num_bins,
-                time_rope_scaling,
+                selected_seconds_per_position,
                 selected_numeric_loss_weight,
             )
         else:
             total_params = sum(p.numel() for p in model.parameters())
             logger.info(
-                "params: base=%s | settings: bins=%s rope=%.1f w=%.1f",
+                "params: base=%s | settings: bins=%s seconds_per_position=%.1f w=%.1f",
                 f"{total_params:,}",
                 selected_num_bins,
-                time_rope_scaling,
+                selected_seconds_per_position,
                 selected_numeric_loss_weight,
             )
 
@@ -735,38 +1131,40 @@ def main(
         cfg_kwargs = dict(model_kwargs)
         if attn_implementation is not None:
             cfg_kwargs["attn_implementation"] = attn_implementation
-        try:
-            config = AutoConfig.from_pretrained(
-                model_name,
-                vocab_size=len(dataset.vocab),
-                bos_token_id=dataset.vocab("TL_START"),
-                eos_token_id=dataset.vocab("TL_END"),
-                pad_token_id=dataset.vocab("PAD"),
-                **cfg_kwargs,
+        cfg_kwargs.setdefault("rope_theta", float(rope_theta))
+        model_name_lower = str(model_name).lower()
+        if "llama" in model_name_lower:
+            config_type = LlamaConfig
+            # Llama keeps separate input and output embedding matrices.
+            cfg_kwargs.setdefault("tie_word_embeddings", False)
+        elif "qwen3" in model_name_lower:
+            config_type = Qwen3Config
+            # Match the Qwen3-0.6B configuration after reducing attention
+            # width: multi-head attention and tied input/output embeddings.
+            cfg_kwargs.setdefault(
+                "num_key_value_heads",
+                int(cfg_kwargs.get("num_attention_heads", 32)),
             )
-        except OSError as e:
-            # We train from scratch (weights are randomly initialized), and only need a
-            # base Transformer config. Some base-model repos (e.g., Meta Llama) are gated
-            # and require authentication even to fetch config.json. When that happens,
-            # fall back to a local LlamaConfig with the same hyperparameters.
-            msg = str(e).lower()
-            is_gated = ("gated repo" in msg) or ("401 client error" in msg) or ("access to model" in msg)
-            is_llama = "llama" in str(model_name).lower()
-            if not (is_gated and is_llama):
-                raise
-            logger.warning(
-                "AutoConfig.from_pretrained(%r) failed due to gated/unauthenticated access. "
-                "Falling back to local LlamaConfig (random init; config-only). "
-                "To use the upstream config, authenticate with HuggingFace and ensure you have access.",
-                model_name,
+            cfg_kwargs.setdefault("tie_word_embeddings", True)
+        else:
+            raise ValueError(
+                "ML4H supports only the Llama and Qwen3 backbones; "
+                f"received model_name={model_name!r}."
             )
-            config = LlamaConfig(
-                vocab_size=len(dataset.vocab),
-                bos_token_id=dataset.vocab("TL_START"),
-                eos_token_id=dataset.vocab("TL_END"),
-                pad_token_id=dataset.vocab("PAD"),
-                **cfg_kwargs,
-            )
+        # These experiments train from random initialization, so instantiating
+        # the selected local config avoids a network dependency on compute nodes.
+        config = config_type(
+            vocab_size=len(dataset.vocab),
+            bos_token_id=dataset.vocab("TL_START"),
+            eos_token_id=dataset.vocab("TL_END"),
+            pad_token_id=dataset.vocab("PAD"),
+            **cfg_kwargs,
+        )
+        config._name_or_path = str(model_name)
+        logger.info(
+            "tie_word_embeddings=%s (True for Qwen, False for Llama)",
+            bool(getattr(config, "tie_word_embeddings", False)),
+        )
         base_model = AutoModelForCausalLM.from_config(config)
         return create_representation_model(
             base_model=base_model,
@@ -776,7 +1174,7 @@ def main(
             num_bins=selected_num_bins,
             numeric_stats=numeric_stats if representation in ("xval", "xval_affine") else None,
             clip_sigma=float(clip_sigma),
-            time_rope_scaling=float(time_rope_scaling),
+            seconds_per_position=float(seconds_per_position),
             numeric_loss_weight=selected_numeric_loss_weight,
         )
 
@@ -820,11 +1218,20 @@ def main(
         gradient_accumulation_steps=gradient_accumulation_steps,
         learning_rate=learning_rate,
         weight_decay=weight_decay,
+        adam_beta1=float(adam_beta1),
+        adam_beta2=float(adam_beta2),
         bf16=use_bf16,
         bf16_full_eval=use_bf16,
         tf32=True,
-        max_grad_norm=1.0,
+        max_grad_norm=max_grad_norm,
+        lr_scheduler_type=lr_scheduler_type,
+        warmup_ratio=warmup_ratio,
+        logging_strategy="steps",
+        logging_steps=logging_steps,
+        logging_first_step=True,
+        include_num_input_tokens_seen="all",
         num_train_epochs=n_epochs,
+        max_steps=max_steps,
         save_total_limit=save_total_limit,
         metric_for_best_model="eval_loss",
         load_best_model_at_end=load_best_model_at_end,
@@ -843,35 +1250,10 @@ def main(
         data_seed=seed,
     )
 
-    # Create trainer
-    resolved_muon_lr = float(
-        muon_learning_rate
-        if muon_learning_rate is not None
-        else os.getenv("IRB_MUON_LR", str(learning_rate))
-    )
-    resolved_aux_lr = float(
-        aux_adamw_learning_rate
-        if aux_adamw_learning_rate is not None
-        else os.getenv("IRB_AUX_ADAMW_LR", str(learning_rate))
-    )
-
-    muon_cfg = MuonConfig(
-        lr=float(resolved_muon_lr),
-        weight_decay=float(weight_decay),
-        momentum=float(muon_momentum),
-        nesterov=bool(muon_nesterov),
-        ns_steps=int(muon_ns_steps),
-    )
-    aux_cfg = AdamWConfig(
-        lr=float(resolved_aux_lr),
-        weight_decay=float(weight_decay),
-        betas=(float(adam_beta1), float(adam_beta2)),
-        eps=float(adam_epsilon),
-    )
     log_model_hyperparameters(
         model,
         selected_num_bins=num_bins,
-        time_rope_scaling=time_rope_scaling,
+        selected_seconds_per_position=seconds_per_position,
         selected_numeric_loss_weight=numeric_loss_weight,
     )
 
@@ -881,24 +1263,42 @@ def main(
         eval_dataset=dataset.dataset["val"],
         args=training_args,
         data_collator=data_collator,
-        optimizer_name=optimizer,
-        muon_cfg=muon_cfg if optimizer == "muon" else None,
-        aux_adamw_cfg=aux_cfg if optimizer == "muon" else None,
         callbacks=[
             NanStoppingCallback(),
+            LiveProgressCallback(
+                output_dir,
+                interval_seconds=progress_interval_seconds,
+            ),
+            PeriodicCheckpointCallback(checkpoint_interval_seconds),
+            SignalCheckpointCallback(),
             WrapperCheckpointCallback(
                 representation=representation,
                 temporal=temporal,
                 num_bins=final_num_bins,
-                time_rope_scaling=float(time_rope_scaling),
+                seconds_per_position=float(seconds_per_position),
+            ),
+            # Matches the Exp1 contract in tune_model.py: stop after three
+            # consecutive evaluations without a strictly lower eval_loss.
+            *(
+                [EarlyStoppingCallback(early_stopping_patience=early_stopping_patience)]
+                if early_stopping_patience > 0
+                else []
             ),
         ],
     )
 
     logger.info("Starting training...")
+    if t.cuda.is_available():
+        t.cuda.reset_peak_memory_stats()
+        t.cuda.empty_cache()
     trainer.train(resume_from_checkpoint=resolved_resume_from_checkpoint)
 
     if trainer.is_world_process_zero():
+        if load_best_model_at_end and trainer.state.best_model_checkpoint is None:
+            raise RuntimeError(
+                "Training completed without a best_model_checkpoint despite "
+                "load_best_model_at_end=true."
+            )
         _write_loss_perplexity_curve(
             output_dir=output_dir,
             log_history=list(trainer.state.log_history),
@@ -937,7 +1337,7 @@ def main(
                     representation=representation,
                     temporal=temporal,
                     num_bins=final_num_bins,
-                    time_rope_scaling=float(time_rope_scaling),
+                    seconds_per_position=float(seconds_per_position),
                 ),
             )
         else:
@@ -955,9 +1355,30 @@ def main(
 
         # Also save vocabulary
         dataset.vocab.save(final_model_path / "vocab.gzip")
+        _write_run_record(
+            output_dir=output_dir,
+            trainer=trainer,
+            training_args=training_args,
+            model_name=model_name,
+            model_version=model_version,
+            rope_theta=rope_theta,
+            seconds_per_position=seconds_per_position,
+            data_version=data_version,
+            representation=representation,
+            temporal=temporal,
+            seed=seed,
+            jid=jid,
+            dataset=dataset,
+            optimizer="adamw",
+            learning_rate=float(learning_rate),
+            adam_beta1=adam_beta1,
+            adam_beta2=adam_beta2,
+            checkpoint_interval_seconds=checkpoint_interval_seconds,
+            exported_model_path=final_model_path,
+        )
 
         best_ckpt = getattr(trainer.state, "best_model_checkpoint", None)
-        latest_ckpt = get_last_checkpoint(str(output_dir))
+        latest_ckpt = _latest_complete_checkpoint(output_dir)
         _log_wandb_directory_artifact(
             directory=final_model_path,
             artifact_name=f"{run_name}-exported-model",
@@ -967,6 +1388,8 @@ def main(
                 "data_version": data_version,
                 "representation": representation,
                 "temporal": temporal,
+                "rope_theta": rope_theta,
+                "seconds_per_position": seconds_per_position,
                 "seed": seed,
                 "slurm_jid": jid,
                 "slurm_job_id": os.getenv("SLURM_JOB_ID"),
@@ -1005,6 +1428,8 @@ def main(
                         "data_version": data_version,
                         "representation": representation,
                         "temporal": temporal,
+                        "rope_theta": rope_theta,
+                        "seconds_per_position": seconds_per_position,
                         "seed": seed,
                         "slurm_jid": jid,
                         "slurm_job_id": os.getenv("SLURM_JOB_ID"),

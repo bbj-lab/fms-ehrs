@@ -5,7 +5,8 @@ provide datasets for training
 
 Supports two modes:
 1. Standard mode (packed/padded): Loads input_ids only for language model training
-2. Representation mode (padded only): Additionally loads numeric_values and relative_times
+2. Representation mode (padded only): Additionally loads numeric_values and
+   relative_times_seconds
    for Experiment 2 soft discretization, xVal, and Time-Aware RoPE temporal encoding
 """
 
@@ -41,12 +42,12 @@ def _safe_path_fragment(value: str) -> str:
     return "".join(c if c.isalnum() or c in ("-", "_", ".") else "_" for c in value)
 
 
-def compute_relative_times_hours(times_list: list, *, t0: typing.Any | None = None) -> list[float]:
-    """Convert a list of timestamps to relative hours since admission time.
+def compute_relative_times_seconds(times_list: list, *, t0: typing.Any | None = None) -> list[float]:
+    """Convert timestamps to admission-relative seconds.
 
     This respects MIMIC-IV's deidentification policy: "A single date shift was
     assigned to each subject_id. As a result, the data for a single patient are
-    internally consistent." We use relative time (hours since admission) rather
+    internally consistent." We use relative time (seconds since admission) rather
     than absolute timestamps to avoid spurious cross-patient temporal signals.
 
     Important for windowed training:
@@ -66,7 +67,7 @@ def compute_relative_times_hours(times_list: list, *, t0: typing.Any | None = No
     Returns
     -------
     list[float]
-        Relative time in hours since first non-null timestamp; None for null inputs
+        Relative seconds since first non-null timestamp; zero for null inputs
     """
     if not times_list or all(t is None for t in times_list):
         return [0.0] * len(times_list) if times_list else []
@@ -90,13 +91,22 @@ def compute_relative_times_hours(times_list: list, *, t0: typing.Any | None = No
             if isinstance(ts, (int, float)):
                 # Assume milliseconds since epoch
                 delta_ms = ts - (t0 if isinstance(t0, (int, float)) else t0.timestamp() * 1000)
-                result.append(delta_ms / (1000 * 3600))  # Convert ms to hours
+                result.append(delta_ms / 1000)
             elif isinstance(ts, datetime):
                 delta = ts - t0
-                result.append(delta.total_seconds() / 3600)
+                result.append(delta.total_seconds())
             else:
                 result.append(0.0)
     return result
+
+
+def compute_relative_times_hours(times_list: list, *, t0: typing.Any | None = None) -> list[float]:
+    """Legacy helper returning admission-relative hours.
+
+    New training and inference paths should use :func:`compute_relative_times_seconds`
+    with an explicit ``seconds_per_position`` value.
+    """
+    return [value / 3600.0 for value in compute_relative_times_seconds(times_list, t0=t0)]
 
 
 def _windowed_padded_examples(
@@ -226,7 +236,7 @@ def _windowed_padded_examples(
                 win_times = win_times + [None] * (window_len - len(win_times))
             else:
                 win_times = win_times[:window_len]
-            out_rel_times.append(compute_relative_times_hours(win_times, t0=t0))
+            out_rel_times.append(compute_relative_times_seconds(win_times, t0=t0))
 
         # If the remaining tail is short, we still want to cover it. Stop when we've passed it.
         if n > 0 and (start + take) >= n:
@@ -236,7 +246,7 @@ def _windowed_padded_examples(
     if numeric_values is not None:
         out["numeric_values"] = out_numeric
     if times is not None:
-        out["relative_times"] = out_rel_times
+        out["relative_times_seconds"] = out_rel_times
     return out
 
 
@@ -262,7 +272,7 @@ class Datasets:
         If True, load padded_numeric_values for soft discretization and xVal.
         Requires padded collation.
     include_times : bool
-        If True, load padded_times and compute relative_times for Time-Aware RoPE.
+        If True, load padded_times and compute relative_times_seconds for Time-Aware RoPE.
         Requires padded collation.
     """
 
@@ -389,7 +399,9 @@ class Datasets:
         vocab_path = self.data_dirs["train"] / "vocab.gzip"
         vocab_stat = vocab_path.stat()
         payload = {
-            "schema_version": 2,
+            # Version 3 stores admission-relative timestamps as
+            # ``relative_times_seconds`` for time-aware RoPE.
+            "schema_version": 3,
             "data_version": self.data_version,
             "data_dir": str(self.data_dir),
             "collation": self.collation,
@@ -520,7 +532,7 @@ class Datasets:
         if self.include_numeric_values:
             features_dict["numeric_values"] = ds.Sequence(ds.Value("float32"))
         if self.include_times:
-            features_dict["relative_times"] = ds.Sequence(ds.Value("float32"))
+            features_dict["relative_times_seconds"] = ds.Sequence(ds.Value("float32"))
 
         # Columns to remove (all original columns that aren't in our output)
         remove_cols = list(schema_cols - set(features_dict.keys()))
@@ -554,7 +566,7 @@ class Datasets:
                     if self.include_numeric_values:
                         out_all["numeric_values"] = []
                     if self.include_times:
-                        out_all["relative_times"] = []
+                        out_all["relative_times_seconds"] = []
 
                     toks_list = batch["tokens"]
                     times_list = batch.get("times")
@@ -577,7 +589,9 @@ class Datasets:
                         if self.include_numeric_values:
                             out_all["numeric_values"].extend(out_i.get("numeric_values", []))
                         if self.include_times:
-                            out_all["relative_times"].extend(out_i.get("relative_times", []))
+                            out_all["relative_times_seconds"].extend(
+                                out_i.get("relative_times_seconds", [])
+                            )
 
                     return out_all
 
@@ -591,10 +605,10 @@ class Datasets:
                     result["numeric_values"] = numeric_values
 
                 if self.include_times and "padded_times" in batch:
-                    relative_times = []
+                    relative_times_seconds = []
                     for seq in batch["padded_times"]:
-                        relative_times.append(compute_relative_times_hours(seq))
-                    result["relative_times"] = relative_times
+                        relative_times_seconds.append(compute_relative_times_seconds(seq))
+                    result["relative_times_seconds"] = relative_times_seconds
 
                 return result
 

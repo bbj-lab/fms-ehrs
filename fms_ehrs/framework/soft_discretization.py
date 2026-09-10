@@ -104,6 +104,10 @@ class SoftDiscretizationEncoder(nn.Module):
             raise ValueError(
                 f"Expected {self.num_bins - 1} boundaries, got {boundaries.shape[0]}"
             )
+        if not torch.isfinite(boundaries).all():
+            raise ValueError(f"Bin boundaries for {code!r} must be finite.")
+        if torch.any(boundaries[1:] < boundaries[:-1]):
+            raise ValueError(f"Bin boundaries for {code!r} must be non-decreasing.")
         self._boundaries[code] = boundaries
 
     def set_boundaries_from_vocab_aux(
@@ -136,6 +140,10 @@ class SoftDiscretizationEncoder(nn.Module):
         if token_id_lookup is None:
             for code, breaks in vocab_aux.items():
                 boundaries = torch.tensor(breaks, dtype=torch.float32)
+                if not torch.isfinite(boundaries).all():
+                    raise ValueError(f"Bin boundaries for {code!r} must be finite.")
+                if torch.any(boundaries[1:] < boundaries[:-1]):
+                    raise ValueError(f"Bin boundaries for {code!r} must be non-decreasing.")
                 if device is not None:
                     boundaries = boundaries.to(device)
                 self._boundaries[code] = boundaries
@@ -162,6 +170,10 @@ class SoftDiscretizationEncoder(nn.Module):
             # Keep order (assumed sorted) and allow duplicates; duplicates are handled
             # by the denom==0 guard during interpolation.
             b = torch.tensor(breaks, dtype=torch.float32)
+            if not torch.isfinite(b).all():
+                raise ValueError(f"Bin boundaries for {code!r} must be finite.")
+            if torch.any(b[1:] < b[:-1]):
+                raise ValueError(f"Bin boundaries for {code!r} must be non-decreasing.")
             if device is not None:
                 b = b.to(device)
             n = min(b.numel(), max_b)
@@ -292,7 +304,7 @@ class SoftDiscretizationEncoder(nn.Module):
 
             alpha = torch.where(
                 denom.abs() < 1e-8,
-                torch.full_like(denom, 0.5),
+                torch.zeros_like(denom),
                 (v - lower_b) / denom,
             ).clamp(0.0, 1.0)
 
@@ -345,7 +357,7 @@ class SoftDiscretizationEncoder(nn.Module):
         # Avoid division by zero
         denom = upper_boundary - lower_boundary
         if denom.abs() < 1e-8:
-            alpha = torch.tensor(0.5, device=device)
+            alpha = torch.tensor(0.0, device=device)
         else:
             alpha = (value - lower_boundary) / denom
             alpha = alpha.clamp(0.0, 1.0)

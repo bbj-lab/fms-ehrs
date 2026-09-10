@@ -26,21 +26,21 @@ def test_windowed_padded_examples_overlap_and_cont_token():
         cont_id=111,
     )
 
-    assert list(out.keys()) == ["input_ids", "numeric_values", "relative_times"]
+    assert list(out.keys()) == ["input_ids", "numeric_values", "relative_times_seconds"]
     assert len(out["input_ids"]) == 3
     assert len(out["numeric_values"]) == 3
-    assert len(out["relative_times"]) == 3
+    assert len(out["relative_times_seconds"]) == 3
 
     assert out["input_ids"][0] == [0, 1, 2, 3, 4, 5]
     assert out["input_ids"][1] == [111, 4, 5, 6, 7, 8]
     assert out["input_ids"][2] == [111, 8, 9, 999, 999, 999]
 
-    # Relative time should always be referenced to the full-admission start time (t0=0),
+    # Relative seconds should always be referenced to the full-admission start time (t0=0),
     # not re-zeroed for later windows.
-    assert out["relative_times"][0] == [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
-    assert out["relative_times"][1][0] == 0.0  # TL_CONT has time=None -> 0.0
-    assert out["relative_times"][1][1:] == [4.0, 5.0, 6.0, 7.0, 8.0]
-    assert out["relative_times"][2][1:3] == [8.0, 9.0]
+    assert out["relative_times_seconds"][0] == [0.0, 3600.0, 7200.0, 10800.0, 14400.0, 18000.0]
+    assert out["relative_times_seconds"][1][0] == 0.0  # TL_CONT has time=None -> 0.0
+    assert out["relative_times_seconds"][1][1:] == [14400.0, 18000.0, 21600.0, 25200.0, 28800.0]
+    assert out["relative_times_seconds"][2][1:3] == [28800.0, 32400.0]
 
     # Numeric values: even indices have values, odd are NaN, TL_CONT is NaN, PAD is NaN.
     w1 = out["numeric_values"][1]
@@ -126,7 +126,7 @@ def test_windowed_padded_examples_empty_sequence():
     )
     assert out["input_ids"] == [[7, 7, 7, 7, 7]]
     # times empty -> all zeros
-    assert out["relative_times"] == [[0.0, 0.0, 0.0, 0.0, 0.0]]
+    assert out["relative_times_seconds"] == [[0.0, 0.0, 0.0, 0.0, 0.0]]
 
 
 def test_windowed_padded_examples_validates_alignment():
