@@ -1,8 +1,10 @@
 import unittest
 
+import numpy as np
 import torch
 
 from fms_ehrs.framework.soft_discretization import SoftDiscretizationEncoder
+from fms_ehrs.framework.tokenizer_base import BaseTokenizer
 
 
 class TestSoftDiscretizationEncoder(unittest.TestCase):
@@ -73,6 +75,22 @@ class TestSoftDiscretizationEncoder(unittest.TestCase):
         out_slow = enc_slow(values, codes=codes)
 
         self.assertTrue(torch.allclose(out_fast, out_slow, atol=1e-6))
+
+    def test_digitize_quantiles_keeps_boundary_ties_in_the_lower_bin(self):
+        bins = np.array([0.0, 1.0, 2.0, 3.0])
+        # Soft stays in bin 1 at v=1.0; digitize(..., right=False) would return 2.
+        self.assertEqual(
+            int(BaseTokenizer.digitize_quantiles(np.array([1.0]), bins)[0]),
+            1,
+        )
+        self.assertEqual(
+            int(BaseTokenizer.digitize_quantiles(np.array([1.0]), [1.0] * 9)[0]),
+            0,
+        )
+        self.assertEqual(
+            int(BaseTokenizer.digitize_quantiles(np.array([3.5]), bins)[0]),
+            4,
+        )
 
 
 if __name__ == "__main__":
