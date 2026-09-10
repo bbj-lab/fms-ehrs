@@ -11,11 +11,13 @@ Supports:
 
 import argparse
 import collections
+import os
 import pathlib
 import pickle
 import re
 import typing
 
+import joblib
 import lightgbm as lgb
 import numpy as np
 import polars as pl
@@ -24,6 +26,7 @@ import sklearn as skl
 import sklearn.neural_network
 import sklearn.linear_model
 
+from fms_ehrs.framework.artifacts import feature_filename, model_artifact_stem
 from fms_ehrs.framework.logger import get_logger, log_classification_metrics
 from fms_ehrs.framework.storage import fix_perms
 from fms_ehrs.framework.util import set_pd_options
@@ -33,16 +36,6 @@ set_pd_options()
 logger = get_logger()
 logger.info("running {}".format(__file__))
 logger.log_env()
-
-
-def _sanitize_model_stem(stem: str) -> str:
-    return re.sub(r"[^A-Za-z0-9_.-]+", "_", stem).strip("_")
-
-
-def _feature_model_stem(model_loc: pathlib.Path) -> str:
-    if model_loc.name.startswith("model-") and model_loc.parent.name:
-        return _sanitize_model_stem(f"{model_loc.parent.name}-{model_loc.name}")
-    return _sanitize_model_stem(model_loc.stem)
 
 
 def _parse_float_list(s: str) -> list[float]:
@@ -191,20 +184,34 @@ parser.add_argument(
 parser.add_argument(
     "--tune_logreg_C",
     action=argparse.BooleanOptionalAction,
-    default=True,
-    help="Tune logistic regression regularization strength C on val (matched-budget grid).",
+    default=False,
+    help="Tune logistic-regression C on validation (disabled by the fixed-probe protocol).",
 )
 parser.add_argument(
     "--logreg_C_grid",
     type=str,
-    default="[0.01,0.1,1,10,100]",
-    help="Grid of C values for val tuning (matched-budget across conditions).",
+    default="[0.01]",
+    help="Logistic-regression C values (fixed to 0.01 by the probe protocol).",
+)
+parser.add_argument(
+    "--logreg_solver",
+    choices=["newton-cholesky", "lbfgs", "sag", "saga"],
+    default="newton-cholesky",
+    help="Solver for logistic-regression probes.",
 )
 parser.add_argument(
     "--ridge_alpha_grid",
     type=str,
-    default="[0.01,0.1,1,10,100]",
-    help="Grid of alpha values for Ridge regression val tuning.",
+    default="[100]",
+    help="Ridge alpha values (fixed to 100 by the probe protocol).",
+)
+parser.add_argument(
+    "--allow_probe_hyperparameter_override",
+    action="store_true",
+    help=(
+        "Allow a non-standard logistic C or Ridge alpha configuration. "
+        "Use only for an explicitly designated calibration run."
+    ),
 )
 parser.add_argument(
     "--mlp_hidden_sizes",
@@ -239,13 +246,37 @@ parser.add_argument(
 )
 args, unknowns = parser.parse_known_args()
 
+logreg_C_grid = _parse_float_list(args.logreg_C_grid)
+ridge_alpha_grid = _parse_float_list(args.ridge_alpha_grid)
+if not args.allow_probe_hyperparameter_override:
+    if args.classifier == "logistic_regression_cv":
+        parser.error(
+            "logistic_regression_cv is disabled by the fixed-probe protocol; "
+            "use logistic_regression with C=0.01."
+        )
+    if args.classifier == "logistic_regression" and (
+        args.tune_logreg_C or logreg_C_grid != [0.01]
+    ):
+        parser.error(
+            "logistic-regression probes require --no-tune_logreg_C "
+            "--logreg_C_grid [0.01]."
+        )
+    if args.classifier == "ridge_regression" and ridge_alpha_grid != [100.0]:
+        parser.error(
+            "Ridge probes require --ridge_alpha_grid [100]."
+        )
+
 for k, v in vars(args).items():
     logger.info(f"{k}: {v}")
 
-data_dir_orig, data_dir_new, model_loc = map(
+data_dir_orig, data_dir_new = map(
     lambda d: pathlib.Path(d).expanduser().resolve(),
-    (args.data_dir_orig, args.data_dir_new, args.model_loc),
+    (args.data_dir_orig, args.data_dir_new),
 )
+# Artifact identity follows the requested per-run path, not its symlink target.
+model_loc_given = pathlib.Path(args.model_loc).expanduser().absolute()
+model_stem = model_artifact_stem(model_loc_given)
+model_loc = model_loc_given.resolve()
 
 splits = ("train", "val", "test")
 versions = ("orig", "new")
@@ -267,6 +298,15 @@ else:
 
 outcomes_parquet = args.outcomes_parquet
 
+
+def _resolve_id_column(names, candidates):
+    """Return the first candidate id column present in `names`, else None."""
+    for c in candidates:
+        if c in names:
+            return c
+    return None
+
+
 data_dirs = collections.defaultdict(dict)
 features = collections.defaultdict(dict)
 qualifiers = collections.defaultdict(lambda: collections.defaultdict(dict))
@@ -277,16 +317,83 @@ for v in versions:
         data_dirs[v][s] = (data_dir_orig if v == "orig" else data_dir_new).joinpath(
             f"{args.data_version}-tokenized", s
         )
-        features[v][s] = np.load(
-            data_dirs[v][s].joinpath("features-{m}.npy".format(m=_feature_model_stem(model_loc)))
-        )
+        features[v][s] = np.load(data_dirs[v][s].joinpath(feature_filename(model_stem)))
+        n_feat = features[v][s].shape[0]
         outcomes_scan = pl.scan_parquet(data_dirs[v][s].joinpath(outcomes_parquet))
         outcomes_schema = outcomes_scan.collect_schema()
+        outcome_columns = list(outcomes)
+        if not is_regression:
+            outcome_columns.extend(
+                f"{outcome}_24h"
+                for outcome in outcomes
+                if f"{outcome}_24h" in outcomes_schema
+            )
+
+        # Align outcomes to feature (tokenized-dataset) row order by admission id.
+        # Feature row i corresponds to row i of tokens_timelines.parquet, the order
+        # used during hidden-state extraction. The outcomes parquet may be stored in
+        # a different row order (e.g., after a re-tokenization/repair), so we join on
+        # the admission id instead of assuming positional alignment. If ids are not
+        # available or row counts disagree, we fall back to positional order.
+        tl_path = data_dirs[v][s].joinpath("tokens_timelines.parquet")
+        source_frame = None
+        if tl_path.exists():
+            tl_schema = pl.scan_parquet(tl_path).collect_schema()
+            tl_id = _resolve_id_column(
+                tl_schema.names(), ("hadm_id", "hospitalization_id", "subject_id")
+            )
+            oc_id = _resolve_id_column(
+                outcomes_schema.names(), ("hospitalization_id", "hadm_id", "subject_id")
+            )
+            if tl_id is not None and oc_id is not None:
+                feat_ids = (
+                    pl.scan_parquet(tl_path)
+                    .select(pl.col(tl_id).cast(pl.Utf8).alias("__id__"))
+                    .collect()
+                )
+                if feat_ids.height == n_feat:
+                    projected_columns = list(
+                        dict.fromkeys([oc_id, *outcome_columns])
+                    )
+                    oc_full = (
+                        outcomes_scan.select(
+                            [pl.col(column) for column in projected_columns]
+                        )
+                        .with_columns(pl.col(oc_id).cast(pl.Utf8).alias("__id__"))
+                        .collect()
+                    )
+                    if oc_full.select(pl.col("__id__").is_duplicated().any()).item():
+                        logger.warning(
+                            "ID-align %s/%s: duplicate ids in outcomes parquet; keeping first.",
+                            v, s,
+                        )
+                        oc_full = oc_full.unique(subset="__id__", keep="first")
+                    joined = (
+                        feat_ids.with_row_index("__feat_row__")
+                        .join(oc_full, on="__id__", how="left")
+                        .sort("__feat_row__")
+                    )
+                    n_missing = int(joined.select(pl.col(oc_id).is_null().sum()).item())
+                    if n_missing:
+                        logger.warning(
+                            "ID-align %s/%s: %d/%d feature rows have no matching outcome id.",
+                            v, s, n_missing, joined.height,
+                        )
+                    source_frame = joined
+                else:
+                    logger.warning(
+                        "ID-align skipped for %s/%s: tokens_timelines rows (%d) != "
+                        "feature rows (%d); using positional order.",
+                        v, s, feat_ids.height, n_feat,
+                    )
+        if source_frame is None:
+            source_frame = outcomes_scan.select(
+                [pl.col(column) for column in outcome_columns]
+            ).collect()
+
         for outcome in outcomes:
             raw_labels = (
-                outcomes_scan
-                .select(pl.col(outcome).cast(pl.Float64))
-                .collect()
+                source_frame.select(pl.col(outcome).cast(pl.Float64))
                 .to_numpy()
                 .ravel()
                 .astype(float)
@@ -302,9 +409,7 @@ for v in versions:
                 outcome_24h = outcome + "_24h"
                 if outcome_24h in outcomes_schema:
                     qualifiers[outcome][v][s] &= ~(
-                        outcomes_scan
-                        .select(pl.col(outcome_24h).fill_null(False))
-                        .collect()
+                        source_frame.select(pl.col(outcome_24h).fill_null(False))
                         .to_numpy()
                         .ravel()
                         .astype(bool)
@@ -312,10 +417,158 @@ for v in versions:
 
 
 preds = collections.defaultdict(dict)
+probe_selection: dict[str, dict[str, typing.Any]] = {}
 skipped_outcomes: set[str] = set()
+completed_outcomes: list[str] = []
+fitted_estimators: dict[str, typing.Any] = {}
+
+
+def artifact_path(version: str) -> pathlib.Path:
+    prefix = f"reg_{args.classifier}" if is_regression else args.classifier
+    parts = [prefix, "preds"]
+    if args.preds_tag.strip():
+        parts.append(_sanitize_preds_tag(args.preds_tag))
+    parts.append(model_stem)
+    return data_dirs[version]["test"].joinpath("-".join(parts) + ".pkl")
+
+
+def probe_path() -> pathlib.Path:
+    """Location of the fitted probes, keyed like the predictions artifact.
+
+    Estimators are fit on the `orig` training split, so a single file lives
+    beside the `orig` predictions even in transfer mode. Swapping `preds` for
+    `probes` keeps the classifier/tag/model-stem keys that make the name unique.
+    """
+    prefix = f"reg_{args.classifier}" if is_regression else args.classifier
+    parts = [prefix, "probes"]
+    if args.preds_tag.strip():
+        parts.append(_sanitize_preds_tag(args.preds_tag))
+    parts.append(model_stem)
+    return data_dirs[versions[0]]["test"].joinpath("-".join(parts) + ".joblib")
+
+
+def run_signature() -> dict[str, typing.Any]:
+    """Settings that must match for a partial artifact to be reusable."""
+    return {
+        "classifier": args.classifier,
+        "task_type": args.task_type,
+        "preds_tag": args.preds_tag,
+        "outcomes_parquet": args.outcomes_parquet,
+        "tune_logreg_C": bool(args.tune_logreg_C),
+        "logreg_C_grid": _parse_float_list(args.logreg_C_grid),
+        "logreg_solver": args.logreg_solver,
+        "ridge_alpha_grid": _parse_float_list(args.ridge_alpha_grid),
+    }
+
+
+def save_preds_artifacts() -> None:
+    """Persist after every outcome so a walltime kill keeps finished work."""
+    if not args.save_preds:
+        return
+    for v in versions:
+        path = artifact_path(v)
+        tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}")
+        with open(tmp, "wb") as fp:
+            pickle.dump(
+                {
+                    "qualifiers": {
+                        o: qualifiers[o][v]["test"] for o in completed_outcomes
+                    },
+                    "predictions": {o: preds[o][v] for o in completed_outcomes},
+                    "labels": {o: labels[o][v]["test"] for o in completed_outcomes},
+                    "metadata": {
+                        **run_signature(),
+                        "outcomes": list(outcomes),
+                        "completed_outcomes": list(completed_outcomes),
+                        "skipped_outcomes": sorted(skipped_outcomes),
+                        "probe_selection": probe_selection,
+                        "threshold_strategy": args.threshold_strategy,
+                        "bootstrap_n": int(args.bootstrap_n),
+                        "bootstrap_seed": int(args.bootstrap_seed),
+                        "calibration_bins": int(args.calibration_bins),
+                    },
+                },
+                fp,
+            )
+            fix_perms(fp)
+        os.replace(tmp, path)
+
+    save_probe_artifacts()
+
+
+def save_probe_artifacts() -> None:
+    """Persist the fitted probes alongside the predictions they produced.
+
+    Keyed by outcome, because `estimator` is refit per outcome within a single
+    run; a flat per-run file would retain only the last outcome. Written after
+    every outcome so a walltime kill keeps finished probes.
+    """
+    if not args.save_preds:
+        return
+    saved = {o: fitted_estimators[o] for o in completed_outcomes if o in fitted_estimators}
+    if not saved:
+        return
+    path = probe_path()
+    tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}")
+    joblib.dump(
+        {
+            "estimators": saved,
+            "metadata": {
+                **run_signature(),
+                "model_loc": str(model_loc_given),
+                "model_stem": model_stem,
+                "data_version": args.data_version,
+                "outcomes": list(outcomes),
+                "completed_outcomes": list(completed_outcomes),
+                "probe_selection": probe_selection,
+            },
+        },
+        tmp,
+    )
+    os.replace(tmp, path)
+
+
+resumed_outcomes: set[str] = set()
+if args.save_preds and data_dir_orig == data_dir_new:
+    existing_path = artifact_path(versions[0])
+    existing = None
+    if existing_path.exists():
+        try:
+            with open(existing_path, "rb") as fp:
+                existing = pickle.load(fp)
+        except Exception:
+            logger.warning(f"Ignoring unreadable partial artifact {existing_path.name}")
+    if existing is not None:
+        meta = existing.get("metadata") or {}
+        stored_preds = existing.get("predictions") or {}
+        if all(meta.get(k) == val for k, val in run_signature().items()):
+            stored_selection = meta.get("probe_selection") or {}
+            for o in outcomes:
+                if o not in stored_preds:
+                    continue
+                for v in versions:
+                    preds[o][v] = stored_preds[o]
+                if o in stored_selection:
+                    probe_selection[o] = stored_selection[o]
+                resumed_outcomes.add(o)
+                completed_outcomes.append(o)
+            if resumed_outcomes:
+                logger.info(
+                    f"Resuming {existing_path.name}: {len(resumed_outcomes)}/"
+                    f"{len(outcomes)} outcomes already present"
+                )
+        else:
+            logger.info(
+                f"Existing {existing_path.name} was produced with different settings; "
+                "recomputing from scratch."
+            )
 
 for outcome in outcomes:
     logger.info(outcome.replace("_", " ").upper().ljust(79, "-"))
+
+    if outcome in resumed_outcomes:
+        logger.info(f"SKIPPING {outcome}: already present in partial artifact.")
+        continue
 
     Xtrain = (features["orig"]["train"])[qualifiers[outcome]["orig"]["train"]]
     ytrain = (labels[outcome]["orig"]["train"])[qualifiers[outcome]["orig"]["train"]]
@@ -377,7 +630,9 @@ for outcome in outcomes:
                     est.fit(X=Xtrain, y=ytrain)
                     return est
 
-                best_alpha = 1.0
+                best_alpha = float(alpha_grid[0])
+                best_val_r2: float | None = None
+                alpha_val_r2s: list[dict[str, float]] = []
                 if len(alpha_grid) > 1:
                     best_val = -float("inf")
                     for alpha in alpha_grid:
@@ -387,14 +642,36 @@ for outcome in outcomes:
                             r2 = float(skl.metrics.r2_score(y_true=yval, y_pred=y_pred_val))
                         except Exception:
                             r2 = -float("inf")
+                        alpha_val_r2s.append({"alpha": float(alpha), "val_r2": r2})
                         if r2 > best_val:
                             best_val = r2
                             best_alpha = float(alpha)
-                    logger.info(f"Selected Ridge alpha on val (R²): alpha={best_alpha} (grid={alpha_grid})")
+                    best_val_r2 = best_val
+                    logger.info(
+                        f"Selected Ridge alpha on val (R²): alpha={best_alpha}, "
+                        f"R²={best_val_r2:.6f} (grid={alpha_grid})"
+                    )
+                    estimator = _fit_ridge(best_alpha)
                 else:
-                    logger.info(f"Using Ridge alpha={best_alpha} (no tuning; grid={alpha_grid})")
-
-                estimator = _fit_ridge(best_alpha)
+                    estimator = _fit_ridge(best_alpha)
+                    y_pred_val = estimator.predict(Xval)
+                    best_val_r2 = float(
+                        skl.metrics.r2_score(y_true=yval, y_pred=y_pred_val)
+                    )
+                    alpha_val_r2s.append(
+                        {"alpha": best_alpha, "val_r2": best_val_r2}
+                    )
+                    logger.info(
+                        f"Using fixed Ridge alpha={best_alpha}, "
+                        f"val R²={best_val_r2:.6f}"
+                    )
+                probe_selection[outcome] = {
+                    "criterion": "val_r2",
+                    "tuned": bool(len(alpha_grid) > 1),
+                    "candidates": alpha_val_r2s,
+                    "selected_alpha": best_alpha,
+                    "selected_val_r2": best_val_r2,
+                }
 
             case "mlp":
                 hidden_sizes = tuple(int(x) for x in args.mlp_hidden_sizes.split(",") if x.strip())
@@ -450,15 +727,16 @@ for outcome in outcomes:
                         skl.linear_model.LogisticRegression(
                             C=float(C),
                             max_iter=10_000,
-                            n_jobs=-1,
                             random_state=42,
-                            solver="newton-cholesky",
+                            solver=args.logreg_solver,
                         ),
                     )
                     est.fit(X=Xtrain, y=ytrain)
                     return est
 
-                best_C = 1.0
+                best_C = float(C_grid[0])
+                best_val_auroc: float | None = None
+                C_val_aurocs: list[dict[str, float]] = []
                 if args.tune_logreg_C and len(C_grid) > 1:
                     best_val = -float("inf")
                     for C in C_grid:
@@ -468,14 +746,38 @@ for outcome in outcomes:
                             auroc = float(skl.metrics.roc_auc_score(y_true=yval, y_score=y_score_val))
                         except Exception:
                             auroc = -float("inf")
+                        C_val_aurocs.append({"C": float(C), "val_auroc": auroc})
                         if auroc > best_val:
                             best_val = auroc
                             best_C = float(C)
-                    logger.info(f"Selected logreg C on val (AUROC): C={best_C} (grid={C_grid})")
+                    best_val_auroc = best_val
+                    logger.info(
+                        f"Selected logreg C on val (AUROC): C={best_C}, "
+                        f"AUROC={best_val_auroc:.6f} (grid={C_grid})"
+                    )
+                    estimator = _fit_logreg(best_C)
                 else:
-                    logger.info(f"Using logreg C={best_C} (no tuning; grid={C_grid})")
+                    estimator = _fit_logreg(best_C)
+                    y_score_val = estimator.predict_proba(Xval)[:, 1]
+                    best_val_auroc = float(
+                        skl.metrics.roc_auc_score(y_true=yval, y_score=y_score_val)
+                    )
+                    C_val_aurocs.append(
+                        {"C": best_C, "val_auroc": best_val_auroc}
+                    )
+                    logger.info(
+                        f"Using fixed logreg C={best_C}, "
+                        f"val AUROC={best_val_auroc:.6f}"
+                    )
 
-                estimator = _fit_logreg(best_C)
+                probe_selection[outcome] = {
+                    "criterion": "val_auroc",
+                    "tuned": bool(args.tune_logreg_C and len(C_grid) > 1),
+                    "solver": args.logreg_solver,
+                    "candidates": C_val_aurocs,
+                    "selected_C": best_C,
+                    "selected_val_auroc": best_val_auroc,
+                }
 
             case "mlp":
                 hidden_sizes = tuple(int(x) for x in args.mlp_hidden_sizes.split(",") if x.strip())
@@ -643,50 +945,9 @@ for outcome in outcomes:
                 logger.info(f"auprc_ci95: [{auprc_ci[0]:.3f}, {auprc_ci[1]:.3f}] (bootstrap_n={n_boot})")
                 logger.info(f"brier_ci95: [{brier_ci[0]:.4f}, {brier_ci[1]:.4f}] (bootstrap_n={n_boot})")
 
-if args.save_preds:
-    for v in versions:
-        prefix = args.classifier
-        if is_regression:
-            prefix = f"reg_{prefix}"
-        filename = prefix + "-preds-" + model_loc.stem + ".pkl"
-        if args.preds_tag.strip():
-            filename = (
-                prefix
-                + "-preds-"
-                + _sanitize_preds_tag(args.preds_tag)
-                + "-"
-                + model_loc.stem
-                + ".pkl"
-            )
-        with open(
-            data_dirs[v]["test"].joinpath(filename),
-            "wb",
-        ) as fp:
-            pickle.dump(
-                {
-                    "qualifiers": {
-                        outcome: qualifiers[outcome][v]["test"] for outcome in outcomes if outcome not in skipped_outcomes
-                    },
-                    "predictions": {outcome: preds[outcome][v] for outcome in outcomes if outcome not in skipped_outcomes},
-                    "labels": {
-                        outcome: labels[outcome][v]["test"] for outcome in outcomes if outcome not in skipped_outcomes
-                    },
-                    "metadata": {
-                        "classifier": args.classifier,
-                        "task_type": args.task_type,
-                        "preds_tag": args.preds_tag,
-                        "outcomes_parquet": args.outcomes_parquet,
-                        "outcomes": list(outcomes),
-                        "tune_logreg_C": bool(args.tune_logreg_C),
-                        "logreg_C_grid": _parse_float_list(args.logreg_C_grid),
-                        "threshold_strategy": args.threshold_strategy,
-                        "bootstrap_n": int(args.bootstrap_n),
-                        "bootstrap_seed": int(args.bootstrap_seed),
-                        "calibration_bins": int(args.calibration_bins),
-                    },
-                },
-                fp,
-            )
-            fix_perms(fp)
+    completed_outcomes.append(outcome)
+    save_preds_artifacts()
+
+save_preds_artifacts()
 
 logger.info("---fin")
