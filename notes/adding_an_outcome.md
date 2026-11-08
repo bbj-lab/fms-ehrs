@@ -41,12 +41,11 @@ events:
     time: time
 ```
 
-For numeric events, retain `code` and `numeric_value` (plus optional reference-range columns for anchored partitioning). See the configurations in `fms_ehrs/config/` for complete examples.
+For numeric events, retain `code` and `numeric_value` (plus optional reference-range columns for anchored partitioning). These tokenizer configs in `fms_ehrs/config/` show complete examples.
 
 - `mimic-meds-ed.yaml`.
 - `mimic-meds.yaml`.
 - `mimic-meds-exp3-full.yaml`.
-- `cocoa-exp3-clif-full.yaml`.
 
 ## 3. Add Admission-Level Metadata
 
