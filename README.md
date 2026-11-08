@@ -7,7 +7,8 @@
 [![Python](https://img.shields.io/badge/python-%E2%89%A53.12-3776AB?logo=python&logoColor=white)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE.md)
 [![Benchmark](https://img.shields.io/badge/benchmark-input--representation--benchmark-8A2BE2)](https://github.com/bbj-lab/input-representation-benchmark)
-[![ML4H 2026](https://img.shields.io/badge/ML4H-2026-B31B1B)](#citation)
+[![arXiv](https://img.shields.io/badge/arXiv-2604.16775-B31B1B.svg)](https://arxiv.org/abs/2604.16775)
+[![ML4H 2026](https://img.shields.io/badge/ML4H%202026-PMLR%20346%20(to%20appear)-4B4B4B)](#citation)
 
 [Overview](#overview) · [Installation](#installation) · [Pipeline](#pipeline) · [Representation options](#representation-options) · [Testing](#testing) · [Citation](#citation)
 
@@ -126,16 +127,21 @@ The unit tests cover tokenizer determinism, value encoders, soft-target loss, xV
 
 ## Citation
 
-If you use this code, please cite the benchmark paper:
+If you use this code, please cite the benchmark paper. It is to appear in the Proceedings of Machine Learning Research, volume 346. Until then, the preprint is [arXiv:2604.16775](https://arxiv.org/abs/2604.16775).
 
 ```bibtex
 @inproceedings{lee2026representation,
-  title     = {Representation Before Training: A Practical Benchmark for Generative Medical Event Model Tokenization},
-  author    = {Lee, Inhyeok and Solo, Luke and Burkhart, Michael C. and Ramadan, Bashar and Sethi, Sahil and Jabbour, Sarah and Parker, William F. and Beaulieu-Jones, Brett K.},
-  booktitle = {Machine Learning for Health (ML4H) 2026},
-  series    = {Proceedings of Machine Learning Research},
-  volume    = {346},
-  year      = {2026}
+  title         = {Representation Before Training: A Practical Benchmark for Generative Medical Event Model Tokenization},
+  author        = {Lee, Inhyeok and Solo, Luke and Burkhart, Michael C. and Ramadan, Bashar and Sethi, Sahil and Jabbour, Sarah and Parker, William F. and Beaulieu-Jones, Brett K.},
+  booktitle     = {Machine Learning for Health (ML4H) 2026},
+  series        = {Proceedings of Machine Learning Research},
+  volume        = {346},
+  year          = {2026},
+  note          = {To appear},
+  eprint        = {2604.16775},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.LG},
+  url           = {https://arxiv.org/abs/2604.16775}
 }
 ```
 
