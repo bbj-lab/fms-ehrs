@@ -1,106 +1,85 @@
 # fms-ehrs
 
-Modeling codebase for [`../input-representation-benchmark`](../input-representation-benchmark):
-tokenization, training, feature extraction, downstream probes, and prediction
-aggregation. The benchmark repo schedules jobs and assembles final statistics.
+Modeling codebase for [`../input-representation-benchmark`](../input-representation-benchmark). This repository implements clinical event tokenization, causal decoder training, hidden-state extraction, linear probe evaluation, and prediction aggregation.
 
-Read both README files when reproducing a run.
+Read the two README files when you reproduce a benchmark run.
 
-## Environment
+## Setup
 
-Clone this repo next to `input-representation-benchmark`, then:
+Clone `fms-ehrs` next to `input-representation-benchmark` and create the shared Conda environment.
 
 ```bash
 conda env create -f ../input-representation-benchmark/environment.yml
 conda activate input-rep
+pip install -e .
 ```
 
-## Scripts by stage
+To run the Experiment 3 CLIF-to-MEDS collation adapter, install the optional Cocoa dependency.
 
-| Stage | Script | Notes |
+```bash
+pip install -e ".[clif-cocoa]"
+```
+
+## Benchmark Overview
+
+The benchmark trains 156 causal decoder models on full MIMIC-IV v3.1 hospitalizations across two architectures (`Llama-3.2`-style and `Qwen3`-style), three random seeds (`42`, `43`, `44`), and three experiments.
+
+- **Experiment 1 (Quantization and fusion, 72 runs):** Crosses six quantization schemes (`deciles`, `ventiles`, `5-10-5` reference-anchored ventiles, `trentiles`, `10-10-10` reference-anchored trentiles, and `centiles`) with `unfused` and `fused` code-value layouts (12 configurations).
+- **Experiment 2 (Numeric and temporal encoding, 72 runs):** Crosses four numeric encodings (`discrete`, `soft`, `xval`, `xval_affine`) with three temporal encodings (`time_tokens`, `event_order`, `time_rope`) (12 configurations).
+- **Experiment 3 (Native MIMIC versus CLIF schema, 12 runs):** Compares native MIMIC-IV MEDS with Common Longitudinal Intensive Care Unit Data Format (CLIF 2.1.0) on a matched ICU cohort (`deciles + unfused + discrete + time_tokens`).
+
+Stage 2 extracts the final-layer hidden state at the last valid token in the first 24 hours (`[0h, 24h]`). Stage 3 fits locked linear probes (`LogisticRegression(C=0.01)` and `Ridge(alpha=100.0)`) on clinical outcomes during hours 24 to 48 (`(24h, 48h]`, 37 tasks in Experiments 1 and 2, and 36 tasks in Experiment 3).
+
+## Pipeline Entrypoints
+
+| Stage | Script | Purpose |
 | --- | --- | --- |
-| 0 | `fms_ehrs/scripts/tokenize_w_config.py` | YAML configs in `fms_ehrs/config/` |
-| 1 (Exp1) | `fms_ehrs/scripts/tune_model.py` | packed training |
-| 1 (Exp2/3) | `fms_ehrs/scripts/train_representation.py` | windowed training; resume/save controls for long runs |
-| 2 | `fms_ehrs/scripts/extract_hidden_states.py` | final-valid-token features; multi-GPU sharded extraction |
-| 3 | `fms_ehrs/scripts/transfer_rep_based_preds.py` | probes on extracted features |
-| stats | `fms_ehrs/scripts/aggregate_version_preds.py` | per-family metrics backend |
-| analysis | `fms_ehrs/scripts/eval_token_ce.py` | token CE for mechanistic figures |
+| 0 (Exp 3 prep) | `fms_ehrs/scripts/collate_clif_with_cocoa.py` | Collate CLIF 2.1.0 tables via Cocoa and align admission splits with the native MIMIC-IV ICU cohort |
+| 0 | `fms_ehrs/scripts/tokenize_w_config.py` | Convert MEDS event tables into integer token timelines, vocabularies, and training-split numeric statistics |
+| 1 (Exp 1) | `fms_ehrs/scripts/tune_model.py` | Train packed causal decoders across quantization and fusion configurations |
+| 1 (Exp 2 & 3) | `fms_ehrs/scripts/train_representation.py` | Train windowed causal decoders across numeric, temporal, and schema configurations |
+| 2 | `fms_ehrs/scripts/extract_hidden_states.py` | Extract the final valid hidden state from each 24-hour admission prefix |
+| 3 | `fms_ehrs/scripts/transfer_rep_based_preds.py` | Fit locked L2-regularized logistic and Ridge probes on frozen Stage 2 features |
+| Summary | `fms_ehrs/scripts/aggregate_version_preds.py` | Aggregate Stage 3 probe predictions across outcomes and seeds |
+| Analysis | `fms_ehrs/scripts/eval_token_ce.py` | Compute token-level cross-entropy on held-out sequences |
 
-Archived scripts live under `deprecated/`. Script list:
-[`fms_ehrs/scripts/README.md`](fms_ehrs/scripts/README.md).
+## Tokenizer Configurations
 
-## Benchmark snapshot
-
-The paper trains 28 model settings for one epoch each:
-
-- **Exp1:** bin size, reference-range anchoring, fused vs unfused code/value tokens
-- **Exp2:** value methods (`discrete`, `soft`, `xval`) and time
-  methods (`none`, `age`, `rope`)
-- **Exp3:** matched native raw-MIMIC and full-CLIF arms with fixed
-  `deciles + unfused + discrete + time_tokens`
-
-There are 30 outcomes; each experiment evaluates 29 because the ICU outcome
-differs between Exp1–2 and Exp3.
-
-Exp3 collation is optional (`pip install "fms-ehrs[clif-cocoa]"`): the
-FMS-owned adapter uses Cocoa to collate ten declared raw CLIF tables, restores
-the frozen benchmark split, and writes standard MEDS files. Both Exp3 arms use
-`fms_ehrs/config/mimic-meds-exp3-full.yaml`; the old labs/vitals-only config
-remains for archival reproducibility only.
-
-## Output contract
-
-| Output | Produced by | Used by |
+| Config | Experiment | Scope |
 | --- | --- | --- |
-| `<data_version>-tokenized/train/vocab.gzip` | `tokenize_w_config.py` | training, extraction |
-| `<data_version>-tokenized/train/numeric_stats.json` | `tokenize_w_config.py` | `xval` |
-| `<data_version>_first_24h-tokenized/<split>/tokens_timelines.parquet` | tokenization | extraction |
-| `<data_version>_first_24h-tokenized/<split>/tokens_timelines_outcomes.parquet` | benchmark outcome joiners | Stage 3 |
-| `<model_dir>/checkpoint-*` | training scripts | extraction |
-| `<model_dir>/representation_mechanics.pt` | `train_representation.py` | wrapper rebuild at extraction |
-| `<split>/features-<model_stem>.npy` | `extract_hidden_states.py` | Stage 3 |
-| `test/*-preds-*.pkl` | `transfer_rep_based_preds.py` | stats refresh |
+| `fms_ehrs/config/mimic-meds-ed.yaml` | Experiments 1 & 2 | MIMIC-IV emergency department prefix streams and inpatient MEDS events |
+| `fms_ehrs/config/mimic-meds.yaml` | Reference | Inpatient MIMIC-IV MEDS events without emergency department prefix streams |
+| `fms_ehrs/config/mimic-meds-exp3-full.yaml` | Experiment 3 (Native) | Native MIMIC-IV MEDS events across the ten shared clinical event categories |
+| `fms_ehrs/config/cocoa-exp3-clif-full.yaml` | Experiment 3 (CLIF) | Harmonized CLIF 2.1.0 events across the ten shared clinical event categories |
 
-Qwen3 and Llama10ep runs use longer feature stems such as
-`features-<run_dir>-model-discrete-time_rope.npy`. Stage 3 must load the same
-stem. See the benchmark README, "Additional runs" section.
+## Stage File Contracts
 
-Long windowed jobs may set `IRB_USE_MAPPED_DATASET_CACHE=true` and
-`IRB_MAPPED_DATASET_CACHE_DIR` so mapped HuggingFace datasets are built once and
-reused after restarts.
+| File | Producer | Consumer |
+| --- | --- | --- |
+| `<data_version>-tokenized/train/vocab.gzip` | `tokenize_w_config.py` | Stage 1 training and Stage 2 extraction |
+| `<data_version>-tokenized/train/numeric_stats.json` | `tokenize_w_config.py` | `xval` and `xval_affine` numeric wrappers |
+| `<data_version>_first_24h-tokenized/<split>/tokens_timelines.parquet` | `tokenize_w_config.py` | Stage 2 feature extraction |
+| `<data_version>_first_24h-tokenized/<split>/tokens_timelines_outcomes.parquet` | Benchmark outcome scripts | Stage 3 linear probes |
+| `<model_dir>/checkpoint-*` | `tune_model.py`, `train_representation.py` | Stage 2 feature extraction |
+| `<model_dir>/representation_mechanics.pt` | `train_representation.py` | Wrapper reconstruction during Stage 2 extraction |
+| `<split>/features-<model_stem>.npy` | `extract_hidden_states.py` | Stage 3 linear probes |
+| `test/*-preds-*.pkl` | `transfer_rep_based_preds.py` | Metric aggregation and bootstrap evaluation |
 
-## Assumptions
+## Repository Layout
 
-- Stages 2–3 read first-24-hour tokenized timelines.
-- Default extraction uses the final valid token before `TRUNC`, `TL_END`, or
-  `PAD`. For causal LMs, that position has the widest left-context view of the
-  window.
-- `xval` and `xval_affine` need both `numeric_stats.json` and
-  `representation_mechanics.pt`. Affine extraction also requires the trained
-  `num_bias` vector in that file.
-
-Paper stats, additional-run stats, and training-stability plots are assembled in
-the benchmark repo. Start with `Where to look first` there.
-
-## Directory map
-
-| Path | Role |
+| Path | Contents |
 | --- | --- |
-| `fms_ehrs/framework/` | library modules |
-| `fms_ehrs/config/` | active MEDS configs |
-| `fms_ehrs/scripts/` | CLI entrypoints |
-| `fms_ehrs/tests/` | unit and dry-run checks |
-| `notes/`, `docs/` | short reference notes |
-| `deprecated/` | archived material |
+| `fms_ehrs/framework/` | Core modules for tokenization, datasets, model wrappers, temporal encodings, and evaluation |
+| `fms_ehrs/config/` | YAML configurations for Stage 0 tokenization |
+| `fms_ehrs/scripts/` | Command-line entrypoints for Stages 0 through 3 |
+| `fms_ehrs/tests/` | Unit tests and dry-run contract checks |
+| `notes/` | Developer guide for adding new events and outcomes |
 
-`slurm/` is a pointer; live launchers are in the benchmark repo.
+## Testing
 
-## Related docs
+Run the unit test suite and dry-run script contract checks from the repository root.
 
-| Doc | Contents |
-| --- | --- |
-| [`../input-representation-benchmark/README.md`](../input-representation-benchmark/README.md) | full run path and output locations |
-| [`../input-representation-benchmark/PIPELINE.md`](../input-representation-benchmark/PIPELINE.md) | stage-by-stage walkthrough |
-| [`fms_ehrs/scripts/README.md`](fms_ehrs/scripts/README.md) | compact script inventory |
-| [`fms_ehrs/tests/README.md`](fms_ehrs/tests/README.md) | test commands |
+```bash
+pytest fms_ehrs/tests/unit
+bash fms_ehrs/tests/dryrun/run_all.sh
+```

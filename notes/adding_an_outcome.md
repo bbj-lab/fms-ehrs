@@ -1,43 +1,37 @@
-# Adding an outcome
+# Adding an Event Stream or Downstream Outcome
 
-This note covers the active path for extending the tokenizer and label surface.
+This guide explains how to extend Stage 0 tokenization in `fms-ehrs` or add a downstream prediction target in `input-representation-benchmark`.
 
-## Pick the right layer
+## 1. Choose the Target Layer
 
-There are two common cases.
+### Input Event Stream (Stage 0)
 
-### 1. The signal belongs in the token sequence
+Modify the Stage 0 tokenizer configuration when the model must observe the signal in the input sequence during pretraining and feature extraction. Typical cases include:
 
-Use this when the model should see the event during Stage 0 tokenization.
+- A new timed MEDS event table.
+- A new categorical prefix or suffix field.
+- A new numeric measurement that uses quantile binning or continuous value encoding.
 
-Examples:
+### Downstream Prediction Label (Stage 3)
 
-- a new MEDS event stream
-- a new categorical suffix field
-- a new numeric measurement that should be discretized or passed through the wrapper path
+Keep the signal outside `fms-ehrs` when the model does not observe the variable as an input token. Stage 3 linear probes then predict the variable as a downstream target.
 
-### 2. The signal is only a downstream label
+Downstream outcomes are extracted and joined in [`../input-representation-benchmark`](../input-representation-benchmark).
 
-Use this when the model does not need the event as an input token, but Stage 3 should predict it.
+- Primary binary and length-of-stay outcomes: `../input-representation-benchmark/pipeline/scripts/extract_outcomes_meds.py`.
+- 24-to-48-hour clinical outcomes (37 tasks across 8 families): `../input-representation-benchmark/pipeline/scripts/extract_extended_outcomes.py`.
 
-For the current benchmark, downstream labels are handled in the sibling repo:
+## 2. Add a Timed Event Table to Stage 0
 
-- base outcomes: `../input-representation-benchmark/scripts/extract_outcomes_meds.py`
-- extended outcomes: `../input-representation-benchmark/scripts/extract_extended_outcomes.py`
+Format the new event table as a MEDS parquet file with these columns.
 
-## Adding a new tokenized event table
+- `subject_id`.
+- `time`.
+- `code`.
+- `numeric_value` (optional).
+- `text_value` (optional).
 
-Create a MEDS-style parquet table with:
-
-- `subject_id`
-- `time`
-- `code`
-- optional `numeric_value`
-- optional `text_value`
-
-Then reference that table in the tokenizer config used by `tokenize_w_config.py`.
-
-## Minimal event example
+Add the table to the `events` block of the YAML configuration passed to `fms_ehrs/scripts/tokenize_w_config.py`.
 
 ```yaml
 events:
@@ -47,33 +41,16 @@ events:
     time: time
 ```
 
-This inserts tokens such as `MY_EVENT_xxx` where `xxx` comes from the `code` column.
+For numeric events, retain `code` and `numeric_value` (plus optional reference-range columns for anchored partitioning). See the configurations in `fms_ehrs/config/` for complete examples.
 
-## Adding numeric events
+- `mimic-meds-ed.yaml`.
+- `mimic-meds.yaml`.
+- `mimic-meds-exp3-full.yaml`.
+- `cocoa-exp3-clif-full.yaml`.
 
-If the new table has a numeric measurement, keep the MEDS columns:
+## 3. Add Admission-Level Metadata
 
-- `code`
-- `numeric_value`
-- optional reference-range columns if you need anchored binning
-
-The active MEDS configs in `fms_ehrs/config/` show the pattern used by the benchmark:
-
-- `mimic-meds.yaml`
-- `mimic-meds-ed.yaml`
-- `mimic-meds-exp3-icu.yaml`
-
-## Adding joined columns to the reference frame
-
-If the signal is admission-level metadata rather than a timed event, add it through `reference.augmentation_tables` and then expose it in the prefix or suffix sections of the config.
-
-Typical use cases:
-
-- grouped diagnosis labels
-- admission-level flags
-- demographic or cohort metadata
-
-### Example
+To attach admission-level metadata rather than a timed event, declare an entry under `reference.augmentation_tables` and expose the column under `prefix` or `suffix`.
 
 ```yaml
 reference:
@@ -89,28 +66,9 @@ suffix:
     is_list: true
 ```
 
-This appends tokens such as `GROUP_A` and `GROUP_B` after the discharge portion of the sequence.
+## 4. Verification Checklist
 
-## When the label should stay outside the sequence
-
-If you only need a prediction target, keep it out of `fms-ehrs`.
-
-For the benchmark path:
-
-1. leave Stage 0 tokenization unchanged
-2. derive the label parquet in `input-representation-benchmark`
-3. join that label onto `tokens_timelines_outcomes.parquet` or `tokens_timelines_extended_outcomes.parquet`
-4. rerun the affected Stage 3 and stats families
-
-This is the right path for most benchmark-only labels.
-
-## Checklist
-
-1. Decide whether the signal belongs in the token sequence or only in the label parquet.
-2. If it belongs in the sequence, add the table or joined column to the tokenizer config.
-3. Retokenize the affected data version.
-4. Retrain any models whose Stage 0 inputs changed.
-5. If it is only a downstream label, update the benchmark-side outcome extraction scripts instead.
-6. Add a small regression test near the code you changed.
-
-Older CLIF/UCMC examples were archived under `../deprecated/`.
+1. Decide if the variable belongs in the Stage 0 token sequence or only in the Stage 3 outcome table.
+2. For an input token variable, update the YAML configuration in `fms_ehrs/config/` and re-run Stage 0 tokenization and Stage 1 training.
+3. For a downstream outcome variable, extract the label column in `input-representation-benchmark`, join it onto the outcome parquet, and run Stage 3 probes.
+4. Add a unit test under `fms_ehrs/tests/unit/` or `../input-representation-benchmark/pipeline/tests/unit/`.

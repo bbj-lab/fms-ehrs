@@ -113,11 +113,11 @@ class TestPredictionAggregation(unittest.TestCase):
     def test_derive_pred_paths_supports_regression_prefix(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
-            model_loc = tmp / "model-checkpoint"
+            model_loc = tmp / "exp1-checkpoint"
             model_loc.mkdir()
             test_dir = tmp / "demo-tokenized" / "test"
             test_dir.mkdir(parents=True)
-            pred_path = test_dir / "reg_ridge_regression-preds-model-checkpoint.pkl"
+            pred_path = test_dir / "reg_ridge_regression-preds-exp1-checkpoint.pkl"
             pred_path.write_bytes(b"payload")
 
             paths = _derive_pred_paths(

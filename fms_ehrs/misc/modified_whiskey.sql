@@ -1,2 +1,0 @@
--- Moved to deprecated/misc/modified_whiskey.sql
--- Archived path: /gpfs/data/bbj-lab/users/daniel/fms-ehrs/deprecated/misc/modified_whiskey.sql
