@@ -22,7 +22,7 @@
 [**Representation Before Training**](https://github.com/bbj-lab/input-representation-benchmark)
 (ML4H 2026). It converts MEDS event tables into token timelines and trains causal decoders on them. It then extracts frozen hidden states and fits linear probes on those states.
 
-The companion repository [`input-representation-benchmark`](https://github.com/bbj-lab/input-representation-benchmark) schedules the 156 training runs, builds the outcome labels, and computes the statistics in the paper. This repository holds the model code.
+The companion repository [`input-representation-benchmark`](https://github.com/bbj-lab/input-representation-benchmark) schedules the 156 training runs, builds the outcome labels, and computes the statistics in the paper. This repository holds the model code. The tag [`ml4h-2026`](https://github.com/bbj-lab/fms-ehrs/tree/ml4h-2026) marks the version used for the paper.
 
 ## Installation
 
@@ -30,7 +30,7 @@ The two repositories share one Conda environment. Clone them next to each other,
 
 ```bash
 git clone https://github.com/bbj-lab/input-representation-benchmark.git
-git clone -b dev-input-rep https://github.com/bbj-lab/fms-ehrs.git
+git clone -b ml4h-2026 https://github.com/bbj-lab/fms-ehrs.git
 git clone https://github.com/bbj-lab/cocoa.git
 git -C cocoa checkout 03f3f33f6e2ae8d2df2593966cc50bd500e57696
 
@@ -59,7 +59,7 @@ flowchart LR
 | 1 (Exp. 1) | `tune_model.py` | Trains packed causal decoders across quantization and fusion settings |
 | 1 (Exp. 2–3) | `train_representation.py` | Trains windowed causal decoders with numeric and temporal wrappers |
 | 2 | `extract_hidden_states.py` | Extracts the final-layer state at the last valid token of the 24-hour input |
-| 3 | `transfer_rep_based_preds.py` | Fits fixed logistic (`C = 0.01`) and Ridge (`alpha = 100`) probes |
+| 3 | `transfer_rep_based_preds.py` | Fits logistic and Ridge probes (the benchmark fixes `C = 0.01` and `alpha = 100`) |
 | Summary | `aggregate_version_preds.py` | Collects probe predictions across outcomes and runs |
 | Analysis | `eval_token_ce.py` | Computes token-level cross-entropy on held-out sequences |
 

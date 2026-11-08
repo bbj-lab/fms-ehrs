@@ -149,7 +149,7 @@ def main(
     *,
     data_dir: os.PathLike = "../../data-mimic",
     data_version: str = "QC_day_stays_first_24h",
-    model_loc: os.PathLike = "../../mdls-archive/llama1b-57928921-run1",
+    model_loc: os.PathLike,
     batch_sz: int = 16,
     splits: str = "test",
     save_per_position: bool = False,
