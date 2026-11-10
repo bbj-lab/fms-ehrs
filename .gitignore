@@ -3,6 +3,28 @@ venv/
 .idea/
 slurm/output/
 
+# Clinical data, tokenized timelines, and model outputs
+/physionet.org/
+/data/
+/outputs/
+wandb/
+*-tokenized/
+*.parquet
+*.feather
+*.arrow
+*.csv
+*.tsv
+*.gz
+*.gzip
+*.pkl
+*.pickle
+*.npy
+*.npz
+*.pt
+*.pth
+*.safetensors
+*.ckpt
+
 # Created by https://www.toptal.com/developers/gitignore/api/python,pycharm+all,visualstudiocode,macos,windows,linux
 # Edit at https://www.toptal.com/developers/gitignore?templates=python,pycharm+all,visualstudiocode,macos,windows,linux
 
